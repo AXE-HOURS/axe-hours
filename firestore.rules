@@ -1,0 +1,231 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && (request.auth.token.email_verified == true);
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 3. User Entity Validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email'])
+        && data.uid is string && data.uid.size() <= 128
+        && data.email is string && data.email.size() <= 256
+        && (!data.keys().contains('role') || (data.role is string && data.role.size() <= 64))
+        && (!data.keys().contains('tier') || (data.tier is string && data.tier.size() <= 32 && data.tier in ['free', 'pro', 'agency']))
+        && (!data.keys().contains('name') || (data.name is string && data.name.size() <= 128))
+        && (!data.keys().contains('handle') || (data.handle is string && data.handle.size() <= 128))
+        && (!data.keys().contains('avatar') || (data.avatar is string && data.avatar.size() <= 1000))
+        && (!data.keys().contains('bio') || (data.bio is string && data.bio.size() <= 1000))
+        && (!data.keys().contains('customInstructions') || (data.customInstructions is string && data.customInstructions.size() <= 5000));
+    }
+
+    // 4. SavedIdea Entity Validation
+    function isValidSavedIdea(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'content'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 256
+        && data.content is string && data.content.size() <= 10000
+        && (!data.keys().contains('date') || (data.date is string && data.date.size() <= 64))
+        && (!data.keys().contains('createdAt') || (data.createdAt is string && data.createdAt.size() <= 64));
+    }
+
+    // 5. RecentGeneration Entity Validation
+    function isValidRecentGeneration(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'content'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.userId == request.auth.uid
+        && data.title is string && data.title.size() <= 256
+        && data.content is string && data.content.size() <= 10000
+        && (!data.keys().contains('date') || (data.date is string && data.date.size() <= 64))
+        && (!data.keys().contains('createdAt') || (data.createdAt is string && data.createdAt.size() <= 64));
+    }
+
+    // 5.5. DraftDispatch Entity Validation
+    function isValidDraftDispatch(data) {
+      return data.keys().hasAll(['userId', 'userEmail', 'channelName', 'channelId', 'platform', 'scriptTitle', 'scriptContent', 'segmentsCount', 'timestamp'])
+        && data.userId is string && data.userId.size() <= 128
+        && data.userId == request.auth.uid
+        && data.userEmail is string && data.userEmail.size() <= 256
+        && data.channelName is string && data.channelName.size() <= 256
+        && data.channelId is string && data.channelId.size() <= 128
+        && data.platform is string && data.platform.size() <= 32 && data.platform in ['youtube', 'instagram']
+        && data.scriptTitle is string && data.scriptTitle.size() <= 256
+        && data.scriptContent is string && data.scriptContent.size() <= 50000
+        && data.segmentsCount is int
+        && (data.timestamp is timestamp || data.timestamp is string);
+    }
+
+    // 5.6. UserActivity Entity Validation
+    function isValidUserActivity(data) {
+      return data.keys().hasAll(['id', 'userId', 'actionType', 'actionTitle'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.userId == request.auth.uid
+        && data.actionType is string && data.actionType.size() <= 64 && data.actionType in ['generate', 'save_idea', 'remove_idea', 'import_hook', 'competitor_intel', 'fetch_script', 'profile_update', 'custom_search']
+        && data.actionTitle is string && data.actionTitle.size() <= 256
+        && (!data.keys().contains('description') || (data.description is string && data.description.size() <= 10000))
+        && (!data.keys().contains('timestamp') || (data.timestamp is string && data.timestamp.size() <= 64))
+        && (!data.keys().contains('createdAt') || (data.createdAt is string && data.createdAt.size() <= 64));
+    }
+
+    // 5.7. Group Entity Validation
+    function isValidGroup(data) {
+      return data.keys().hasAll(['id', 'name', 'description', 'tag', 'tier', 'creatorId'])
+        && data.id is string && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 256
+        && data.description is string && data.description.size() <= 1000
+        && data.tag is string && data.tag.size() <= 64
+        && data.tier is string && data.tier.size() <= 64 && data.tier in ['Standard', 'Pro', 'Enterprise']
+        && data.creatorId is string && data.creatorId.size() <= 128;
+    }
+
+    // 5.8. GroupMember Entity Validation
+    function isValidGroupMember(data) {
+      return data.keys().hasAll(['uid', 'name', 'handle', 'joinedAt'])
+        && data.uid is string && data.uid.size() <= 128
+        && data.uid == request.auth.uid
+        && data.name is string && data.name.size() <= 128
+        && data.handle is string && data.handle.size() <= 128
+        && (!data.keys().contains('avatar') || (data.avatar is string && data.avatar.size() <= 1000))
+        && (!data.keys().contains('joinedAt') || (data.joinedAt is string && data.joinedAt.size() <= 100));
+    }
+
+    // 5.9. Competitor Entity Validation
+    function isValidCompetitor(data) {
+      return data.keys().hasAll(['id', 'userId', 'handle', 'name'])
+        && data.id is string && data.id.size() <= 128
+        && data.userId is string && data.userId.size() <= 128
+        && data.userId == request.auth.uid
+        && data.handle is string && data.handle.size() <= 256
+        && data.name is string && data.name.size() <= 256
+        && (!data.keys().contains('subs') || (data.subs is string && data.subs.size() <= 64))
+        && (!data.keys().contains('niche') || (data.niche is string && data.niche.size() <= 256))
+        && (!data.keys().contains('avgViews') || (data.avgViews is string && data.avgViews.size() <= 64))
+        && (!data.keys().contains('viralFactor') || (data.viralFactor is number))
+        && (!data.keys().contains('recentViralTitle') || (data.recentViralTitle is string && data.recentViralTitle.size() <= 1000))
+        && (!data.keys().contains('recentVideos') || (data.recentVideos is list))
+        && (!data.keys().contains('hookRetention') || (data.hookRetention is int))
+        && (!data.keys().contains('ctr') || (data.ctr is number))
+        && (!data.keys().contains('createdAt') || (data.createdAt is string && data.createdAt.size() <= 64))
+        && (!data.keys().contains('updatedAt') || (data.updatedAt is string && data.updatedAt.size() <= 64));
+    }
+
+    // 5.10. DispatchedScript Entity Validation
+    function isValidDispatchedScript(data) {
+      return data.keys().hasAll(['uid', 'title', 'scriptBody', 'angleType', 'productionStatus', 'createdAt'])
+        && data.keys().size() == 6
+        && data.uid is string && data.uid.size() <= 128
+        && data.uid == request.auth.uid
+        && data.title is string && data.title.size() <= 1000
+        && data.scriptBody is string && data.scriptBody.size() <= 50000
+        && data.angleType is string && data.angleType.size() <= 256
+        && data.productionStatus is string && data.productionStatus.size() <= 64 && data.productionStatus in ['Draft', 'Ready to Shoot', 'Produced']
+        && (data.createdAt is timestamp || data.createdAt is string);
+    }
+
+    // 6. Collection Match Blocks
+    
+    // Users Collection with strict User Document Isolation
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Competitors Collection
+    match /competitors/{competitorId} {
+      allow get, delete: if isSignedIn() && resource.data.userId == request.auth.uid && isValidId(competitorId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(competitorId) && isValidCompetitor(incoming());
+      allow update: if isSignedIn() && isValidId(competitorId) && isValidCompetitor(incoming())
+                       && incoming().userId == existing().userId
+                       && incoming().id == existing().id;
+    }
+ 
+    // Saved Ideas Collection
+    match /saved_ideas/{ideaId} {
+      allow get, delete: if isSignedIn() && resource.data.userId == request.auth.uid && isValidId(ideaId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(ideaId) && isValidSavedIdea(incoming());
+      allow update: if isSignedIn() && isValidId(ideaId) && isValidSavedIdea(incoming())
+                       && incoming().userId == existing().userId
+                       && incoming().id == existing().id;
+    }
+ 
+    // Recent Generations Collection
+    match /recent_generations/{generationId} {
+      allow get, delete: if isSignedIn() && resource.data.userId == request.auth.uid && isValidId(generationId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(generationId) && isValidRecentGeneration(incoming());
+      allow update: if isSignedIn() && isValidId(generationId) && isValidRecentGeneration(incoming())
+                       && incoming().userId == existing().userId
+                       && incoming().id == existing().id;
+    }
+ 
+    // User Activities Collection
+    match /user_activities/{activityId} {
+      allow get, delete: if isSignedIn() && resource.data.userId == request.auth.uid && isValidId(activityId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(activityId) && isValidUserActivity(incoming());
+      allow update: if isSignedIn() && isValidId(activityId) && isValidUserActivity(incoming())
+                       && incoming().userId == existing().userId
+                       && incoming().id == existing().id;
+    }
+ 
+    // Draft Dispatches Collection
+    match /draft_dispatches/{dispatchId} {
+      allow get, delete: if isSignedIn() && resource.data.userId == request.auth.uid && isValidId(dispatchId);
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && isValidId(dispatchId) && isValidDraftDispatch(incoming());
+      allow update: if isSignedIn() && isValidId(dispatchId) && isValidDraftDispatch(incoming())
+                       && incoming().userId == existing().userId;
+    }
+ 
+    // Groups & Tribes Collection
+    match /groups/{groupId} {
+      allow get: if isSignedIn() && isValidId(groupId);
+      allow list: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(groupId) && isValidGroup(incoming());
+      allow update: if isSignedIn() && isValidId(groupId) && isValidGroup(incoming())
+                       && incoming().id == existing().id
+                       && incoming().creatorId == existing().creatorId;
+      allow delete: if false;
+ 
+      // Group Members sub-collection
+      match /members/{userId} {
+        allow get: if isSignedIn() && isValidId(userId);
+        allow list: if isSignedIn();
+        allow create, update: if isSignedIn() && isOwner(userId) && isValidId(userId) && isValidGroupMember(incoming());
+        allow delete: if isSignedIn() && isOwner(userId) && isValidId(userId);
+      }
+    }
+  }
+}

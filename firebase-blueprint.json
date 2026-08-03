@@ -1,0 +1,185 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with subscription tier and personal metadata",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "name": { "type": "string" },
+        "handle": { "type": "string" },
+        "avatar": { "type": "string" },
+        "bio": { "type": "string" },
+        "role": { "type": "string" },
+        "tier": { "type": "string", "enum": ["free", "pro", "agency"] },
+        "customInstructions": { "type": "string", "description": "Custom creator style rules, directives, and system instruction supplements" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "SavedIdea": {
+      "title": "SavedIdea",
+      "description": "Meticulously structured prompt specs or hook ideas saved by the creator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "content"]
+    },
+    "RecentGeneration": {
+      "title": "RecentGeneration",
+      "description": "An AI-generated hook or thumbnail prompt blueprint, cached in history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "date": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "content"]
+    },
+    "DraftDispatch": {
+      "title": "DraftDispatch",
+      "description": "Video script draft dispatched to connected YouTube or Instagram channels",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "channelName": { "type": "string" },
+        "channelId": { "type": "string" },
+        "platform": { "type": "string", "enum": ["youtube", "instagram"] },
+        "scriptTitle": { "type": "string" },
+        "scriptContent": { "type": "string" },
+        "segmentsCount": { "type": "integer" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["userId", "userEmail", "channelName", "channelId", "platform", "scriptTitle", "scriptContent", "segmentsCount", "timestamp"]
+    },
+    "UserActivity": {
+      "title": "UserActivity",
+      "description": "Historical log recording of creator actions and workspace events on the suite",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "actionType": { "type": "string", "enum": ["generate", "save_idea", "remove_idea", "import_hook", "competitor_intel", "fetch_script", "profile_update", "custom_search"] },
+        "actionTitle": { "type": "string" },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "actionType", "actionTitle"]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "A decentralized tribe or community for collaboration and content strategy",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "tag": { "type": "string" },
+        "tier": { "type": "string", "enum": ["Standard", "Pro", "Enterprise"] },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "description", "tag", "tier", "creatorId"]
+    },
+    "GroupMember": {
+      "title": "GroupMember",
+      "description": "Registry of a creator who joined a specific tribe node",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "handle": { "type": "string" },
+        "avatar": { "type": "string" },
+        "joinedAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "handle", "joinedAt"]
+    },
+    "Competitor": {
+      "title": "Competitor",
+      "description": "YouTube competitors tracked by creators with metrics and latest videos",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "handle": { "type": "string" },
+        "name": { "type": "string" },
+        "subs": { "type": "string" },
+        "niche": { "type": "string" },
+        "avgViews": { "type": "string" },
+        "viralFactor": { "type": "number" },
+        "recentViralTitle": { "type": "string" },
+        "recentVideos": { "type": "array" },
+        "hookRetention": { "type": "integer" },
+        "ctr": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "handle", "name"]
+    },
+    "DispatchedScript": {
+      "title": "DispatchedScript",
+      "description": "Structured script draft saved and dispatched to the creator's personal drafts folder",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "title": { "type": "string" },
+        "scriptBody": { "type": "string" },
+        "angleType": { "type": "string" },
+        "productionStatus": { "type": "string", "enum": ["Draft", "Ready to Shoot", "Produced"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "title", "scriptBody", "angleType", "productionStatus"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "Information about registered creators"
+    },
+    "users/{userId}/dispatched_scripts/{scriptId}": {
+      "schema": "DispatchedScript",
+      "description": "Dispatched scripts sub-collection under user profile"
+    },
+    "competitors/{competitorId}": {
+      "schema": "Competitor",
+      "description": "Scoping path for tracking creator's competitors"
+    },
+    "saved_ideas/{ideaId}": {
+      "schema": "SavedIdea",
+      "description": "Saved ideas and template layout sheets"
+    },
+    "recent_generations/{generationId}": {
+      "schema": "RecentGeneration",
+      "description": "Historical generation tracking for analytic forecasts"
+    },
+    "draft_dispatches/{dispatchId}": {
+      "schema": "DraftDispatch",
+      "description": "Cloud-synced draft and dispatch history logs"
+    },
+    "user_activities/{activityId}": {
+      "schema": "UserActivity",
+      "description": "User activity logging stream and audit trail logs"
+    },
+    "groups/{groupId}": {
+      "schema": "Group",
+      "description": "Decentralized tribes for collaborative prompt and data tuning"
+    },
+    "groups/{groupId}/members/{memberId}": {
+      "schema": "GroupMember",
+      "description": "Registered creator nodes belonging to this tribe"
+    }
+  }
+}
