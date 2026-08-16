@@ -274,6 +274,20 @@ Keep your response punchy, clear, modern, and highly creative. Avoid low-quality
     : ""
 }`;
 
+    *** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***
+    You are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.
+
+    For every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.
+
+    Strictly format your output using this exact structure for every scene:
+
+    [VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
+    [TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]
+    [AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]
+    VOICEOVER: "The actual spoken dialogue goes here."
+
+    Ensure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.
+
       const responseStream = await ai.models.generateContentStream({
         model: "gemini-3.5-flash",
         contents: prompt || "How to build automated prompt flows in 2026",
@@ -859,6 +873,9 @@ Return exactly this JSON schema:
   "metadataDesc": "A professional YouTube description with hook elements",
   "suggestedTags": ["tag1", "tag2", "tag3"]
 }`;
+
+      // Append Creative Director Visual Blueprint requirement
+      prompt += `\n\n*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***\nYou are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.\n\nFor every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.\n\nStrictly format your output using this exact structure for every scene:\n\n[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]\n[TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]\n[AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]\nVOICEOVER: "The actual spoken dialogue goes here."\n\nEnsure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
