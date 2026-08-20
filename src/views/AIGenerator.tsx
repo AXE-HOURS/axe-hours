@@ -1594,7 +1594,7 @@ Voice Tone Rules: ${brandVoice} (Sub-tone Preset: ${hookTone})
 Format: ${duration}
 Aesthetic Vibe: ${visualStyle}
 
-Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [TIMECODE ACTION TIMELINE], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
+Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [SCENE-BY-SCENE VISUAL BLUEPRINT], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
             stream: false
           })
         });
@@ -1712,7 +1712,7 @@ Voice Tone Rules: ${brandVoice} (Sub-tone Preset: ${hookTone})
 Format: ${duration}
 Aesthetic Vibe: ${visualStyle}
 
-Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [TIMECODE ACTION TIMELINE], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
+Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [SCENE-BY-SCENE VISUAL BLUEPRINT], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
             stream: false
           })
         });
@@ -1782,7 +1782,7 @@ Option 3: "If you start running this simple numerical sequence, you will hit an 
 [CHOSEN HOOK RETENTION FORMULA]
 Our target hook instantly presents a massive pain-point contrast: Simple rule vs Unsolvable paradox. This leverages curiosity loops and cognitive friction to force retention past the critical 3-second dropoff.
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Extreme close-up of chalk drawing a simple formula on a black canvas.
 - 0:03 - 0:15 [CHALLENGE]: Visual representation of the numbers 4, 2, and 1 circling infinitely.
 - 0:15 - 0:45 [DEVELOPMENT]: Detailing computer tests up to 2^68, and showing Paul Erdős's famous quote.
@@ -1804,7 +1804,7 @@ Option 3: "If you're still boiling your green vegetables standardly, you need to
 [CHOSEN HOOK RETENTION FORMULA]
 Our hook relies on culinary disruption. We challenge conventional seasoning and boiling habits, creating immediate curiosity that commands watchtime past the 3-second mark.
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Extreme close-up of a hot skillet sizzling with olive oil and fresh garlic.
 - 0:03 - 0:15 [CONTRAST]: Split visual comparing gray soggy broccoli with vibrant, crisp ice-shocked greens.
 - 0:15 - 0:45 [METHOD]: Presenting the exact water starch ratio on screen with clear bold overlay badges.
@@ -1826,7 +1826,7 @@ Option 3: "If you're still investing standardly in broad index funds, step back 
 [CHOSEN HOOK RETENTION FORMULA]
 The hook targets systemic financial anxiety. By framing traditional saving as an active loss, we trigger strong psychological tension and promise a high-payoff automated shortcut.
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Sleek, high-contrast dark diagram tracking inflation vectors with neon gold accents.
 - 0:03 - 0:15 [FRICTION]: Screen showing traditional bank interest statements collapsing into pixel dust.
 - 0:15 - 0:45 [PAYOFF]: Staggered bullet-points outlining automated AI or digital property acquisitions.
@@ -1848,7 +1848,7 @@ Option 3: "If you're still staying in standard travel hostels, you need to see t
 [CHOSEN HOOK RETENTION FORMULA]
 Our hook uses geographic arbitrage. We contrast cheap costs with luxury living standards, opening a curiosity loop that gets viewers excited for the practical breakdown.
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Overwhelmingly gorgeous drone zoom of crystal blue waves crashing on a black volcanic sand beach.
 - 0:03 - 0:15 [PROBLEM]: Frustrated tourist dragging massive suitcases in a crowded airport line with warning overlays.
 - 0:15 - 0:45 [BLUEPRINT]: Quick cuts demonstrating packing layouts or digital nomad workspace views.
@@ -1870,7 +1870,7 @@ Option 3: "If you are still performing standard overhead presses, you are slowly
 [CHOSEN HOOK RETENTION FORMULA]
 The hook targets wasted gym effort. We challenge traditional workout lore with scientific biohacking, forcing viewers to pay attention to fix their mistakes.
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Extreme close-up of a dumbbell being lowered in slow motion with glowing muscular overlays.
 - 0:03 - 0:15 [SCIENCE]: Quick dynamic skeletal movement overlay showing shoulder joint pressure values.
 - 0:15 - 0:45 [BLUEPRINT]: Practical exercise demonstration showing exact elbow positioning.
@@ -1892,7 +1892,7 @@ Option 3: "If you still fight the final boss using conventional sword combinatio
 [CHOSEN HOOK RETENTION FORMULA]
 The hook promises unfair gameplay leverage. By demonstrating a pixel-perfect positional trick, we grab competitive gamer instincts and guarantee complete high retention path.
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Ultra-smooth 60fps game camera pan looking down a highly complex competitive level layout.
 - 0:03 - 0:15 [EXPLOIT]: On-screen graphic highlighting exact player coordinate lines with yellow glow overlays.
 - 0:15 - 0:45 [TUTORIAL]: Demonstration of the strategy succeeding against multiple opponents consecutively.
@@ -1914,7 +1914,7 @@ Option 3: "If you're still building ${themeTitle} the old way, you need to step 
 [CHOSEN HOOK RETENTION FORMULA]
 Our optimized hook presents a stark contrast: high effort/wasted time vs automated simplicity. This immediately disrupts the scroll feed, establishes cognitive tension, and maximizes early viewer retention.
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Rapid close-up transition of direct project files with clean bold fonts.
 - 0:03 - 0:15 [PROBLEM]: Slide deck showcasing standard, slow failed attempts overlaying a frustration indicator.
 - 0:15 - 0:45 [SOLUTION]: Interactive step-by-step display of the dynamic, streamlined template.

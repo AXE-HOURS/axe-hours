@@ -86,7 +86,7 @@ Our viral core angle focuses on high-impact developer psychological bottlenecks.
 [THE HOOK SCRIPTS (3 VARIATIONS)]
 Option 1: "Stop spending 6 months coding a SaaS that nobody wants. Here's how to build, compile, and scale a functional micro-app in exactly 24 hours of focus." (94% Retention Potential)
 
-[TIMECODE ACTION TIMELINE]
+[SCENE-BY-SCENE VISUAL BLUEPRINT]
 - 0:00 - 0:03 [HOOK]: Extreme desk zoom overlay showing a Distressed console workspace.
 - 0:03 - 0:15 [LEAD-IN]: Graphic of 100 failed projects sliding down, overlaying a sad face icon.
 - 0:15 - 0:45 [PAYLOAD]: Real code compilation visual showing file setup in Express & Vite speed.
