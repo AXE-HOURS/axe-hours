@@ -255,12 +255,14 @@ Option 3: The Value-Bomb Hook (Promises immediate transformation or cheat code, 
 [CHOSEN HOOK RETENTION FORMULA]
 Provide a detailed breakdown of EXACTLY why the chosen hook keeps view drop-off under 10% in the first 3 seconds.
 
-[TIMECODE ACTION TIMELINE]
-Break down the script in structured markers, for example:
-- 0:00 - 0:03 [HOOK]: Visually explain overlay, voiceover, caption, sound effect.
-- 0:03 - 0:15 [BUILD UP]: Present pain points.
-- 0:15 - 0:45 [PAYLOAD]: The meat, live demonstration, step action.
-- 0:45 - 1:00 [CALL TO ACTION]: Seamless interactive reward loop trigger.
+[SCENE-BY-SCENE VISUAL BLUEPRINT TIMELINE]
+Break down the script scene-by-scene using this EXACT structure for EVERY beat:
+[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
+[TEXT OVERLAY: The exact typographic text to display on screen (e.g., "The 80-Hour Trap")]
+[AUDIO CUE: Specific sound effect or music transition (e.g., "Heavy sub-bass drop")]
+VOICEOVER: "The actual spoken dialogue goes here."
+
+Repeat this 4-line block for EVERY single scene and major beat. Do NOT use timecodes or old timecode markers. Output only Visual Blueprint format.
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: Composition, split screens, and focal depth map.
@@ -857,6 +859,12 @@ Since this video consists of action highlights, sports replay sequences, music, 
 RULES:
 - Perform an absolute real search. For Veritasium's video kS-CGkiPetQ ("The Simplest Math Problem No One Can Solve"), look up the Collatz Conjecture (3x+1 problem), Lothar Collatz, why it is unsolved, and how he explains it in the video.
 - Generate an extremely detailed and detailed transcript summary or full transcript of what is actually discussed in the video.
+- For the 'fullTranscript' field: Output the COMPLETE scene-by-scene Visual Blueprint using the exact format:
+  [VISUAL: ...]
+  [TEXT OVERLAY: ...]
+  [AUDIO CUE: ...]
+  VOICEOVER: "..."
+  (Repeat for every scene)
 - Output ONLY a valid JSON object matching the requested schema. DO NOT include any backticks or introduction phrases, just raw JSON text.
 
 Return exactly this JSON schema:
@@ -868,7 +876,7 @@ Return exactly this JSON schema:
   "hookScore": 95,
   "thumbnailSuggestion": "Ideal visual combination contrast and caption design for this exact video topic",
   "hookText": "The actual narrative hook line used in the opening of this video or '[Visual Highlights/Action Track]' if non-verbal",
-  "fullTranscript": "A comprehensive detailed breakdown of the script transcript of the video, OR a timeline-based visual storyboard if it is a non-verbal highlight/sports clip",
+  "fullTranscript": "Complete scene-by-scene Visual Blueprint with [VISUAL], [TEXT OVERLAY], [AUDIO CUE], and VOICEOVER for every beat",
   "pacingSpeed": "Words per minute speed standard (e.g., 145 words/min - Narrative, or 0 words/min - Non-Verbal Pacing)",
   "metadataDesc": "A professional YouTube description with hook elements",
   "suggestedTags": ["tag1", "tag2", "tag3"]
