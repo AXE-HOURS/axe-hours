@@ -274,21 +274,22 @@ Keep your response punchy, clear, modern, and highly creative. Avoid low-quality
   customInstructions && typeof customInstructions === "string" && customInstructions.trim()
     ? `\n\n[USER SPECIFIED CREATOR STYLING & CUSTOM DIRECTIVES]:\nAdhere strictly to these personal style guidelines at all times:\n${customInstructions}`
     : ""
-}`;
+}
 
-    *** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***
-    You are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.
+*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***
+You are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.
 
-    For every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.
+For every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.
 
-    Strictly format your output using this exact structure for every scene:
+Strictly format your output using this exact structure for every scene:
 
-    [VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
-    [TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]
-    [AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]
-    VOICEOVER: "The actual spoken dialogue goes here."
+[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
+[TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]
+[AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]
+VOICEOVER: "The actual spoken dialogue goes here."
 
-    Ensure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.
+Ensure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.
+`;
 
       const responseStream = await ai.models.generateContentStream({
         model: "gemini-3.5-flash",
