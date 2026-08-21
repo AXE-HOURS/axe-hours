@@ -826,16 +826,29 @@ Tags: ${(scrapedData.tags || []).join(', ')}
 `;
       }
 
-      if (isShortForm) {
-        prompt += `
+     if (isShortForm) {
+    prompt += `
 \nCRITICAL DIRECTIVE FOR SHORT-FORM VIDEO CONTENT:
 This video is a short-form video (duration is under 60 seconds or on a short-form platform like TikTok/Instagram/YouTube Shorts).
 1. Ensure the 'duration' field in the returned JSON is precisely formatted in seconds format, e.g. "${formattedDurationLabel}".
-2. Under 'fullTranscript' (the structural breakdown), you MUST scale the timeline segments strictly within micro-retention bounds:
-   - "⏱️ 0:00 - 0:03 [The Immediate Hook]" -> detailing the immediate visual/verbal attention grabber
-   - "⏱️ 0:03 - 0:15 [The Core Context / Retaining Action]" -> detailing the body context and retaining elements
-   - "⏱️ 0:15 - ${formattedDurationLabel} [The Loop Trigger / Climax]" -> detailing the climax/payoff and seamless loop back to start
-Do NOT use standard long-form intervals like 1:15 or 4:30!
+2. Under 'fullTranscript' (the structural breakdown), you MUST output a rapid, highly engaging [SCENE-BY-SCENE VISUAL BLUEPRINT] designed for micro-retention. Do NOT use timecodes! Format the three core beats (Hook, Context, Climax) exactly like this:
+
+   [VISUAL: Describe the immediate, fast-paced hook b-roll]
+   [TEXT OVERLAY: Bold attention grabber]
+   [AUDIO CUE: Impact sound]
+   VOICEOVER: "The 3-second hook dialogue."
+
+   [VISUAL: Describe the core context and retaining action b-roll]
+   [TEXT OVERLAY: Contextually relevant keyword]
+   [AUDIO CUE: Background retention track]
+   VOICEOVER: "The main body context."
+
+   [VISUAL: Describe the climax/payoff visuals seamlessly looping back to the start]
+   [TEXT OVERLAY: Final CTA or Loop trigger]
+   [AUDIO CUE: Climax build-up]
+   VOICEOVER: "The final payoff."
+`;
+}
 `;
       }
 
