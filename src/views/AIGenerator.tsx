@@ -1783,10 +1783,26 @@ Option 3: "If you start running this simple numerical sequence, you will hit an 
 Our target hook instantly presents a massive pain-point contrast: Simple rule vs Unsolvable paradox. This leverages curiosity loops and cognitive friction to force retention past the critical 3-second dropoff.
 
 [SCENE-BY-SCENE VISUAL BLUEPRINT]
-- 0:00 - 0:03 [HOOK]: Extreme close-up of chalk drawing a simple formula on a black canvas.
-- 0:03 - 0:15 [CHALLENGE]: Visual representation of the numbers 4, 2, and 1 circling infinitely.
-- 0:15 - 0:45 [DEVELOPMENT]: Detailing computer tests up to 2^68, and showing Paul Erdős's famous quote.
-- 0:45 - 1:00 [CTA]: Screen showing a custom diagram overlay requesting comments about personal tests.
+[VISUAL: Extreme close-up of chalk drawing a simple formula on a black canvas.]
+[TEXT OVERLAY: The Hook]
+[AUDIO CUE: Sharp chalk snap]
+VOICEOVER: "The immediate hook dialogue."
+
+[VISUAL: Visual representation of the numbers 4, 2, and 1 circling infinitely.]
+[TEXT OVERLAY: The Challenge]
+[AUDIO CUE: Mysterious build-up]
+VOICEOVER: "The challenge context."
+
+[VISUAL: Detailing computer tests up to 2^68, and showing Paul Erdős's famous quote.]
+[TEXT OVERLAY: The Development]
+[AUDIO CUE: Fast-paced digital ticking]
+VOICEOVER: "The development details."
+
+[VISUAL: Screen showing a custom diagram overlay requesting comments about personal tests.]
+[TEXT OVERLAY: Comment Below]
+[AUDIO CUE: Climax drop]
+VOICEOVER: "The final call to action."
+
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: High contrast dark layout, chalk formulas scattered around.
