@@ -1931,11 +1931,25 @@ Option 3: "If you're still building ${themeTitle} the old way, you need to step 
 Our optimized hook presents a stark contrast: high effort/wasted time vs automated simplicity. This immediately disrupts the scroll feed, establishes cognitive tension, and maximizes early viewer retention.
 
 [SCENE-BY-SCENE VISUAL BLUEPRINT]
-- 0:00 - 0:03 [HOOK]: Rapid close-up transition of direct project files with clean bold fonts.
-- 0:03 - 0:15 [PROBLEM]: Slide deck showcasing standard, slow failed attempts overlaying a frustration indicator.
-- 0:15 - 0:45 [SOLUTION]: Interactive step-by-step display of the dynamic, streamlined template.
-- 0:15 - 0:45 [SOLUTION]: Interactive step-by-step display of the dynamic, streamlined template.
-- 0:45 - 1:00 [CTA]: Seamless custom screen requesting comments to access the raw repository folder instantly.
+[VISUAL: Rapid close-up transition of direct project files with clean bold fonts.]
+[TEXT OVERLAY: The Blueprint]
+[AUDIO CUE: Fast digital whoosh]
+VOICEOVER: "Stop doing traditional implementation."
+
+[VISUAL: Slide deck showcasing standard, slow failed attempts overlaying a frustration indicator.]
+[TEXT OVERLAY: The Problem]
+[AUDIO CUE: Low bass drop]
+VOICEOVER: "This is why you are failing."
+
+[VISUAL: Interactive step-by-step display of the dynamic, streamlined template.]
+[TEXT OVERLAY: The Solution]
+[AUDIO CUE: Upbeat progression]
+VOICEOVER: "Use this streamlined template instead."
+
+[VISUAL: Seamless custom screen requesting comments to access the raw repository folder instantly.]
+[TEXT OVERLAY: Comment for Access]
+[AUDIO CUE: Notification chime]
+VOICEOVER: "Comment below to get the raw files."
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: Flat 16:9 canvas split. Left features warning indicators; right highlights neon purple rewards.
