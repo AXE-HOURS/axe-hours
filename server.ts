@@ -848,12 +848,11 @@ This video is a short-form video (duration is under 60 seconds or on a short-for
    [AUDIO CUE: Climax build-up]
    VOICEOVER: "The final payoff."
 `;
-}
-`;
+    
       }
 
-      if (classification.isNonVerbal) {
-        prompt += `
+     if (classification.isNonVerbal) {
+    prompt += `
 \nCRITICAL DIRECTIVE:
 Our YouTube API metadata classifier has flagged this video as NON-VERBAL / VISUAL-FIRST (${classification.reason}).
 Since this video consists of action highlights, sports replay sequences, music, gameplay, or cinematic silent tracks where there is no constant spoken commentary/narration:
