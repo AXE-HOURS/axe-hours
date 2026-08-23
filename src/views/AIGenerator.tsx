@@ -3181,9 +3181,15 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
                   {outputView === 'visual' ? (
                     <VisualBlueprintParser transcriptText={result} />
                   ) : (
-                    <pre className="whitespace-pre-wrap text-xs md:text-sm text-gray-200 font-mono leading-relaxed bg-transparent p-0 m-0">
-                      {result || 'Wait a brief second while the machine compiles instructions...'}
-                    </pre>
+                    <div className="bg-black/40 p-4 rounded-xl border border-white/5 font-mono text-xs md:text-sm text-gray-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="text-[10px] uppercase tracking-widest text-gray-300">Raw Prompt Output</div>
+                        {/* Optional: You can drop a Copy button right here if you want! */}
+                      </div>
+                      <div className="whitespace-pre-wrap leading-relaxed overflow-x-auto custom-scrollbar">
+                        {result || 'Wait a brief second while the machine compiles instructions...'}
+                      </div>
+                    </div>
                   )}
                 </div>
               </GlassCard>
