@@ -552,13 +552,9 @@ export const ScriptFetcher: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                    <div className="mt-4">
-  {extractedData.fullTranscript && extractedData.fullTranscript !== 'N/A' ? (
-    <VisualBlueprintParser transcriptText={extractedData.fullTranscript} />
-  ) : (
-    <p className="text-xs font-light text-gray-500 italic">No transcript data available.</p>
-  )}
-</div>
+                    <p className="text-xs font-light text-white italic whitespace-pre-line">
+  {extractedData.fullTranscript}
+</p>
                   </div>
 
                   {/* High Quality Thumbnail Advice */}
