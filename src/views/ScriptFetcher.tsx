@@ -1,3 +1,4 @@
+import VisualBlueprintParser from '../components/VisualBlueprintParser';
 import React, { useState, useEffect } from 'react';
 import { useFirebase } from '../context/FirebaseContext';
 import { GlassCard } from '../components/GlassCard';
@@ -551,9 +552,13 @@ export const ScriptFetcher: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                    <p className="text-xs font-light text-white italic whitespace-pre-line">
-                      {extractedData.fullTranscript}
-                    </p>
+                    <div className="mt-4">
+  {extractedData.fullTranscript && extractedData.fullTranscript !== 'N/A' ? (
+    <VisualBlueprintParser transcriptText={extractedData.fullTranscript} />
+  ) : (
+    <p className="text-xs font-light text-gray-500 italic">No transcript data available.</p>
+  )}
+</div>
                   </div>
 
                   {/* High Quality Thumbnail Advice */}
