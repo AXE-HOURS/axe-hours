@@ -16,6 +16,7 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useCalibrationBridge } from '../context/CalibrationBridgeContext';
 import { getSecureGeminiKey } from '../utils/secureStorage';
+import VisualBlueprintParser from '../components/VisualBlueprintParser';
 
 interface GenerationItem {
   id: number;
@@ -3160,9 +3161,9 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
                   </div>
                 )}
 
-                <pre id="ai-script-canvas" className="text-xs md:text-sm text-gray-200 font-mono leading-relaxed whitespace-pre-wrap bg-black/40 p-6 rounded-xl border border-white/5 max-h-[500px] overflow-y-auto custom-scrollbar select-text">
-                  {result || "Wait a brief second while the machine compiles instructions..."}
-                </pre>
+                <div id="ai-script-canvas" className="text-xs md:text-sm text-gray-200 font-mono leading-relaxed whitespace-pre-wrap bg-black/40 p-6 rounded-xl border border-white/5 max-h-[500px] overflow-y-auto custom-scrollbar select-text">
+                  <VisualBlueprintParser transcriptText={result} />
+                </div>
               </GlassCard>
 
               {/* A/B Retention Comparative Playground Panel */}
