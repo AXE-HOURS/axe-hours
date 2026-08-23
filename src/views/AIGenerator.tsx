@@ -879,6 +879,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   // Active output tabs: "blueprint", "timeline", "ctr", "thumbnail", "coach"
   const [activeTab, setActiveTab] = useState<"blueprint" | "timeline" | "ctr" | "thumbnail" | "coach">("blueprint");
   const [isCopied, setIsCopied] = useState(false);
+  const [outputView, setOutputView] = useState<'visual' | 'raw'>('visual');
 
   // Sound Synthesizer Node - Forwarding to centralized audio module with mute guard
   const playAudioCue = (freq: number, type: OscillatorType = "sine") => {
@@ -3162,7 +3163,28 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
                 )}
 
                 <div id="ai-script-canvas" className="text-xs md:text-sm text-gray-200 font-mono leading-relaxed whitespace-pre-wrap bg-black/40 p-6 rounded-xl border border-white/5 max-h-[500px] overflow-y-auto custom-scrollbar select-text">
-                  <VisualBlueprintParser transcriptText={result} />
+                  <div className="flex items-center gap-2 mb-3">
+                    <button
+                      onClick={() => setOutputView('visual')}
+                      className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest border-b-2 ${outputView === 'visual' ? 'border-primary text-white' : 'border-transparent text-gray-400'}`}
+                    >
+                      Visual Timeline
+                    </button>
+                    <button
+                      onClick={() => setOutputView('raw')}
+                      className={`px-3 py-1 text-[10px] font-mono uppercase tracking-widest border-b-2 ${outputView === 'raw' ? 'border-primary text-white' : 'border-transparent text-gray-400'}`}
+                    >
+                      Raw Script
+                    </button>
+                  </div>
+
+                  {outputView === 'visual' ? (
+                    <VisualBlueprintParser transcriptText={result} />
+                  ) : (
+                    <pre className="whitespace-pre-wrap text-xs md:text-sm text-gray-200 font-mono leading-relaxed bg-transparent p-0 m-0">
+                      {result || 'Wait a brief second while the machine compiles instructions...'}
+                    </pre>
+                  )}
                 </div>
               </GlassCard>
 
