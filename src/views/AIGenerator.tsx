@@ -3181,14 +3181,20 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
                   {outputView === 'visual' ? (
                     <VisualBlueprintParser transcriptText={result} />
                   ) : (
-                    <div className="bg-black/40 p-4 rounded-xl border border-white/5 font-mono text-xs md:text-sm text-gray-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="text-[10px] uppercase tracking-widest text-gray-300">Raw Prompt Output</div>
-                        {/* Optional: You can drop a Copy button right here if you want! */}
+                    <div className="bg-purple-950/10 border border-purple-500/20 rounded-xl p-6 shadow-lg backdrop-blur-md animate-in fade-in duration-500 relative overflow-hidden mt-4">
+                      {/* Top Edge Glow */}
+                      <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-purple-500/0 via-purple-500/50 to-purple-500/0"></div>
+
+                      <div className="flex justify-between items-center mb-4 pb-3 border-b border-purple-500/20">
+                        <span className="text-[10px] text-purple-300 font-black uppercase tracking-widest font-mono flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span>
+                          Raw Prompt Output
+                        </span>
                       </div>
-                      <div className="whitespace-pre-wrap leading-relaxed overflow-x-auto custom-scrollbar">
-                        {result || 'Wait a brief second while the machine compiles instructions...'}
-                      </div>
+                      
+                      <p className="text-gray-300 font-mono text-[11px] leading-relaxed whitespace-pre-wrap relative z-10">
+                        {result}
+                      </p>
                     </div>
                   )}
                 </div>
