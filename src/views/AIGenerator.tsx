@@ -791,10 +791,9 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   const [visualStyle, setVisualStyle] = useState("Cyber-glow console zoom-ins");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
 
-  const [customInstructions, setCustomInstructions] = useState(
-  "CRITICAL FORMATTING RULE: You must output the scene-by-scene blueprint EXACTLY in the following format. Do not use timestamps. Do not change the bracket tags.\n\n[VISUAL: description of the visuals]\n[TEXT OVERLAY: text on screen]\n[AUDIO CUE: sound effects or music]\nVOICEOVER: \"The exact words spoken\""
-);
-    return dbUser?.customInstructions || localStorage.getItem(`axe_hours_custom_instructions_guest`) || "";
+  const [customInstructions, setCustomInstructions] = useState(() => {
+    const defaultRule = "CRITICAL FORMATTING RULE: You must output the scene-by-scene blueprint EXACTLY in the following format. Do not use timestamps. Do not change the bracket tags.\n\n[VISUAL: description of the visuals]\n[TEXT OVERLAY: text on screen]\n[AUDIO CUE: sound effects or music]\nVOICEOVER: \"The exact words spoken\"";
+    return dbUser?.customInstructions || localStorage.getItem(`axe_hours_custom_instructions_guest`) || defaultRule;
   });
 
   useEffect(() => {
