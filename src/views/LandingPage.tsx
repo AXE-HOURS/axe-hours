@@ -596,30 +596,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                     <div className="flex flex-col flex-1 min-h-0 justify-center space-y-2.5">
                       <div className="text-[11px] font-mono text-purple-300 uppercase font-black flex items-center gap-1.5">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-                        SSE Content Bridge & Parser
-                      </div>
-                      <div className="relative h-7 bg-black/70 rounded-lg border border-purple-500/30 overflow-hidden flex items-center px-3">
-                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/20 to-transparent data-stream-flow" />
-                        <span className="text-xs font-mono text-purple-200 z-10 truncate font-bold">
-                          GET /api/youtube/transcribe?v=8X2s_zK9_A ... 200 OK
-                        </span>
-                      </div>
-                      <div className="p-2.5 bg-black/50 rounded-lg border border-white/10 text-xs text-gray-200 font-mono leading-relaxed">
-                        Transcribed 48:12 audio stream. Compiled 3 core viral structure maps & guidelines. Ready for AI mixer.
-                      </div>
-                    </div>
-                    <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 select-none">
-                      Data bridge bandwidth: 100% optimized.
-                    </div>
-                  </div>
+                        Content Stream Bridge & Parser
+
+                      <div className="relative h-8 sm:h-7 bg-black/70 rounded-lg border border-purple-500/30 overflow-hidden flex items-center justify-between px-3">
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/15 to-transparent data-stream-flow pointer-events-none" />
+                        <div className="flex items-center gap-2 z-10 min-w-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse shrink-0" />
+                          <span className="text-xs font-mono text-purple-200 truncate font-semibold">
+                            Transcribed <strong className="text-white">48:12</strong> audio & compiled <strong className="text-purple-300">3 viral structure frameworks</strong>.
+                          </span>
+                        </div>
                 )}
 
                 {activePipelineSection === 2 && (
                   <div className="bg-[#030307] border border-white/10 p-4 rounded-xl min-h-[180px] flex flex-col justify-between">
-                    <div className="flex flex-col flex-1 min-h-0 justify-center">
-                      <div className="text-[11px] font-mono text-cyan-300 uppercase font-black mb-2 flex items-center gap-1.5">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
-                        Interactive A/B Dual Play Blueprint
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                         <div className="duel-card-a p-2.5 bg-purple-500/10 border border-purple-500/30 rounded-lg space-y-1.5">
