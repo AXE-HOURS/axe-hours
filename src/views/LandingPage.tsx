@@ -597,19 +597,51 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                       <div className="text-[11px] font-mono text-purple-300 uppercase font-black flex items-center gap-1.5">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
                         Content Stream Bridge & Parser
+                      </div>
 
                       <div className="relative h-8 sm:h-7 bg-black/70 rounded-lg border border-purple-500/30 overflow-hidden flex items-center justify-between px-3">
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/15 to-transparent data-stream-flow pointer-events-none" />
                         <div className="flex items-center gap-2 z-10 min-w-0">
                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse shrink-0" />
                           <span className="text-xs font-mono text-purple-200 truncate font-semibold">
+                            SOURCE: YouTube Stream Linked
+                          </span>
+                        </div>
+                        <div className="z-10 shrink-0 ml-2">
+                          <span className="text-[9px] sm:text-[10px] font-mono font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full tracking-wider uppercase flex items-center gap-1">
+                            <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                            Active Stream
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 sm:p-3 bg-black/50 rounded-lg border border-white/10 text-xs font-mono leading-relaxed space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <Check size={14} className="text-emerald-400 shrink-0" />
+                          <span className="text-gray-200">
                             Transcribed <strong className="text-white">48:12</strong> audio & compiled <strong className="text-purple-300">3 viral structure frameworks</strong>.
                           </span>
                         </div>
+                        <div className="flex items-center gap-2 text-[11px] text-gray-400 pl-5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse shrink-0" />
+                          <span>Pacing blueprint calibrated and ready for AI synthesis.</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 flex justify-between items-center select-none">
+                      <span>Stream latency: 24ms (Optimal)</span>
+                      <span className="text-purple-300 font-semibold">Pipeline Synced</span>
+                    </div>
+                  </div>
                 )}
 
                 {activePipelineSection === 2 && (
                   <div className="bg-[#030307] border border-white/10 p-4 rounded-xl min-h-[180px] flex flex-col justify-between">
+                    <div className="flex flex-col flex-1 min-h-0 justify-center">
+                      <div className="text-[11px] font-mono text-cyan-300 uppercase font-black mb-2 flex items-center gap-1.5">
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
+                        Interactive A/B Dual Play Blueprint
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                         <div className="duel-card-a p-2.5 bg-purple-500/10 border border-purple-500/30 rounded-lg space-y-1.5">
