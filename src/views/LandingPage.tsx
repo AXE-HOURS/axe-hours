@@ -528,19 +528,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
           </div>
 
           {/* Right: Dynamic "Cyber-Glass" Decryptor Box */}
-          <div className="lg:col-span-7 bg-black/55 border border-purple-500/30 rounded-2xl p-6 relative flex flex-col justify-between shadow-[0_0_30px_rgba(168,85,247,0.15)] overflow-hidden select-text">
-            {/* Tech tag watermarks */}
-            <div className="absolute top-4.5 right-4.5 flex items-center gap-2 select-none">
-              <span className="text-[11px] font-mono font-bold text-purple-300 uppercase bg-purple-500/20 border border-purple-500/30 px-2 py-0.5 rounded">
-                {pipelineNodes[activePipelineSection].tech}
-              </span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            </div>
-
+          <div className="lg:col-span-7 bg-black/55 border border-purple-500/30 rounded-2xl p-4 sm:p-6 relative flex flex-col justify-between shadow-[0_0_30px_rgba(168,85,247,0.15)] overflow-hidden select-text">
             <div className="space-y-4">
-              <div className="flex items-center gap-2 select-none">
-                <Terminal size={14} className="text-purple-400" />
-                <span className="text-[11px] font-mono text-gray-400 uppercase tracking-widest font-bold">Pipeline Node {activePipelineSection + 1} Matrix Decrypt</span>
+              {/* Header: Node Matrix Decrypt title + Tech badge in responsive flex flow */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/5 pb-3">
+                <div className="flex items-center gap-2 select-none min-w-0">
+                  <Terminal size={14} className="text-purple-400 shrink-0" />
+                  <span className="text-[10px] sm:text-[11px] font-mono text-gray-400 uppercase tracking-widest font-bold truncate">
+                    Pipeline Node {activePipelineSection + 1} Matrix Decrypt
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 select-none shrink-0 self-start sm:self-auto">
+                  <span className="text-[10px] sm:text-[11px] font-mono font-bold text-purple-300 uppercase bg-purple-500/20 border border-purple-500/30 px-2 py-0.5 rounded whitespace-nowrap">
+                    {pipelineNodes[activePipelineSection].tech}
+                  </span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                </div>
               </div>
 
               <div>
@@ -559,13 +563,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
               {/* Sub-visual Interactive Simulation Modules */}
               <div className="mt-6 mb-4">
                 {activePipelineSection === 0 && (
-                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl relative overflow-hidden h-[180px] flex flex-col justify-between">
-                    <div className="absolute right-4 top-4 w-16 h-16 rounded-full border border-pink-500/20">
+                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl relative overflow-hidden min-h-[180px] flex flex-col justify-between">
+                    <div className="absolute right-4 top-4 w-16 h-16 rounded-full border border-pink-500/20 pointer-events-none opacity-40 sm:opacity-100">
                       <div className="absolute inset-0 border border-dashed border-pink-500/40 rounded-full" />
                       <div className="absolute w-full h-0.5 bg-pink-500/60 top-1/2 left-0 origin-center radar-sweep" />
                       <span className="absolute top-1/3 left-1/4 w-1.5 h-1.5 rounded-full bg-pink-400 animate-ping" />
                     </div>
-                    <div className="flex flex-col flex-1 min-h-0 justify-center pr-20">
+                    <div className="flex flex-col flex-1 min-h-0 justify-center pr-12 sm:pr-20">
                       <div className="text-[11px] font-mono text-pink-400 uppercase font-black mb-2 flex items-center gap-1.5">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse" />
                         Active Scanner Radar Stream
@@ -588,7 +592,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                 )}
 
                 {activePipelineSection === 1 && (
-                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl h-[180px] flex flex-col justify-between relative overflow-hidden">
+                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl min-h-[180px] flex flex-col justify-between relative overflow-hidden">
                     <div className="flex flex-col flex-1 min-h-0 justify-center space-y-2.5">
                       <div className="text-[11px] font-mono text-purple-300 uppercase font-black flex items-center gap-1.5">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
@@ -611,13 +615,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                 )}
 
                 {activePipelineSection === 2 && (
-                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl h-[180px] flex flex-col justify-between">
+                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl min-h-[180px] flex flex-col justify-between">
                     <div className="flex flex-col flex-1 min-h-0 justify-center">
                       <div className="text-[11px] font-mono text-cyan-300 uppercase font-black mb-2 flex items-center gap-1.5">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse" />
                         Interactive A/B Dual Play Blueprint
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
                         <div className="duel-card-a p-2.5 bg-purple-500/10 border border-purple-500/30 rounded-lg space-y-1.5">
                           <div className="text-[10px] font-mono text-purple-300 uppercase font-black">Angle A: Curiosity</div>
                           <p className="text-xs text-gray-200 truncate font-normal">"The hidden secret behind..."</p>
@@ -637,7 +641,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                         </div>
                       </div>
                     </div>
-                    <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 flex justify-between items-center select-none">
+                    <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 flex flex-wrap justify-between items-center gap-1 select-none">
                       <span>Automated side-by-side comparative analysis</span>
                       <span className="text-cyan-300 font-black animate-pulse uppercase text-[9px] tracking-widest bg-cyan-500/20 px-1.5 py-0.5 rounded border border-cyan-500/30">Angle A Winner</span>
                     </div>
@@ -645,16 +649,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                 )}
 
                 {activePipelineSection === 3 && (
-                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl h-[180px] flex flex-col justify-between relative overflow-hidden">
-                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1 select-none z-20">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-                      <span className="text-[10px] font-mono text-rose-400 font-bold uppercase">Recording</span>
-                    </div>
-                    <div className="flex flex-col flex-1 min-h-0 justify-center">
-                      <div className="text-[11px] font-mono text-emerald-400 uppercase font-black mb-2 flex items-center gap-1.5">
+                  <div className="bg-[#030307] border border-white/10 p-4 rounded-xl min-h-[180px] flex flex-col justify-between relative overflow-hidden">
+                    <div className="flex items-center justify-between gap-2 mb-2 select-none">
+                      <div className="text-[11px] font-mono text-emerald-400 uppercase font-black flex items-center gap-1.5">
                         <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                         Teleprompter Console Stream
                       </div>
+                      <div className="flex items-center gap-1 select-none shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                        <span className="text-[10px] font-mono text-rose-400 font-bold uppercase">Recording</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col flex-1 min-h-0 justify-center">
                       <div className="relative h-[85px] overflow-hidden bg-black/60 border border-white/10 rounded-lg p-3">
                         <div className="teleprompter-text-scroll text-xs md:text-sm font-black text-gray-200 font-mono leading-relaxed space-y-2 select-none pointer-events-none">
                           <p className="text-white">"Everyone tells you to code a SaaS to get rich."</p>
@@ -668,7 +674,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                         <div className="absolute bottom-0 left-0 w-full h-4 bg-gradient-to-t from-[#030307] to-transparent pointer-events-none" />
                       </div>
                     </div>
-                    <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 flex justify-between items-center select-none">
+                    <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 flex flex-wrap justify-between items-center gap-1 select-none">
                       <span>WPM speed: 135 words/minute</span>
                       <span>Line duration synced</span>
                     </div>
