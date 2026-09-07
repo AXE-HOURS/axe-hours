@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Search, Bell, HelpCircle, User, Award, Video, Check, BookOpen, Sparkles, Wand2,
-  Menu, X, LayoutDashboard, Lightbulb, Bookmark, Zap, BarChart3, Settings, Crown, LogOut, Plus, History
+  Menu, X, LayoutDashboard, Lightbulb, Bookmark, Zap, BarChart3, Settings, Crown, LogOut, Plus, History,
+  TrendingUp, Download
 } from 'lucide-react';
 import { Modal } from './Modal';
 import { PrimaryButton } from './PrimaryButton';
@@ -86,6 +88,21 @@ export const TopNav: React.FC<TopNavProps> = ({
     document.addEventListener('click', handleOutsideClick);
     return () => document.removeEventListener('click', handleOutsideClick);
   }, [setShowNotifications]);
+
+  // Close mobile drawer on Escape and lock body scroll when open
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsMobileMenuOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isMobileMenuOpen]);
 
   const handleSearchChange = (query: string) => {
     setSearchQuery(query);
@@ -198,6 +215,8 @@ export const TopNav: React.FC<TopNavProps> = ({
     { id: 'generator', label: 'Generate Ideas', icon: Lightbulb },
     { id: 'saved', label: 'Saved Ideas', icon: Bookmark },
     { id: 'viral', label: 'Viral Hooks', icon: Zap },
+    { id: 'competitor-intel', label: 'Competitor Intel', icon: TrendingUp },
+    { id: 'script-fetcher', label: 'Script Fetcher', icon: Download },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'activity-log', label: 'Activity Trail', icon: History },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -348,51 +367,75 @@ export const TopNav: React.FC<TopNavProps> = ({
       )}
 
       {/* MOBILE DRAWER MODAL OVERLAY */}
-      {isMobileMenuOpen && (
+      {isMobileMenuOpen && typeof document !== 'undefined' && createPortal(
         <div 
           id="mobile-drawer-overlay"
           onClick={() => setIsMobileMenuOpen(false)}
-          className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex justify-start md:hidden animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex justify-start md:hidden animate-in fade-in duration-200"
         >
           <div 
             id="mobile-drawer-content"
             onClick={(e) => e.stopPropagation()}
-            className="w-64 max-w-[80vw] h-full bg-[#0a0614] border-r border-white/10 p-5 flex flex-col justify-between animate-in slide-in-from-left duration-200 relative"
+            className="w-72 max-w-[85vw] h-full bg-[#0a0614] border-r border-white/10 p-5 flex flex-col justify-between animate-in slide-in-from-left duration-200 relative shadow-2xl overflow-y-auto"
           >
             <div>
-              <div className="flex justify-between items-center pb-4 mb-5 border-b border-white/5">
-                <span className="text-sm font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-500">
-                  AXE HOURS
-                </span>
+              <div className="flex justify-between items-center pb-4 mb-4 border-b border-white/5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-amber-300">
+                    AXE HOURS
+                  </span>
+                  <span className="text-[9px] bg-red-500/10 border border-red-500/20 text-red-400 font-mono px-1 py-0.5 rounded animate-pulse">
+                    AI
+                  </span>
+                </div>
                 <button 
+                  id="mobile-drawer-close-btn"
                   onClick={() => setIsMobileMenuOpen(false)} 
-                  className="p-1 text-gray-400 hover:text-white cursor-pointer"
+                  className="p-1 text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+                  aria-label="Close mobile navigation"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              <div className="space-y-1.5">
-                {mobileNavItems.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      setCurrentView(item.id);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl border transition-all duration-200 text-left text-xs font-semibold ${
-                      item.id === currentView ? 'bg-purple-500/10 text-purple-300 border-purple-500/20' : 'text-gray-400 border-transparent hover:bg-white/5'
-                    }`}
-                  >
-                    <item.icon size={16} />
-                    <span>{item.label}</span>
-                  </button>
-                ))}
+              <div className="flex items-center gap-1.5 mb-4 px-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                <span className="text-[9px] font-mono tracking-widest text-[#10b981] uppercase font-bold">SYSTEM_ONLINE</span>
+              </div>
+
+              <div className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-210px)] custom-scrollbar pr-1">
+                {mobileNavItems.map((item) => {
+                  const isActive = item.id === currentView;
+                  return (
+                    <button
+                      key={item.id}
+                      id={`mobile-nav-item-${item.id}`}
+                      onClick={() => {
+                        setCurrentView(item.id);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border transition-all duration-200 text-left text-xs font-semibold ${
+                        isActive 
+                          ? 'bg-purple-500/10 text-purple-300 border-purple-500/20 shadow-[0_0_15px_rgba(157,80,187,0.08)]' 
+                          : 'text-gray-400 border-transparent hover:bg-white/5 hover:text-white'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <item.icon size={16} className={isActive ? 'text-purple-400' : 'text-gray-400'} />
+                        <span>{item.label}</span>
+                      </div>
+                      {isActive && (
+                        <div className="w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_8px_#c084fc]" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="space-y-2 border-t border-white/5 pt-4">
+            <div className="space-y-2 border-t border-white/5 pt-4 mt-auto">
               <button 
+                id="mobile-drawer-help-btn"
                 onClick={() => {
                   setIsHelpOpen(true);
                   setIsMobileMenuOpen(false);
@@ -402,9 +445,15 @@ export const TopNav: React.FC<TopNavProps> = ({
                 <HelpCircle size={16} />
                 <span>Quick Help Desk</span>
               </button>
+              {user && (
+                <div className="px-3.5 py-1 text-[10px] text-gray-500 font-mono truncate">
+                  Logged in: {user.name || user.email}
+                </div>
+              )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 1. CREATOR HELP CENTER MODAL */}

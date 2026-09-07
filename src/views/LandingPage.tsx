@@ -399,28 +399,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
       <div id="landing-orb-2" className="absolute bottom-[10%] right-[-5%] w-[600px] h-[600px] rounded-full bg-purple-500/5 blur-[140px] pointer-events-none z-0" />
 
       {/* NAVIGATION HEADER */}
-      <header id="landing-header" className="relative z-10 max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
-        <div id="landing-logo-container" className="flex items-center gap-2.5">
+      <header id="landing-header" className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between">
+        <div id="landing-logo-container" className="flex items-center gap-2 sm:gap-2.5 shrink-0">
           <div className="p-2 bg-purple-500/10 border border-purple-500/20 rounded-xl shadow-[0_0_15px_rgba(168,85,247,0.25)]">
             <Wand2 className="text-purple-400 animate-pulse" size={20} />
           </div>
-          <span className="font-black tracking-widest text-lg md:text-xl bg-gradient-to-r from-white via-purple-200 to-pink-300 bg-clip-text text-transparent uppercase">
+          <span className="font-black tracking-widest text-base sm:text-lg md:text-xl bg-gradient-to-r from-white via-purple-200 to-pink-300 bg-clip-text text-transparent uppercase whitespace-nowrap">
             Axe Hours AI
           </span>
         </div>
-        <div id="landing-header-auth" className="flex items-center gap-3 md:gap-4">
+        <div id="landing-header-auth" className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0">
           <button 
             id="landing-guest-hdr-btn" 
             onClick={() => {
               playAudio(880, "sine", 0.15);
               onEnter({ email: 'guest@axe-hours.ai', name: 'Guest Creator', handle: 'guest_creator', avatar: '' });
             }} 
-            className="text-xs md:text-sm font-extrabold text-[#34d399] hover:text-[#6ee7b7] transition-colors py-2 px-3.5 flex items-center gap-1.5 cursor-pointer bg-emerald-500/10 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/20 shadow-md shadow-emerald-500/10"
+            className="hidden sm:flex text-xs md:text-sm font-extrabold text-[#34d399] hover:text-[#6ee7b7] transition-colors py-2 px-3.5 items-center gap-1.5 cursor-pointer bg-emerald-500/10 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/20 shadow-md shadow-emerald-500/10 whitespace-nowrap"
           >
             Demo Workspace ⚡
           </button>
-          <button id="landing-login-btn" onClick={() => openModal('login')} className="text-xs md:text-sm font-bold text-gray-200 hover:text-purple-300 transition-colors py-2 px-3 cursor-pointer">Log In</button>
-          <PrimaryButton id="landing-signup-top-btn" onClick={() => openModal('signup')} className="py-2 px-4 md:px-5 text-xs md:text-sm font-bold cursor-pointer shadow-lg shadow-purple-500/20 border border-purple-500/40">Sign Up</PrimaryButton>
+          <button id="landing-login-btn" onClick={() => openModal('login')} className="hidden xs:block text-xs md:text-sm font-bold text-gray-200 hover:text-purple-300 transition-colors py-2 px-3 cursor-pointer whitespace-nowrap">Log In</button>
+          <PrimaryButton id="landing-signup-top-btn" onClick={() => openModal('signup')} className="py-2 px-4 md:px-5 text-xs md:text-sm font-bold cursor-pointer shadow-lg shadow-purple-500/20 border border-purple-500/40 shrink-0 whitespace-nowrap">Sign Up</PrimaryButton>
         </div>
       </header>
 

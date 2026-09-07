@@ -43,6 +43,7 @@
 }
 
 @theme {
+  --breakpoint-xs: 480px;
   --color-primary: var(--primary-color);
   --color-secondary: var(--secondary-color);
   --color-surface: #000000;
