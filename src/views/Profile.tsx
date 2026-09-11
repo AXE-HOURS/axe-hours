@@ -32,6 +32,7 @@ interface SavedIdeaItem {
 
 interface UserProfileData {
   email: string;
+  uid?: string;
   name?: string;
   handle?: string;
   avatar?: string;
@@ -79,7 +80,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
 
   const uid = user?.uid || "guest";
 
-  const DEFAULT_GROUPS = [
+  const DEFAULT_GROUPS: GroupItem[] = [
     { 
       id: '1', 
       name: 'Vanguard Prompt Alliance', 

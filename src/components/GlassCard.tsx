@@ -4,7 +4,7 @@ interface GlassCardProps {
   children: React.ReactNode;
   className?: string;
   id?: string;
-  glowColor?: 'purple' | 'green' | 'amber' | 'cyan' | 'none';
+  glowColor?: 'purple' | 'green' | 'amber' | 'cyan' | 'emerald' | 'gold' | 'none';
   interactive?: boolean;
 }
 
@@ -15,10 +15,12 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   glowColor = 'none',
   interactive = true 
 }) => {
-  const glowStyles = {
+  const glowStyles: Record<string, string> = {
     purple: 'hover:shadow-[0_0_25px_rgba(157,80,187,0.15)] hover:border-purple-500/30',
     green: 'hover:shadow-[0_0_25px_rgba(16,185,129,0.15)] hover:border-emerald-500/30',
+    emerald: 'hover:shadow-[0_0_25px_rgba(16,185,129,0.15)] hover:border-emerald-500/30',
     amber: 'hover:shadow-[0_0_25px_rgba(245,158,11,0.15)] hover:border-amber-500/30',
+    gold: 'hover:shadow-[0_0_25px_rgba(245,158,11,0.15)] hover:border-amber-500/30',
     cyan: 'hover:shadow-[0_0_25px_rgba(8,145,178,0.15)] hover:border-cyan-500/30',
     none: 'hover:shadow-[0_15px_30px_rgba(0,0,0,0.5)]'
   };

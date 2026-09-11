@@ -22,6 +22,7 @@ interface UserData {
   name?: string;
   handle?: string;
   avatar?: string;
+  uid?: string;
 }
 
 interface TopNavProps {

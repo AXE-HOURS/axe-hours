@@ -50,10 +50,24 @@ export interface SavedIdeaItem {
   userId?: string;
 }
 
+export type ActivityActionType = 
+  | 'generate' 
+  | 'save_idea' 
+  | 'remove_idea' 
+  | 'import_hook' 
+  | 'competitor_intel' 
+  | 'fetch_script' 
+  | 'profile_update' 
+  | 'custom_search' 
+  | 'dispatch_script_draft' 
+  | 'script_generator' 
+  | 'transfer_to_architect' 
+  | string;
+
 export interface UserActivityItem {
   id: number;
   userId?: string;
-  actionType: 'generate' | 'save_idea' | 'remove_idea' | 'import_hook' | 'competitor_intel' | 'fetch_script' | 'profile_update' | 'custom_search';
+  actionType: ActivityActionType;
   actionTitle: string;
   description: string;
   timestamp: string;
@@ -69,7 +83,7 @@ interface FirebaseContextType {
   loading: boolean;
   googleAccessToken: string | null;
   setGoogleAccessToken: (token: string | null) => void;
-  loginWithGoogle: () => Promise<void>;
+  loginWithGoogle: () => Promise<any>;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   signUpWithEmail: (email: string, pass: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -79,7 +93,7 @@ interface FirebaseContextType {
   removeIdeaDB: (id: number) => Promise<void>;
   updateProfile: (profileUpdates: Partial<UserProfile>) => Promise<void>;
   logUserActivity: (
-    actionType: 'generate' | 'save_idea' | 'remove_idea' | 'import_hook' | 'competitor_intel' | 'fetch_script' | 'profile_update' | 'custom_search',
+    actionType: ActivityActionType,
     actionTitle: string,
     description: string
   ) => Promise<void>;
@@ -88,7 +102,7 @@ interface FirebaseContextType {
 
 const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined);
 
-export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }: { children?: React.ReactNode }) => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [dbUser, setDbUser] = useState<UserProfile | null>(null);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => {
@@ -579,10 +593,10 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const removeIdeaDB = async (id: number) => {
     if (user) {
       const path = 'saved_ideas';
-      const updated = getLocalIdeas(user.uid).filter(idea => idea.id !== id);
+      const updated = getLocalIdeas(user.uid).filter((idea: SavedIdeaItem) => idea.id !== id);
       localStorage.setItem(`axe_hours_saved_ideas_${user.uid}`, JSON.stringify(updated));
       try {
-        const matched = savedIdeas.find(idea => idea.id === id);
+        const matched = savedIdeas.find((idea: SavedIdeaItem) => idea.id === id);
         if (matched && matched.userId !== user.uid) {
           throw new Error("Permission Denied: Cannot delete other user's saved ideas.");
         }
@@ -592,7 +606,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         handleFirestoreError(e, OperationType.DELETE, path);
       }
     } else {
-      const updated = getLocalIdeas().filter(idea => idea.id !== id);
+      const updated = getLocalIdeas().filter((idea: SavedIdeaItem) => idea.id !== id);
       setSavedIdeas(updated);
       localStorage.setItem("axe_hours_saved_ideas", JSON.stringify(updated));
     }
@@ -616,7 +630,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const logUserActivity = async (
-    actionType: 'generate' | 'save_idea' | 'remove_idea' | 'import_hook' | 'competitor_intel' | 'fetch_script' | 'profile_update' | 'custom_search',
+    actionType: ActivityActionType,
     actionTitle: string,
     description: string
   ) => {

@@ -9,7 +9,7 @@ export interface Toast {
 
 interface ToastContextType {
   toasts: Toast[];
-  addToast: (message: string, type?: Toast['type']) => void;
+  addToast: (messageOrOptions: string | { message: string; type?: Toast['type']; title?: string }, type?: Toast['type']) => void;
   removeToast: (id: string) => void;
 }
 
@@ -22,9 +22,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const addToast = useCallback((message: string, type: Toast['type'] = 'success') => {
+  const addToast = useCallback((messageOrOptions: string | { message: string; type?: Toast['type']; title?: string }, type: Toast['type'] = 'success') => {
     const id = Math.random().toString(36).substring(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
+    const msg = typeof messageOrOptions === 'string' ? messageOrOptions : messageOrOptions.message;
+    const toastType = typeof messageOrOptions === 'object' && messageOrOptions.type ? messageOrOptions.type : type;
+    setToasts((prev) => [...prev, { id, message: msg, type: toastType }]);
 
     // Auto remove after 4.5 seconds
     setTimeout(() => {
