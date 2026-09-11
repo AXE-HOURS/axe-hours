@@ -571,6 +571,14 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     return lines;
   }
 
+  /**
+   * Node.js 18+ / 20+ Native Fetch Connection Pooling & Proxy Architecture Note:
+   * Native global fetch is implemented via Undici.
+   * 1. Passing `{ keepalive: true }` in RequestInit utilizes Undici's default connection pool
+   *    and reuses existing TLS/TCP sockets to preserve outbound IP sessions across YouTube endpoints.
+   * 2. If residential proxies or custom proxy rotation are ever introduced, pass Undici's
+   *    `dispatcher` (e.g. `new undici.ProxyAgent(proxyUrl)`) rather than legacy `http.Agent`/`https.Agent`.
+   */
   async function fetchCaptionTrackLines(baseUrl: string, sessionHeaders?: Record<string, string>): Promise<{ text: string; start: number; duration: number }[] | null> {
     if (!baseUrl) return null;
     const cleanUrl = baseUrl.replace(/\\u0026/g, '&').replace(/&amp;/g, '&');

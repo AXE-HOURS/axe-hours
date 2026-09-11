@@ -29,6 +29,7 @@ import {
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
 import { useCalibrationBridge } from '../context/CalibrationBridgeContext';
+import { parseManualTranscript } from '../utils/transcriptParser';
 
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
@@ -94,16 +95,15 @@ export const ScriptFetcher: React.FC = () => {
       return;
     }
 
-    const words = textToApply.split(/\s+/).filter(Boolean);
-    const wordCount = words.length;
+    const parsed = parseManualTranscript(textToApply);
 
     setExtractedData(prev => ({
       ...prev,
-      fullTranscript: textToApply,
+      fullTranscript: parsed.formattedTranscript,
       hasTranscript: true,
       transcriptErrorCode: '',
-      hookText: words.slice(0, 25).join(' ') + (words.length > 25 ? '...' : ''),
-      pacingSpeed: `${Math.round(wordCount / 5)} words/min (Manually Ingested Transcript)`
+      hookText: parsed.hookText,
+      pacingSpeed: parsed.pacingSpeed
     }));
 
     setIsManualInputOpen(false);
@@ -111,7 +111,12 @@ export const ScriptFetcher: React.FC = () => {
     setManualInputText('');
     setWhisperInputText('');
     playAudio(880);
-    addToast("Manual transcript applied! AI Video Architect transfer is now unlocked 🚀", "success");
+    addToast(
+      parsed.hasNativeTimestamps
+        ? `Manual transcript applied with ${parsed.lines.length} preserved timestamp markers! 🚀`
+        : `Manual transcript applied with ${parsed.lines.length} synthesized timecode offsets! 🚀`,
+      "success"
+    );
   };
 
   // Empirical Algorithmic Trust Metrics Simulator

@@ -1312,14 +1312,14 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
       let idCounter = 1;
 
-      // Strategy 1: Check if there are explicit timestamp markers (e.g. 0:00 - 0:03)
+      // Strategy 1: Check if there are explicit timestamp markers (e.g. 0:00 - 0:03 or [01:12] or [00:00])
       lines.forEach(line => {
-        const timecodeRegex = /(\d+:\d+\s*(?:-|to)\s*\d+:\d+|\d+s\s*(?:-|to)\s*\d+s)/i;
+        const timecodeRegex = /(?:\[?(\d+:\d+\s*(?:-|to|–|—)\s*\d+:\d+|\d+s\s*(?:-|to)\s*\d+s)\]?|\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?)/i;
         const hasTimecode = timecodeRegex.exec(line);
         
-        if (hasTimecode) {
-          const rawTimecode = hasTimecode[1];
-          let remaining = line.replace(rawTimecode, "").trim();
+        if (hasTimecode && (hasTimecode[1] || hasTimecode[2])) {
+          const rawTimecode = hasTimecode[1] || hasTimecode[2];
+          let remaining = line.replace(hasTimecode[0], "").trim();
           remaining = remaining.replace(/^[\s\-\*\[\]\:\d]+/g, "").trim();
           
           let label = "SEGMENT";
