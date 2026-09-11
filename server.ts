@@ -660,11 +660,11 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           return;
         }
 
-        const ytApiKey = process.env.YOUTUBE_DATA_API_KEY || req.body.youtubeApiKey;
+        const ytApiKey = process.env.VITE_YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || req.body.youtubeApiKey;
         if (!ytApiKey) {
-          console.error("YouTube Data API v3 authentication failed: YOUTUBE_DATA_API_KEY is not configured.");
+          console.error("YouTube Data API v3 authentication failed: YouTube API key is not configured.");
           res.status(400).json({ 
-            error: "The YouTube Data API is temporarily unavailable. YOUTUBE_DATA_API_KEY is not configured in environment variables.",
+            error: "The YouTube Data API is temporarily unavailable. YouTube API key is not configured in environment variables.",
             youtubeApiError: true
           });
           return;
@@ -1602,11 +1602,11 @@ RULES:
   // Secure Real-Time Analytics Ingestion Endpoint
   app.post("/api/analytics/ingest", async (req, res) => {
     const { channelId, videoId, isLive, customKey } = req.body;
-    const apiKey = customKey || process.env.YOUTUBE_DATA_API_KEY;
+    const apiKey = customKey || process.env.VITE_YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY;
 
     if (isLive && !apiKey) {
       return res.status(401).json({
-        error: "YouTube Data API v3 API Key is missing. Configure YOUTUBE_DATA_API_KEY in the environment registry to unlock live insights."
+        error: "YouTube Data API v3 API Key is missing. Configure VITE_YOUTUBE_API_KEY or YOUTUBE_DATA_API_KEY in the environment registry to unlock live insights."
       });
     }
 
@@ -1680,7 +1680,7 @@ RULES:
   // Secure Competitor Metrics Fetch Endpoint
   app.post("/api/competitors/metrics", async (req, res) => {
     const { handleOrId, accessToken } = req.body;
-    const apiKey = process.env.YOUTUBE_DATA_API_KEY;
+    const apiKey = process.env.VITE_YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY;
 
     if (!handleOrId) {
       res.status(400).json({ error: "handleOrId parameter is required." });
