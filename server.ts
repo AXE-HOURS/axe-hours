@@ -478,17 +478,164 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     }).join("\n");
   }
 
-  async function fetchYoutubeSubtitlesFromXml(videoId: string): Promise<{ lines: { text: string; start: number; duration: number }[] | null, hasTracks: boolean }> {
+  // Rotating pool of modern user-agents for cloud / Render scraping resilience
+  const SCRAPER_USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  ];
+
+  function getRandomUserAgent(): string {
+    return SCRAPER_USER_AGENTS[Math.floor(Math.random() * SCRAPER_USER_AGENTS.length)];
+  }
+
+  function cleanSubtitleText(str: string): string {
+    return str
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+      .replace(/<[^>]+>/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function parseTimedTextXml(xmlText: string): { text: string; start: number; duration: number }[] {
+    const lines: { text: string; start: number; duration: number }[] = [];
+
+    // Format 3 XML: <p t="startMs" d="durMs">...</p>
+    const pRegex = /<p\s+t="(\d+)"(?:\s+d="(\d+)")?[^>]*>([\s\S]*?)<\/p>/gi;
+    let pMatch;
+    while ((pMatch = pRegex.exec(xmlText)) !== null) {
+      const startMs = parseInt(pMatch[1], 10);
+      const durMs = pMatch[2] ? parseInt(pMatch[2], 10) : 0;
+      const text = cleanSubtitleText(pMatch[3]);
+      if (text) {
+        lines.push({
+          text,
+          start: startMs / 1000,
+          duration: durMs / 1000
+        });
+      }
+    }
+
+    // Format 1 XML: <text start="s" dur="s">...</text>
+    if (lines.length === 0) {
+      const textRegex = /<text\s+start="([\d.]+)"(?:\s+dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/gi;
+      let tMatch;
+      while ((tMatch = textRegex.exec(xmlText)) !== null) {
+        const start = parseFloat(tMatch[1]);
+        const duration = tMatch[2] ? parseFloat(tMatch[2]) : 0;
+        const text = cleanSubtitleText(tMatch[3]);
+        if (text) {
+          lines.push({ text, start, duration });
+        }
+      }
+    }
+
+    return lines;
+  }
+
+  async function fetchCaptionTrackLines(baseUrl: string): Promise<{ text: string; start: number; duration: number }[] | null> {
+    if (!baseUrl) return null;
+    const cleanUrl = baseUrl.replace(/\\u0026/g, '&').replace(/&amp;/g, '&');
+
+    // 1. Try raw XML format (remove &fmt= if present)
+    try {
+      const xmlUrl = cleanUrl.replace(/&fmt=[^&]+/, '');
+      const xmlRes = await fetch(xmlUrl, {
+        headers: { "User-Agent": getRandomUserAgent() }
+      });
+      if (xmlRes.ok) {
+        const xml = await xmlRes.text();
+        if (xml && xml.trim().length > 0) {
+          const lines = parseTimedTextXml(xml);
+          if (lines && lines.length > 0) {
+            return lines;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[SubtitleFetcher] XML track fetch error:", e);
+    }
+
+    // 2. Try JSON3 format (&fmt=json3)
+    try {
+      const jsonUrl = cleanUrl.includes('?') ? `${cleanUrl}&fmt=json3` : `${cleanUrl}?fmt=json3`;
+      const jsonRes = await fetch(jsonUrl, {
+        headers: { "User-Agent": getRandomUserAgent() }
+      });
+      if (jsonRes.ok) {
+        const jsonText = await jsonRes.text();
+        if (jsonText && jsonText.trim().length > 0) {
+          try {
+            const data = JSON.parse(jsonText);
+            const lines = parseJsonSubtitles(data);
+            if (lines && lines.length > 0) {
+              return lines;
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      console.warn("[SubtitleFetcher] JSON3 track fetch error:", e);
+    }
+
+    // 3. Try cleanUrl directly
+    try {
+      const directRes = await fetch(cleanUrl, {
+        headers: { "User-Agent": getRandomUserAgent() }
+      });
+      if (directRes.ok) {
+        const txt = await directRes.text();
+        if (txt && txt.trim().length > 0) {
+          const lines = parseTimedTextXml(txt);
+          if (lines && lines.length > 0) {
+            return lines;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[SubtitleFetcher] Direct track fetch error:", e);
+    }
+
+    return null;
+  }
+
+  function sortCaptionTracks(captionTracks: any[]): any[] {
+    return [...captionTracks].sort((a, b) => {
+      const aIsEn = a.languageCode === 'en';
+      const bIsEn = b.languageCode === 'en';
+      const aIsEnStart = a.languageCode?.startsWith('en');
+      const bIsEnStart = b.languageCode?.startsWith('en');
+      const aIsAsr = a.kind === 'asr' || a.vssId?.includes('a.en');
+      const bIsAsr = b.kind === 'asr' || b.vssId?.includes('a.en');
+
+      // Manual English first
+      const aScore = aIsEn && !aIsAsr ? 4 : (aIsEn || aIsAsr ? 3 : (aIsEnStart ? 2 : 1));
+      const bScore = bIsEn && !bIsAsr ? 4 : (bIsEn || bIsAsr ? 3 : (bIsEnStart ? 2 : 1));
+
+      return bScore - aScore;
+    });
+  }
+
+  async function fetchYoutubeSubtitlesFromXml(videoId: string): Promise<{ lines: { text: string; start: number; duration: number }[] | null, hasTracks: boolean, errorCode?: string }> {
     try {
       console.log(`[SubtitleFetcher] Querying XML list for video: ${videoId}`);
       const listUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&type=list`;
       const listRes = await fetch(listUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          "User-Agent": getRandomUserAgent()
         }
       });
       if (!listRes.ok) {
-        return { lines: null, hasTracks: false };
+        return { lines: null, hasTracks: false, errorCode: 'XML_LIST_FAILED' };
       }
       const listXml = await listRes.text();
       const trackRegex = /<track\s+[^>]*lang_code="([^"]+)"[^>]*>/gi;
@@ -499,11 +646,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       }
 
       if (languages.length === 0) {
-        console.log(`[SubtitleFetcher] Direct XML list returned no languages for video: ${videoId}`);
-        return { lines: null, hasTracks: false };
+        return { lines: null, hasTracks: false, errorCode: 'NO_CAPTION_TRACKS' };
       }
 
-      console.log(`[SubtitleFetcher] Direct XML list found languages: ${languages.join(", ")}`);
       let lang: string | undefined = languages.find(l => l === 'en');
       if (!lang) lang = languages.find(l => l.startsWith('en'));
       if (!lang) lang = languages[0];
@@ -511,47 +656,100 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       const xmlUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${lang}`;
       const subRes = await fetch(xmlUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+          "User-Agent": getRandomUserAgent()
         }
       });
       if (!subRes.ok) {
-        return { lines: null, hasTracks: true };
+        return { lines: null, hasTracks: true, errorCode: 'TIMEDTEXT_BLOCKED' };
       }
       const xmlText = await subRes.text();
-      const textRegex = /<text\s+start="([\d.]+)"(?:\s+dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/gi;
-      const lines: { text: string; start: number; duration: number }[] = [];
-      let textMatch;
-      while ((textMatch = textRegex.exec(xmlText)) !== null) {
-        const start = parseFloat(textMatch[1]);
-        const duration = textMatch[2] ? parseFloat(textMatch[2]) : 0;
-        let text = textMatch[3] || "";
-        text = text
-          .replace(/&quot;/g, '"')
-          .replace(/&#39;/g, "'")
-          .replace(/&amp;/g, '&')
-          .replace(/&lt;/g, '<')
-          .replace(/&gt;/g, '>')
-          .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-          .replace(/<\/?[^>]+(>|$)/g, "")
-          .trim();
-        if (text) {
-          lines.push({ text, start, duration });
-        }
-      }
+      const lines = parseTimedTextXml(xmlText);
       return { lines: lines.length > 0 ? lines : null, hasTracks: true };
     } catch (err) {
       console.error("[SubtitleFetcher] Error in XML parser:", err);
-      return { lines: null, hasTracks: false };
+      return { lines: null, hasTracks: false, errorCode: 'PARSER_ERROR' };
     }
   }
 
-  async function fetchYoutubeSubtitles(videoId: string): Promise<{ lines: { text: string; start: number; duration: number }[] | null, hasTracks: boolean }> {
+  async function fetchYoutubeSubtitles(videoId: string): Promise<{ lines: { text: string; start: number; duration: number }[] | null, hasTracks: boolean, errorCode?: string }> {
     try {
-      console.log(`[SubtitleFetcher] Attempting primary watch-page fetch for video: ${videoId}`);
+      console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
+
+      // -------------------------------------------------------------
+      // LAYER 1: Innertube Android Client (Resilient against Cloud/Render bot blocks & PO tokens)
+      // -------------------------------------------------------------
+      let innertubeApiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"; // Default Innertube client key
+      try {
+        // Attempt to extract live Innertube API key from watch page
+        const probeRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+          headers: {
+            "User-Agent": getRandomUserAgent(),
+            "Accept-Language": "en-US,en;q=0.9"
+          }
+        });
+        if (probeRes.ok) {
+          const probeHtml = await probeRes.text();
+          const keyMatch = probeHtml.match(/"INNERTUBE_API_KEY":"([^"]+)"/) ||
+                           probeHtml.match(/INNERTUBE_API_KEY\\":\\"([^\\"]+)\\"/);
+          if (keyMatch) {
+            innertubeApiKey = keyMatch[1];
+          }
+        }
+      } catch (probeErr) {
+        console.warn("[SubtitleFetcher] Watch page probe skipped, using standard Innertube key:", probeErr);
+      }
+
+      try {
+        console.log("[SubtitleFetcher] Layer 1: Querying Innertube Android player API...");
+        const playerRes = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${innertubeApiKey}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+          },
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: "ANDROID",
+                clientVersion: "20.10.38",
+                hl: "en",
+                gl: "US"
+              }
+            },
+            videoId: videoId
+          })
+        });
+
+        if (playerRes.ok) {
+          const playerJson = await playerRes.json() as any;
+          const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
+          const tracks = tracklist?.captionTracks;
+
+          if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+            console.log(`[SubtitleFetcher] Layer 1 found ${tracks.length} caption tracks. Cascading...`);
+            const sortedTracks = sortCaptionTracks(tracks);
+
+            for (const track of sortedTracks) {
+              const lines = await fetchCaptionTrackLines(track.baseUrl);
+              if (lines && lines.length > 0) {
+                console.log(`[SubtitleFetcher] Layer 1 successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
+                return { lines, hasTracks: true };
+              }
+            }
+          }
+        }
+      } catch (l1Err) {
+        console.warn("[SubtitleFetcher] Layer 1 Innertube Android fetch encountered error:", l1Err);
+      }
+
+      // -------------------------------------------------------------
+      // LAYER 2: Primary Web Watch-Page Extraction with User-Agent Rotation
+      // -------------------------------------------------------------
+      console.log("[SubtitleFetcher] Layer 2: Attempting watch-page HTML extraction...");
       const url = `https://www.youtube.com/watch?v=${videoId}`;
       const response = await fetch(url, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+          "User-Agent": getRandomUserAgent(),
           "Accept-Language": "en-US,en;q=0.9"
         }
       });
@@ -562,13 +760,13 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
 
       let captionTracks: any[] | null = null;
       if (html) {
-        // 1. Try to extract ytInitialPlayerResponse
+        // 1. Try ytInitialPlayerResponse
         const playerResponse = extractJsonBlock(html, "ytInitialPlayerResponse");
         if (playerResponse) {
           captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
         }
         
-        // 2. Try to extract ytInitialData
+        // 2. Try ytInitialData
         if (!captionTracks) {
           const initialData = extractJsonBlock(html, "ytInitialData");
           captionTracks = initialData?.playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
@@ -588,47 +786,26 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       }
 
       if (captionTracks && Array.isArray(captionTracks) && captionTracks.length > 0) {
-        console.log(`[SubtitleFetcher] Found ${captionTracks.length} caption tracks. Isolating optimal track...`);
-        
-        // Prioritize English, then automatic/translated English, then any available track
-        let track = captionTracks.find((t: any) => t.languageCode === 'en' && !t.kind);
-        if (!track) {
-          track = captionTracks.find((t: any) => t.languageCode === 'en');
-        }
-        if (!track) {
-          track = captionTracks.find((t: any) => t.languageCode?.startsWith('en'));
-        }
-        if (!track) {
-          track = captionTracks[0];
-        }
-        
-        if (track && track.baseUrl) {
-          console.log(`[SubtitleFetcher] Fetching subtitles from player response track baseUrl: ${track.baseUrl}`);
-          const subResponse = await fetch(track.baseUrl + "&fmt=json", {
-            headers: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-          });
-          
-          if (subResponse.ok) {
-            const subData = await subResponse.json() as any;
-            if (subData && subData.events) {
-              const lines = parseJsonSubtitles(subData);
-              if (lines && lines.length > 0) {
-                console.log(`[SubtitleFetcher] Successfully fetched and parsed ${lines.length} subtitle lines`);
-                return { lines, hasTracks: true };
-              }
-            }
+        console.log(`[SubtitleFetcher] Layer 2 found ${captionTracks.length} caption tracks. Cascading...`);
+        const sortedTracks = sortCaptionTracks(captionTracks);
+
+        for (const track of sortedTracks) {
+          const lines = await fetchCaptionTrackLines(track.baseUrl);
+          if (lines && lines.length > 0) {
+            console.log(`[SubtitleFetcher] Layer 2 successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
+            return { lines, hasTracks: true };
           }
         }
       }
 
-      // If primary watch-page approach failed, run XML parser fallback
-      console.log("[SubtitleFetcher] Primary watch-page approach returned no lines. Running XML parser fallback...");
+      // -------------------------------------------------------------
+      // LAYER 3: Direct XML Timedtext Fallback
+      // -------------------------------------------------------------
+      console.log("[SubtitleFetcher] Layer 3: Running XML parser fallback...");
       return await fetchYoutubeSubtitlesFromXml(videoId);
     } catch (err) {
-      console.error("[SubtitleFetcher] Error fetching subtitles:", err);
-      return { lines: null, hasTracks: false };
+      console.error("[SubtitleFetcher] Error in fetchYoutubeSubtitles pipeline:", err);
+      return { lines: null, hasTracks: false, errorCode: 'PIPELINE_ERROR' };
     }
   }
 
@@ -726,6 +903,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           // Attempt to extract public subtitles
           const subResult = await fetchYoutubeSubtitles(videoId);
           scrapedData.hasTracks = subResult.hasTracks;
+          scrapedData.transcriptErrorCode = subResult.errorCode || null;
           if (subResult.lines && subResult.lines.length > 0) {
             console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
             scrapedData.transcript = subResult.lines.map(line => line.text).join(" ");
@@ -824,6 +1002,13 @@ Category ID: ${scrapedData.categoryId}
 Tags: ${(scrapedData.tags || []).join(', ')}
 --- END METADATA ---
 `;
+        if (scrapedData.transcript && scrapedData.transcript.trim()) {
+          prompt += `\n--- BEGIN AUTHENTIC SPOKEN TRANSCRIPT (CLOSED CAPTIONS) ---
+${scrapedData.transcript.slice(0, 12000)}
+--- END AUTHENTIC SPOKEN TRANSCRIPT ---
+\nCRITICAL: Base your scene-by-scene Visual Blueprint VOICEOVER directly on the authentic spoken dialogue lines above!
+`;
+        }
       }
 
      if (isShortForm) {
@@ -925,13 +1110,17 @@ Return exactly this JSON schema:
         if (scrapedData.transcriptArray && scrapedData.transcriptArray.length > 0) {
           parsedData.fullTranscript = formatSubtitles(scrapedData.transcriptArray);
           parsedData.transcript = scrapedData.transcriptArray;
-        } else if (scrapedData.hasTracks) {
-          parsedData.fullTranscript = "[Note: Subtitle tracks are available on YouTube for this video, but the public extractor failed to retrieve them. Please try again or check the YouTube link directly.]";
-          parsedData.transcript = [];
+          parsedData.hasTranscript = true;
+          parsedData.transcriptErrorCode = null;
         } else {
+          parsedData.hasTranscript = false;
+          parsedData.transcriptErrorCode = scrapedData.transcriptErrorCode || (scrapedData.hasTracks ? "TIMEDTEXT_BLOCKED" : "NO_CAPTIONS_AVAILABLE");
+          parsedData.fullTranscript = "[Notice: No spoken dialogue transcript is available for this video (captions are disabled or video is non-verbal/music). Spoken dialogue extraction is unavailable.]";
           parsedData.transcript = [];
         }
       } else {
+        parsedData.hasTranscript = false;
+        parsedData.transcriptErrorCode = "NO_METADATA";
         parsedData.transcript = [];
       }
 
@@ -1040,8 +1229,8 @@ Return exactly this JSON schema:
         } else {
           finalReportTranscript = formatSubtitles(scrapedData.transcriptArray);
         }
-      } else if (scrapedData.hasTracks) {
-        finalReportTranscript = "[Note: Subtitle tracks are available on YouTube for this video, but the public extractor failed to retrieve them. Please try again or check the YouTube link directly.]";
+      } else if (scrapedData.transcriptArray && scrapedData.transcriptArray.length > 0) {
+        finalReportTranscript = formatSubtitles(scrapedData.transcriptArray);
       } else if (scrapedData.transcript && scrapedData.transcript.trim() !== "") {
         const words = scrapedData.transcript.split(/\s+/).filter(Boolean);
         const totalWords = words.length;
@@ -1056,100 +1245,14 @@ Return exactly this JSON schema:
           
           finalReportTranscript = `⏱️ 0:00 - 0:03 [The Immediate Hook]\n${hookText}\n\n⏱️ 0:03 - 0:15 [The Core Context / Retaining Action]\n${coreText}\n\n⏱️ 0:15 - End [The Loop Trigger / Climax]\n${climaxText}`;
         } else {
-          const paragraphCount = 5;
-          const wordsPerParagraph = Math.ceil(totalWords / paragraphCount);
-
-          const stages = [
-            "Opening Hook Sequence",
-            "Context & Core Introduction",
-            "Detailed Narrative Exploration",
-            "Key Climax / Peak Moment",
-            "Concluding Verdict & Summary"
-          ];
-
-          for (let i = 0; i < paragraphCount; i++) {
-            const startWord = i * wordsPerParagraph;
-            const endWord = Math.min(totalWords, (i + 1) * wordsPerParagraph);
-            if (startWord >= totalWords) break;
-
-            const paragraphText = words.slice(startWord, endWord).join(" ");
-            
-            let timestampStr = "0:00";
-            if (displayDuration) {
-              const cleanDur = displayDuration.replace("m", "");
-              const parts = cleanDur.split(":");
-              if (parts.length === 2) {
-                const totalSecs = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
-                const currentSecs = Math.floor((i / paragraphCount) * totalSecs);
-                const nextSecs = Math.min(totalSecs - 1, Math.floor(((i + 1) / paragraphCount) * totalSecs));
-                
-                const startMinStr = Math.floor(currentSecs / 60);
-                const startSecStr = (currentSecs % 60).toString().padStart(2, "0");
-                const endMinStr = Math.floor(nextSecs / 60);
-                const endSecStr = (nextSecs % 60).toString().padStart(2, "0");
-                timestampStr = `${startMinStr}:${startSecStr} - ${endMinStr}:${endSecStr}`;
-              } else {
-                timestampStr = `Part ${i + 1}`;
-              }
-            } else {
-              timestampStr = `Part ${i + 1}`;
-            }
-
-            finalReportTranscript += `⏱️ ${timestampStr} [${stages[i]}]\n${paragraphText}\n\n`;
-          }
+          finalReportTranscript = scrapedData.transcript;
         }
       } else {
         const classification = classifyNonVerbal(displayTitle, displayDesc, scrapedData.tags || [], scrapedData.categoryId || "");
         if (classification.isNonVerbal) {
-          if (isShortForm) {
-            finalReportTranscript = `[Non-Verbal Action/Sports Highlights Video - No Spoken Voice Transcript Detected]
-
-Note: This video has been officially classified as non-verbal by our API metadata analysis engine (${classification.reason}). Here is the visual playbook constructed from the video details:
-
-⏱️ 0:00 - 0:03 [The Immediate Hook]: Fast, intense visual montage of key action moments. High-energy visual overlays and ambient cues introduce "${displayTitle}" to capture audience focus within the first 3 seconds.
-
-⏱️ 0:03 - 0:15 [The Core Context / Retaining Action]: Centers on high-retention visual pacing and dynamic cut cadences. The sequence introduces the key details of the event:
-${displayDesc.substring(0, Math.min(450, displayDesc.length))}...
-
-⏱️ 0:15 - End [The Loop Trigger / Climax]: The sequence wraps up with highest intensity frames, scorecard/highlight summaries, and a seamless visual loop back to the start.`;
-          } else {
-            finalReportTranscript = `[Non-Verbal Action/Sports Highlights Video - No Spoken Voice Transcript Detected]
-
-Note: This video has been officially classified as non-verbal by our API metadata analysis engine (${classification.reason}). Here is the visual playbook constructed from the video details:
-
-⏱️ 0:01 - 1:15 [Opening Hook Sequence]: Fast, intense visual montage of key action moments. High-energy visual overlays and ambient cues introduce "${displayTitle}" to capture audience focus within the first 3 seconds.
-
-⏱️ 1:15 - 4:30 [Dynamic Context & Highlights]: Centers on high-retention visual pacing and dynamic cut cadences. The sequence introduces the key details of the event:
-${displayDesc.substring(0, Math.min(450, displayDesc.length))}...
-
-⏱️ 4:30 - end [The Climax & Closure]: The sequence wraps up with highest intensity frames, scorecard/highlight summaries, and a seamless visual loop back to the start.`;
-          }
+          finalReportTranscript = `[Non-Verbal Action/Sports Highlights Video - No Spoken Voice Transcript Detected]\n\nNote: This video has been officially classified as non-verbal by our API metadata analysis engine (${classification.reason}). Visual pacing and action cues are present rather than spoken dialogue.`;
         } else {
-          if (isShortForm) {
-            finalReportTranscript = `[Note: Subtitle tracks are unavailable, but here is the dynamic structural blueprint constructed from the video details]
-
-⏱️ 0:00 - 0:03 [The Immediate Hook]:
-The creator starts with an immediate hook to capture attention, introducing the core topic of "${displayTitle}".
-
-⏱️ 0:03 - 0:15 [The Core Context / Retaining Action]:
-The presentation shifts into introducing the key details and constraints of the video. Here is a summary of the conceptual frame:
-${displayDesc.substring(0, Math.min(450, displayDesc.length))}...
-
-⏱️ 0:15 - End [The Loop Trigger / Climax]:
-Closing sections wrap up the main arguments, summary lessons, and final CTA points.`;
-          } else {
-            finalReportTranscript = `[Note: Subtitle tracks are unavailable, but here is the dynamic structural blueprint constructed from the video details]
-
-⏱️ 0:01 - 1:15 [Opening Hook segment]:
-The creator starts with an immediate hook to capture attention, introducing the core topic of "${displayTitle}".
-
-⏱️ 1:15 - 4:30 [Dynamic Context & Background]:
-The presentation shifts into introducing the key details and constraints of the video. Here is a summary of the conceptual frame:
-${displayDesc.substring(0, Math.min(450, displayDesc.length))}...
-
-⏱️ 4:30 - end [The Key Climax & Takeaway]:
-Closing sections wrap up the main arguments, summary lessons, and final CTA points.`;
-          }
+          finalReportTranscript = `[Notice: Spoken dialogue transcript is unavailable for this video (captions are disabled or video is non-verbal/music). Spoken dialogue extraction is unavailable.]`;
         }
       }
 
@@ -1172,6 +1275,8 @@ Closing sections wrap up the main arguments, summary lessons, and final CTA poin
         ? scrapedData.transcript.split(/\s+/).slice(0, 30).join(" ") + "..."
         : (classification.isNonVerbal ? "[Visual Highlights / Action Track]" : `Let's talk about ${displayTitle}. In this video, we're going to dive into exactly how this works...`);
 
+      const hasValidTranscript = Boolean((scrapedData.transcriptArray && scrapedData.transcriptArray.length > 0) || (scrapedData.transcript && scrapedData.transcript.trim().length > 0));
+
       return {
         title: displayTitle,
         platform: "youtube" as const,
@@ -1184,7 +1289,9 @@ Closing sections wrap up the main arguments, summary lessons, and final CTA poin
         pacingSpeed: calculatedPacing,
         metadataDesc: `Detailed strategic retention analysis of "${displayTitle}" by ${displayAuthor}. We unpack the narrative triggers, pacing speeds, and high-CTR thumbnail layouts.`,
         suggestedTags: suggestedTags,
-        transcript: scrapedData.transcriptArray || []
+        transcript: scrapedData.transcriptArray || [],
+        hasTranscript: hasValidTranscript,
+        transcriptErrorCode: hasValidTranscript ? null : (scrapedData.transcriptErrorCode || (scrapedData.hasTracks ? "TIMEDTEXT_BLOCKED" : "NO_CAPTIONS_AVAILABLE"))
       };
     }
 

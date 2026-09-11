@@ -19,7 +19,8 @@ import {
   Play,
   Info,
   Sliders,
-  Wand2
+  Wand2,
+  AlertTriangle
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
@@ -71,7 +72,9 @@ export const ScriptFetcher: React.FC = () => {
     hookText: '',
     pacingSpeed: '',
     metadataDesc: '',
-    suggestedTags: [] as string[]
+    suggestedTags: [] as string[],
+    hasTranscript: false,
+    transcriptErrorCode: ''
   });
 
   // Empirical Algorithmic Trust Metrics Simulator
@@ -246,6 +249,10 @@ export const ScriptFetcher: React.FC = () => {
 
       const data = await response.json();
 
+      const hasTranscript = data.hasTranscript !== undefined
+        ? Boolean(data.hasTranscript)
+        : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:'));
+
       setExtractedData({
         title: data.title || 'Untitled Extraction',
         platform: data.platform || 'youtube',
@@ -257,7 +264,9 @@ export const ScriptFetcher: React.FC = () => {
         hookText: data.hookText || 'N/A',
         fullTranscript: data.fullTranscript || 'N/A',
         metadataDesc: data.metadataDesc || 'N/A',
-        suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : []
+        suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
+        hasTranscript: hasTranscript,
+        transcriptErrorCode: data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE')
       });
 
       logUserActivity('fetch_script', `Extracted Video: "${data.title || 'Untitled Extraction'}"`, `Downloaded full transcript and calculated high-retention analytics from external video stream.`);
@@ -331,8 +340,8 @@ export const ScriptFetcher: React.FC = () => {
   };
 
   const onTransferToArchitect = () => {
-    if (!extractedData.fullTranscript || extractedData.fullTranscript === 'N/A') {
-      addToast("No extracted blueprint transcript found to transfer!", "error");
+    if (!extractedData.fullTranscript || extractedData.fullTranscript === 'N/A' || !extractedData.hasTranscript) {
+      addToast("Cannot transfer: No authentic spoken dialogue transcript is available for this video.", "error");
       return;
     }
 
@@ -549,11 +558,27 @@ export const ScriptFetcher: React.FC = () => {
                 <div className="space-y-4">
                   <div className="p-4 bg-black/40 border border-white/5 rounded-xl space-y-3 leading-relaxed">
                     <div className="flex justify-between items-center mb-1">
-                      <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest font-mono">Raw Full Text Transcript</span>
+                      {extractedData.hasTranscript ? (
+                        <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          Raw Full Text Transcript (Authentic Captions)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
+                          <AlertTriangle size={12} className="text-amber-400" />
+                          No Spoken Dialogue Track Available
+                        </span>
+                      )}
                       <div className="flex items-center gap-3">
                         <button 
                           onClick={onTransferToArchitect}
-                          className="text-purple-400 hover:text-purple-300 text-xs flex items-center gap-1 select-none font-mono font-bold cursor-pointer"
+                          disabled={!extractedData.hasTranscript}
+                          className={`text-xs flex items-center gap-1 select-none font-mono font-bold ${
+                            extractedData.hasTranscript 
+                              ? 'text-purple-400 hover:text-purple-300 cursor-pointer' 
+                              : 'text-gray-600 cursor-not-allowed opacity-50'
+                          }`}
+                          title={extractedData.hasTranscript ? "Transfer spoken transcript to AI Video Architect" : "Transfer unavailable: No authentic spoken dialogue was found for this video"}
                         >
                           <Wand2 size={11} /> Transfer to Architect
                         </button>
@@ -566,9 +591,9 @@ export const ScriptFetcher: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                    <p className="text-xs font-light text-white italic whitespace-pre-line">
-  {extractedData.fullTranscript}
-</p>
+                    <p className={`text-xs leading-relaxed whitespace-pre-line ${extractedData.hasTranscript ? 'font-light text-white' : 'font-mono text-gray-400 italic bg-amber-500/5 p-3 rounded-lg border border-amber-500/15'}`}>
+                      {extractedData.fullTranscript}
+                    </p>
                   </div>
 
                   {/* High Quality Thumbnail Advice */}
