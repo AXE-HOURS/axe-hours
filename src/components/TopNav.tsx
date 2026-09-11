@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { 
   Search, Bell, HelpCircle, User, Award, Video, Check, BookOpen, Sparkles, Wand2,
   Menu, X, LayoutDashboard, Lightbulb, Bookmark, Zap, BarChart3, Settings, Crown, LogOut, Plus, History,
-  TrendingUp, Download
+  Download
 } from 'lucide-react';
 import { Modal } from './Modal';
 import { PrimaryButton } from './PrimaryButton';
@@ -215,7 +215,6 @@ export const TopNav: React.FC<TopNavProps> = ({
     { id: 'generator', label: 'Generate Ideas', icon: Lightbulb },
     { id: 'saved', label: 'Saved Ideas', icon: Bookmark },
     { id: 'viral', label: 'Viral Hooks', icon: Zap },
-    { id: 'competitor-intel', label: 'Competitor Intel', icon: TrendingUp },
     { id: 'script-fetcher', label: 'Script Fetcher', icon: Download },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'activity-log', label: 'Activity Trail', icon: History },
