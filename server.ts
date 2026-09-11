@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { rateLimit } from "express-rate-limit";
+import { gunzipSync, inflateSync } from "node:zlib";
 
 dotenv.config();
 
@@ -501,9 +502,37 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       .replace(/&gt;/g, '>')
       .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
       .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-      .replace(/<[^>]+>/g, "")
+      // Replace tags with a single space to avoid concatenating words across adjacent <p> and <s> elements
+      .replace(/<[^>]+>/g, " ")
+      // Space normalization regex check ensuring clean single spacing
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  // Decompresses gzip/deflate buffers if returned by timedtext endpoints
+  async function decodeHttpResponseText(res: Response): Promise<string> {
+    const arrayBuffer = await res.arrayBuffer();
+    const buf = Buffer.from(arrayBuffer);
+
+    // Check gzip magic header bytes (0x1f, 0x8b)
+    if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
+      try {
+        return gunzipSync(buf).toString("utf-8");
+      } catch (e) {
+        console.warn("[SubtitleFetcher] gunzipSync failed, falling back to utf-8:", e);
+      }
+    }
+
+    const encoding = res.headers.get("content-encoding");
+    if (encoding === "deflate") {
+      try {
+        return inflateSync(buf).toString("utf-8");
+      } catch (e) {
+        console.warn("[SubtitleFetcher] inflateSync failed, falling back to utf-8:", e);
+      }
+    }
+
+    return buf.toString("utf-8");
   }
 
   function parseTimedTextXml(xmlText: string): { text: string; start: number; duration: number }[] {
@@ -542,18 +571,25 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     return lines;
   }
 
-  async function fetchCaptionTrackLines(baseUrl: string): Promise<{ text: string; start: number; duration: number }[] | null> {
+  async function fetchCaptionTrackLines(baseUrl: string, sessionHeaders?: Record<string, string>): Promise<{ text: string; start: number; duration: number }[] | null> {
     if (!baseUrl) return null;
     const cleanUrl = baseUrl.replace(/\\u0026/g, '&').replace(/&amp;/g, '&');
+
+    const headers: Record<string, string> = {
+      "User-Agent": sessionHeaders?.["User-Agent"] || getRandomUserAgent(),
+      "Accept-Encoding": "gzip, deflate, br",
+      ...(sessionHeaders?.["Cookie"] ? { "Cookie": sessionHeaders["Cookie"] } : {})
+    };
 
     // 1. Try raw XML format (remove &fmt= if present)
     try {
       const xmlUrl = cleanUrl.replace(/&fmt=[^&]+/, '');
       const xmlRes = await fetch(xmlUrl, {
-        headers: { "User-Agent": getRandomUserAgent() }
+        headers,
+        keepalive: true
       });
       if (xmlRes.ok) {
-        const xml = await xmlRes.text();
+        const xml = await decodeHttpResponseText(xmlRes);
         if (xml && xml.trim().length > 0) {
           const lines = parseTimedTextXml(xml);
           if (lines && lines.length > 0) {
@@ -569,10 +605,11 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     try {
       const jsonUrl = cleanUrl.includes('?') ? `${cleanUrl}&fmt=json3` : `${cleanUrl}?fmt=json3`;
       const jsonRes = await fetch(jsonUrl, {
-        headers: { "User-Agent": getRandomUserAgent() }
+        headers,
+        keepalive: true
       });
       if (jsonRes.ok) {
-        const jsonText = await jsonRes.text();
+        const jsonText = await decodeHttpResponseText(jsonRes);
         if (jsonText && jsonText.trim().length > 0) {
           try {
             const data = JSON.parse(jsonText);
@@ -590,10 +627,11 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     // 3. Try cleanUrl directly
     try {
       const directRes = await fetch(cleanUrl, {
-        headers: { "User-Agent": getRandomUserAgent() }
+        headers,
+        keepalive: true
       });
       if (directRes.ok) {
-        const txt = await directRes.text();
+        const txt = await decodeHttpResponseText(directRes);
         if (txt && txt.trim().length > 0) {
           const lines = parseTimedTextXml(txt);
           if (lines && lines.length > 0) {
@@ -701,12 +739,17 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
 
       try {
         console.log("[SubtitleFetcher] Layer 1: Querying Innertube Android player API...");
+        const androidHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+          "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14; Pixel 8 Pro) gzip",
+          "X-YouTube-Client-Name": "3",
+          "X-YouTube-Client-Version": "20.10.38",
+          "Accept-Encoding": "gzip, deflate, br"
+        };
+
         const playerRes = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${innertubeApiKey}`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
-          },
+          headers: androidHeaders,
           body: JSON.stringify({
             context: {
               client: {
@@ -717,7 +760,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
               }
             },
             videoId: videoId
-          })
+          }),
+          keepalive: true
         });
 
         if (playerRes.ok) {
@@ -725,12 +769,19 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
           const tracks = tracklist?.captionTracks;
 
+          // Pin session headers (User-Agent and Set-Cookie) to maintain exact outbound socket and session IP
+          const sessionCookie = playerRes.headers.get("set-cookie") || "";
+          const sessionHeaders: Record<string, string> = {
+            "User-Agent": androidHeaders["User-Agent"],
+            ...(sessionCookie ? { "Cookie": sessionCookie } : {})
+          };
+
           if (tracks && Array.isArray(tracks) && tracks.length > 0) {
-            console.log(`[SubtitleFetcher] Layer 1 found ${tracks.length} caption tracks. Cascading...`);
+            console.log(`[SubtitleFetcher] Layer 1 found ${tracks.length} caption tracks. Cascading with pinned session...`);
             const sortedTracks = sortCaptionTracks(tracks);
 
             for (const track of sortedTracks) {
-              const lines = await fetchCaptionTrackLines(track.baseUrl);
+              const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
               if (lines && lines.length > 0) {
                 console.log(`[SubtitleFetcher] Layer 1 successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
                 return { lines, hasTracks: true };

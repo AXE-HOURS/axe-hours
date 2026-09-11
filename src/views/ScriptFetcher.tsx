@@ -20,7 +20,11 @@ import {
   Info,
   Sliders,
   Wand2,
-  AlertTriangle
+  AlertTriangle,
+  Edit3,
+  Mic,
+  Check,
+  X
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
@@ -76,6 +80,39 @@ export const ScriptFetcher: React.FC = () => {
     hasTranscript: false,
     transcriptErrorCode: ''
   });
+
+  // Manual Transcript & Whisper Audio Fallback states
+  const [isManualInputOpen, setIsManualInputOpen] = useState<boolean>(false);
+  const [manualInputText, setManualInputText] = useState<string>('');
+  const [isWhisperModalOpen, setIsWhisperModalOpen] = useState<boolean>(false);
+  const [whisperInputText, setWhisperInputText] = useState<string>('');
+
+  const handleApplyManualTranscript = (customText?: string) => {
+    const textToApply = (typeof customText === 'string' ? customText : manualInputText).trim();
+    if (!textToApply) {
+      addToast("Please enter or paste transcript dialogue text.", "error");
+      return;
+    }
+
+    const words = textToApply.split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+
+    setExtractedData(prev => ({
+      ...prev,
+      fullTranscript: textToApply,
+      hasTranscript: true,
+      transcriptErrorCode: '',
+      hookText: words.slice(0, 25).join(' ') + (words.length > 25 ? '...' : ''),
+      pacingSpeed: `${Math.round(wordCount / 5)} words/min (Manually Ingested Transcript)`
+    }));
+
+    setIsManualInputOpen(false);
+    setIsWhisperModalOpen(false);
+    setManualInputText('');
+    setWhisperInputText('');
+    playAudio(880);
+    addToast("Manual transcript applied! AI Video Architect transfer is now unlocked 🚀", "success");
+  };
 
   // Empirical Algorithmic Trust Metrics Simulator
   const [simHook, setSimHook] = useState<string>('Stop spending 6 months coding a SaaS to save hours of pain! 🤫');
@@ -594,6 +631,74 @@ export const ScriptFetcher: React.FC = () => {
                     <p className={`text-xs leading-relaxed whitespace-pre-line ${extractedData.hasTranscript ? 'font-light text-white' : 'font-mono text-gray-400 italic bg-amber-500/5 p-3 rounded-lg border border-amber-500/15'}`}>
                       {extractedData.fullTranscript}
                     </p>
+
+                    {!extractedData.hasTranscript && (
+                      <div className="pt-3 border-t border-white/5 space-y-3">
+                        <div className="flex flex-wrap items-center gap-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setIsManualInputOpen(!isManualInputOpen)}
+                            className="px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                          >
+                            <Edit3 size={13} className="text-emerald-400" />
+                            <span>{isManualInputOpen ? "Close Manual Editor" : "Paste Raw Transcript Manually"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsWhisperModalOpen(true)}
+                            className="px-3 py-2 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                          >
+                            <Mic size={13} className="text-purple-400" />
+                            <span>Run Whisper / Audio Transcription</span>
+                          </button>
+                        </div>
+
+                        {/* Collapsible Manual Transcript Input */}
+                        {isManualInputOpen && (
+                          <div className="p-3.5 bg-black/60 border border-emerald-500/25 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[11px] font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
+                                <Edit3 size={12} className="text-emerald-400" />
+                                Paste Spoken Dialogue / Captions
+                              </span>
+                              <span className="text-[10px] text-gray-500 font-mono">Unlocks Architect Transfer</span>
+                            </div>
+                            <textarea
+                              rows={5}
+                              value={manualInputText}
+                              onChange={(e) => setManualInputText(e.target.value)}
+                              placeholder="Paste raw spoken transcript, captions, or notes here... (e.g. '0:00 In this video I tested the new smartphone...')"
+                              className="w-full bg-[#020203] border border-white/10 focus:border-emerald-500/40 rounded-lg p-3 text-xs text-white placeholder-gray-600 outline-none font-sans leading-relaxed resize-y"
+                            />
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsManualInputOpen(false);
+                                  setManualInputText('');
+                                }}
+                                className="px-3 py-1.5 text-xs text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleApplyManualTranscript()}
+                                disabled={!manualInputText.trim()}
+                                className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                  manualInputText.trim()
+                                    ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20'
+                                    : 'bg-white/5 text-gray-600 cursor-not-allowed'
+                                }`}
+                              >
+                                <Check size={13} />
+                                <span>Apply Transcript</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* High Quality Thumbnail Advice */}
@@ -936,6 +1041,103 @@ export const ScriptFetcher: React.FC = () => {
         </div>
 
       </div>
+
+      {/* Whisper Audio Transcription Modal */}
+      {isWhisperModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-[#0b0c10] border border-purple-500/30 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl shadow-purple-950/50 relative max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-white/10 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                  <Mic size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-white tracking-wide flex items-center gap-2">
+                    Whisper Audio Transcription Pipeline
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Transcribe spoken audio directly when YouTube closed captions are restricted or unavailable.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsWhisperModalOpen(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Step 1: Extract Audio & Command */}
+              <div className="p-3.5 bg-black/40 border border-white/5 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white uppercase tracking-wider font-mono text-[11px] flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-[10px]">1</span>
+                    Quick CLI / yt-dlp Transcription Command
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(`yt-dlp -x --audio-format mp3 "${videoUrl}" && whisper audio.mp3 --model base --output_format txt`);
+                      playAudio(659);
+                      addToast("CLI command copied to clipboard!", "success");
+                    }}
+                    className="text-[10px] text-purple-400 hover:text-purple-300 font-mono flex items-center gap-1 cursor-pointer"
+                  >
+                    <Copy size={11} /> Copy Command
+                  </button>
+                </div>
+                <pre className="p-2.5 bg-[#020203] border border-white/5 rounded-lg font-mono text-[11px] text-gray-300 overflow-x-auto select-all">
+                  {`yt-dlp -x --audio-format mp3 "${videoUrl || 'https://youtube.com/watch?v=...'}" && whisper audio.mp3 --model base --output_format txt`}
+                </pre>
+              </div>
+
+              {/* Step 2: Paste Output */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-white uppercase tracking-wider font-mono text-[11px] flex items-center gap-1.5">
+                    <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[10px]">2</span>
+                    Paste Whisper Speech-to-Text Output
+                  </label>
+                  <span className="text-[10px] text-gray-500 font-mono">Accepts timestamps or raw dialogue</span>
+                </div>
+                <textarea
+                  rows={6}
+                  value={whisperInputText}
+                  onChange={(e) => setWhisperInputText(e.target.value)}
+                  placeholder="Paste the generated Whisper transcript here... (e.g. '[00:00] In this video, we build an autonomous agent...')"
+                  className="w-full bg-[#020203] border border-white/10 focus:border-purple-500/40 rounded-xl p-3 text-xs text-white placeholder-gray-600 outline-none font-sans leading-relaxed resize-y"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setIsWhisperModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-400 hover:text-white rounded-xl hover:bg-white/5 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyManualTranscript(whisperInputText)}
+                disabled={!whisperInputText.trim()}
+                className={`px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                  whisperInputText.trim()
+                    ? 'bg-purple-500 hover:bg-purple-400 text-white shadow-lg shadow-purple-500/25'
+                    : 'bg-white/5 text-gray-600 cursor-not-allowed'
+                }`}
+              >
+                <Check size={14} />
+                <span>Ingest & Apply Transcript</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
