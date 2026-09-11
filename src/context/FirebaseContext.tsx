@@ -50,10 +50,24 @@ export interface SavedIdeaItem {
   userId?: string;
 }
 
+export type ActivityActionType = 
+  | 'generate' 
+  | 'save_idea' 
+  | 'remove_idea' 
+  | 'import_hook' 
+  | 'competitor_intel' 
+  | 'fetch_script' 
+  | 'profile_update' 
+  | 'custom_search'
+  | 'dispatch_script_draft'
+  | 'script_generator'
+  | 'transfer_to_architect'
+  | string;
+
 export interface UserActivityItem {
   id: number;
   userId?: string;
-  actionType: 'generate' | 'save_idea' | 'remove_idea' | 'import_hook' | 'competitor_intel' | 'fetch_script' | 'profile_update' | 'custom_search';
+  actionType: ActivityActionType;
   actionTitle: string;
   description: string;
   timestamp: string;
@@ -79,7 +93,7 @@ interface FirebaseContextType {
   removeIdeaDB: (id: number) => Promise<void>;
   updateProfile: (profileUpdates: Partial<UserProfile>) => Promise<void>;
   logUserActivity: (
-    actionType: 'generate' | 'save_idea' | 'remove_idea' | 'import_hook' | 'competitor_intel' | 'fetch_script' | 'profile_update' | 'custom_search',
+    actionType: ActivityActionType,
     actionTitle: string,
     description: string
   ) => Promise<void>;
@@ -616,7 +630,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const logUserActivity = async (
-    actionType: 'generate' | 'save_idea' | 'remove_idea' | 'import_hook' | 'competitor_intel' | 'fetch_script' | 'profile_update' | 'custom_search',
+    actionType: ActivityActionType,
     actionTitle: string,
     description: string
   ) => {

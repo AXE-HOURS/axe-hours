@@ -30,12 +30,26 @@ export const ScriptFetcher: React.FC = () => {
   const { logUserActivity, user } = useFirebase();
   const { calibrationHook, setCalibrationHook } = useCalibrationBridge();
   const uid = user?.uid || "guest";
-  const [videoUrl, setVideoUrl] = useState<string>('');
+  const [videoUrl, setVideoUrl] = useState<string>(() => sessionStorage.getItem('pending_script_fetcher_url') || '');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'all' | 'hooks' | 'pacing' | 'metadata'>('all');
   const [extractionDone, setExtractionDone] = useState<boolean>(false);
   const [progressText, setProgressText] = useState<string>('');
   const [progressVal, setProgressVal] = useState<number>(0);
+
+  useEffect(() => {
+    const checkPendingUrl = () => {
+      const pending = sessionStorage.getItem('pending_script_fetcher_url');
+      if (pending) {
+        setVideoUrl(pending);
+        sessionStorage.removeItem('pending_script_fetcher_url');
+        addToast("Video URL piped from Competitor Intel! Ready for transcription extraction. 🚀", "success");
+      }
+    };
+    checkPendingUrl();
+    window.addEventListener('load-script-fetcher-url', checkPendingUrl);
+    return () => window.removeEventListener('load-script-fetcher-url', checkPendingUrl);
+  }, [addToast]);
 
   useEffect(() => {
     if (calibrationHook) {
