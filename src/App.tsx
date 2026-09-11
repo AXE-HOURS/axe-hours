@@ -17,7 +17,7 @@ import { Wand2 } from 'lucide-react';
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
 const AIGenerator = lazy(() => import('./views/AIGenerator').then(m => ({ default: m.AIGenerator })));
-const Analytics = lazy(() => import('./views/Analytics').then(m => ({ default: m.Analytics })));
+const Analytics = lazy(() => import('./views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
 const CompetitorIntel = lazy(() => import('./views/CompetitorIntel').then(m => ({ default: m.CompetitorIntel })));
 const ScriptFetcher = lazy(() => import('./views/ScriptFetcher').then(m => ({ default: m.ScriptFetcher })));
 

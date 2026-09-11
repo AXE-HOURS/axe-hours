@@ -91,7 +91,9 @@ const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined
 export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [dbUser, setDbUser] = useState<UserProfile | null>(null);
-  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => {
+    return typeof window !== 'undefined' ? sessionStorage.getItem('yt_access_token') : null;
+  });
   const [recentGenerations, setRecentGenerations] = useState<GenerationItem[]>([]);
   const [savedIdeas, setSavedIdeas] = useState<SavedIdeaItem[]>([]);
   const [userActivities, setUserActivities] = useState<UserActivityItem[]>([]);
@@ -421,9 +423,12 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (credential?.accessToken) {
-        setGoogleAccessToken(credential.accessToken);
+      const accessToken = credential?.accessToken;
+      if (accessToken) {
+        sessionStorage.setItem('yt_access_token', accessToken);
+        setGoogleAccessToken(accessToken);
       }
+      return result.user;
     } catch (e: any) {
       if (e?.code?.includes("operation-not-allowed") || e?.message?.includes("operation-not-allowed") || e?.code?.includes("provider-disabled")) {
         console.info("Google Auth not enabled in Firebase Console; initializing fallback session.");
@@ -466,6 +471,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const logout = async () => {
     try {
       localStorage.removeItem('axe_hours_local_session');
+      sessionStorage.removeItem('yt_access_token');
       await signOut(auth);
     } catch (e) {
       console.error("Logout Failure: ", e);

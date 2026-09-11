@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, OAuthProvider, GithubAuthProvider } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, OAuthProvider, GithubAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -18,12 +18,37 @@ const app = getApps().length === 0 ? initializeApp(productionFirebaseConfig) : g
 export const auth = getAuth(app);
 export const db = getFirestore(app, '(default)');
 
-// Pre-configured Google Auth Provider with YouTube Analytics & YouTube Readonly scopes
+// Pre-configured Google Auth Provider with read-only scopes
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/yt-analytics.readonly');
 googleProvider.addScope('https://www.googleapis.com/auth/youtube.readonly');
-googleProvider.addScope('https://www.googleapis.com/auth/youtube.upload');
-googleProvider.addScope('https://www.googleapis.com/auth/calendar.events');
+googleProvider.addScope('https://www.googleapis.com/auth/yt-analytics.readonly');
+
+// Force account chooser prompt
+googleProvider.setCustomParameters({
+  prompt: 'select_account'
+});
+
+/**
+ * Sign in with Google and extract YouTube OAuth access token for live API calls
+ */
+export async function signInWithGoogle() {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    
+    // Extract the OAuth Access Token granting YouTube read access
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    const accessToken = credential?.accessToken;
+
+    if (accessToken) {
+      sessionStorage.setItem('yt_access_token', accessToken);
+    }
+
+    return result.user;
+  } catch (error) {
+    console.error('Sign-in failed:', error);
+    throw error;
+  }
+}
 
 // Microsoft and GitHub Auth Providers
 export const microsoftProvider = new OAuthProvider('microsoft.com');
