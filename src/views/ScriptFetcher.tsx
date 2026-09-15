@@ -33,7 +33,7 @@ import { parseManualTranscript } from '../utils/transcriptParser';
 
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
-  const { logUserActivity, user } = useFirebase();
+  const { logUserActivity, logActivity, user } = useFirebase();
   const { calibrationHook, setCalibrationHook } = useCalibrationBridge();
   const uid = user?.uid || "guest";
   const [videoUrl, setVideoUrl] = useState<string>(() => sessionStorage.getItem('pending_script_fetcher_url') || '');
@@ -68,6 +68,7 @@ export const ScriptFetcher: React.FC = () => {
   // Simulated extraction package contents
   const [extractedData, setExtractedData] = useState({
     title: '',
+    author: '',
     platform: 'youtube' as 'youtube' | 'tiktok' | 'instagram',
     duration: '',
     views: '',
@@ -110,6 +111,7 @@ export const ScriptFetcher: React.FC = () => {
     setIsWhisperModalOpen(false);
     setManualInputText('');
     setWhisperInputText('');
+    logActivity('fetch_script', extractedData.title || 'Manual Transcript Extraction', 'Applied and parsed custom transcript dialogue.');
     playAudio(880);
     addToast(
       parsed.hasNativeTimestamps
@@ -297,6 +299,7 @@ export const ScriptFetcher: React.FC = () => {
 
       setExtractedData({
         title: data.title || 'Untitled Extraction',
+        author: data.author || '',
         platform: data.platform || 'youtube',
         duration: data.duration || 'N/A',
         views: data.views || 'N/A',
@@ -311,7 +314,7 @@ export const ScriptFetcher: React.FC = () => {
         transcriptErrorCode: data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE')
       });
 
-      logUserActivity('fetch_script', `Extracted Video: "${data.title || 'Untitled Extraction'}"`, `Downloaded full transcript and calculated high-retention analytics from external video stream.`);
+      logActivity('fetch_script', data.title || 'Untitled Extraction', `Downloaded full transcript and calculated high-retention analytics from external video stream.`);
 
       setIsLoading(false);
       setExtractionDone(true);
@@ -387,26 +390,38 @@ export const ScriptFetcher: React.FC = () => {
       return;
     }
 
+    const payload = {
+      title: extractedData.title || 'Untitled Video',
+      author: extractedData.author || '',
+      openingHook: extractedData.hookText || '',
+      fullTranscript: extractedData.fullTranscript || '',
+      sourceUrl: videoUrl.trim()
+    };
+
+    // Serialize payload into sessionStorage for AI Video Architect (and ViralHooks)
+    sessionStorage.setItem('pending_architect_payload', JSON.stringify(payload));
+
     // Write structured transcript blueprint string to localStorage as a safety buffer
     localStorage.setItem('pending_architect_prompt', extractedData.fullTranscript);
 
     // Dispatch custom event to load settings into AI Video Architect
     window.dispatchEvent(new CustomEvent("load-generator-settings", {
       detail: {
-        prompt: extractedData.fullTranscript
+        prompt: extractedData.title || extractedData.fullTranscript,
+        architectPayload: payload
       }
     }));
 
-    // Switch view to generator
+    // Dispatch view-change event to navigate to the generator view
     window.dispatchEvent(new CustomEvent("change-active-view", {
       detail: { view: "generator" }
     }));
 
     playAudio(880);
-    addToast("Structured transcript blueprint piped to AI Video Architect! 🚀", "success");
+    addToast("Video context & reference hook piped to AI Video Architect! 🚀", "success");
     
     // Log user activity
-    logUserActivity('transfer_to_architect', `Transferred extracted blueprint from: "${extractedData.title || 'Untitled'}"`, `Piped structural blueprint of ${extractedData.fullTranscript.length} characters into the Architect Prompt Entry.`);
+    logUserActivity('transfer_to_architect', `Transferred extracted blueprint from: "${extractedData.title || 'Untitled'}"`, `Piped structural blueprint of ${extractedData.fullTranscript.length} characters and reference hook into AI Video Architect.`);
   };
 
   return (

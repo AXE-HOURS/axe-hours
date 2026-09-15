@@ -260,7 +260,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
     setGoogleAccessToken, 
     loginWithGoogle, 
     savedIdeas = [], 
-    recentGenerations: contextGens = [] 
+    recentGenerations: contextGens = [],
+    userActivities = []
   } = useFirebase();
   const { addToast } = useToast();
 
@@ -357,11 +358,59 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
     });
   };
 
-  // Effective script count calculation for Tab 3
-  const effectiveGens = propGens.length > 0 ? propGens : contextGens;
-  const totalScriptsCount = Math.max(effectiveGens.length, 18);
-  const totalHooksSaved = Math.max(savedIdeas.length, 7);
-  const totalExportCount = 14;
+  // --- Tab 3: Live Telemetry & Engine Usage Calculations ---
+  const effectiveActivities = useMemo(() => {
+    if (userActivities && userActivities.length > 0) return userActivities;
+    try {
+      const key = user?.uid ? `axe_hours_user_activities_${user.uid}` : "axe_hours_user_activities";
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }, [userActivities, user?.uid]);
+
+  // 1. Total Scripts Extracted (actionType === 'fetch_script')
+  const totalScriptsExtracted = useMemo(() => {
+    return effectiveActivities.filter(a => a.actionType === 'fetch_script').length;
+  }, [effectiveActivities]);
+
+  // 2. AI Ideas & Hooks Generated (actionType === 'generate' or 'script_generator')
+  const totalGenerationsCount = useMemo(() => {
+    const activityGens = effectiveActivities.filter(
+      a => a.actionType === 'generate' || a.actionType === 'script_generator'
+    ).length;
+    const directGens = Math.max(propGens?.length || 0, contextGens?.length || 0);
+    return Math.max(activityGens, directGens);
+  }, [effectiveActivities, propGens, contextGens]);
+
+  // 3. Saved Vault Items (count of saved ideas/hooks in state or Firestore)
+  const totalSavedVaultItems = useMemo(() => {
+    if (savedIdeas && savedIdeas.length > 0) return savedIdeas.length;
+    try {
+      const key = user?.uid ? `axe_hours_saved_ideas_${user.uid}` : "axe_hours_saved_ideas";
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw).length : 0;
+    } catch {
+      return 0;
+    }
+  }, [savedIdeas, user?.uid]);
+
+  // 4. Active Session Multiplier / Efficiency Score (calculated ratio based on creations vs. saves)
+  const totalCreations = totalGenerationsCount + totalScriptsExtracted;
+
+  const efficiencyScorePercent = useMemo(() => {
+    if (totalCreations === 0) return 0;
+    const ratio = Math.min(100, Math.round((totalSavedVaultItems / totalCreations) * 100));
+    return isNaN(ratio) ? 0 : ratio;
+  }, [totalCreations, totalSavedVaultItems]);
+
+  const sessionMultiplier = useMemo(() => {
+    if (totalCreations === 0) return '0.0x';
+    if (totalSavedVaultItems === 0) return `${totalCreations}.0x`;
+    const mult = (totalCreations / totalSavedVaultItems).toFixed(1);
+    return isNaN(Number(mult)) ? '0.0x' : `${mult}x`;
+  }, [totalCreations, totalSavedVaultItems]);
 
   // Fetch authenticated user's channel details
   const fetchMyChannel = async (token: string) => {
@@ -1638,13 +1687,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
           TAB 3: ENGINE USAGE
           ======================================================== */}
       {activeTab === 'engine-usage' && (
-        <div className="space-y-6">
+        <div className="space-y-6 animate-in fade-in duration-300">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            {/* Telemetry Card 1: Total Scripts Processed */}
+            {/* Telemetry Card 1: Total Scripts Extracted */}
             <div className="bg-zinc-900/60 border border-purple-500/20 hover:border-purple-500/40 rounded-2xl p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_25px_rgba(168,85,247,0.15)] flex flex-col justify-between">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
-                  Total Scripts Processed
+                  Total Scripts Extracted
                 </span>
                 <div className="p-2.5 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-400">
                   <FileText size={20} />
@@ -1652,23 +1701,59 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
               </div>
               <div className="space-y-2">
                 <div className="text-3xl font-black text-white tracking-tight font-mono">
-                  {totalScriptsCount}
+                  {totalScriptsExtracted}
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
-                  <span className="text-gray-400">Neural Synthesis Jobs</span>
-                  <span className="text-emerald-400 font-mono font-bold flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    Active Pipeline
-                  </span>
+                  <span className="text-gray-400 text-[11px] font-mono">action: fetch_script</span>
+                  {totalScriptsExtracted > 0 ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-purple-500/30 bg-purple-500/10 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.2)] flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+                      Live Stream
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-purple-500/20 bg-purple-500/5 text-purple-300/80">
+                      Zero Extractions
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Telemetry Card 2: Hooks Saved */}
+            {/* Telemetry Card 2: AI Ideas & Hooks Generated */}
+            <div className="bg-zinc-900/60 border border-cyan-500/20 hover:border-cyan-500/40 rounded-2xl p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_25px_rgba(6,182,212,0.15)] flex flex-col justify-between">
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
+                  AI Ideas & Hooks Generated
+                </span>
+                <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl text-cyan-400">
+                  <Sparkles size={20} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <div className="text-3xl font-black text-white tracking-tight font-mono">
+                  {totalGenerationsCount}
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
+                  <span className="text-gray-400 text-[11px] font-mono">action: generate</span>
+                  {totalGenerationsCount > 0 ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.2)] flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                      Active Synthesizer
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-cyan-500/20 bg-cyan-500/5 text-cyan-300/80">
+                      Zero Generated
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Telemetry Card 3: Saved Vault Items */}
             <div className="bg-zinc-900/60 border border-amber-500/20 hover:border-amber-500/40 rounded-2xl p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_25px_rgba(245,158,11,0.15)] flex flex-col justify-between">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
-                  Hooks Saved
+                  Saved Vault Items
                 </span>
                 <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
                   <Bookmark size={20} />
@@ -1676,60 +1761,60 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
               </div>
               <div className="space-y-2">
                 <div className="text-3xl font-black text-white tracking-tight font-mono">
-                  {totalHooksSaved}
+                  {totalSavedVaultItems}
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
-                  <span className="text-gray-400">Curated Hook Vault</span>
-                  <span className="text-amber-300 font-mono font-bold">
-                    Dual Sync Ready
-                  </span>
+                  <span className="text-gray-400 text-[11px] font-mono">Curated Hook Vault</span>
+                  {totalSavedVaultItems > 0 ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.2)] flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      Cloud Synced
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-amber-500/20 bg-amber-500/5 text-amber-400/80">
+                      Vault Empty
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Telemetry Card 3: Export Count */}
-            <div className="bg-zinc-900/60 border border-cyan-500/20 hover:border-cyan-500/40 rounded-2xl p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_25px_rgba(6,182,212,0.15)] flex flex-col justify-between">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
-                  Export Count
-                </span>
-                <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl text-cyan-400">
-                  <Download size={20} />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="text-3xl font-black text-white tracking-tight font-mono">
-                  {totalExportCount}
-                </div>
-                <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
-                  <span className="text-gray-400">PDF & Clip Telemetry</span>
-                  <span className="text-cyan-300 font-mono font-bold">
-                    Instant Dispatch
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Telemetry Card 4: AI Pacing Calibrations */}
+            {/* Telemetry Card 4: Active Session Multiplier / Efficiency Score */}
             <div className="bg-zinc-900/60 border border-emerald-500/20 hover:border-emerald-500/40 rounded-2xl p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_25px_rgba(16,185,129,0.15)] flex flex-col justify-between">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
-                  Pacing Calibration
+                  Efficiency & Multiplier
                 </span>
                 <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400">
-                  <Sliders size={20} />
+                  <TrendingUp size={20} />
                 </div>
               </div>
               <div className="space-y-2">
-                <div className="text-3xl font-black text-white tracking-tight font-mono">
-                  98.4%
+                <div className="flex items-baseline justify-between">
+                  <div className="text-3xl font-black text-white tracking-tight font-mono">
+                    {efficiencyScorePercent}%
+                  </div>
+                  <span className="text-xs font-mono font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md">
+                    {sessionMultiplier}
+                  </span>
                 </div>
                 <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-emerald-400 h-full w-[98%]" />
+                  <div 
+                    className="bg-emerald-400 h-full transition-all duration-500" 
+                    style={{ width: `${efficiencyScorePercent}%` }} 
+                  />
                 </div>
                 <div className="flex items-center justify-between pt-1 text-xs text-gray-400">
-                  <span>Retention Curve Match</span>
-                  <span className="text-emerald-300 font-mono font-bold">Optimal Fit</span>
+                  <span className="text-[11px]">Creations vs Saves Ratio</span>
+                  {totalCreations > 0 ? (
+                    <span className="text-emerald-300 font-mono font-bold text-[10px]">
+                      {totalSavedVaultItems} saved / {totalCreations} created
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-emerald-500/20 bg-emerald-500/5 text-emerald-300/80">
+                      Awaiting Activity
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -1738,19 +1823,21 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
             <div className="bg-zinc-900/60 border border-pink-500/20 hover:border-pink-500/40 rounded-2xl p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_25px_rgba(236,72,153,0.15)] flex flex-col justify-between">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
-                  Active Model
+                  Active Model Runtime
                 </span>
                 <div className="p-2.5 bg-pink-500/10 border border-pink-500/30 rounded-xl text-pink-400">
                   <Cpu size={20} />
                 </div>
               </div>
               <div className="space-y-2">
-                <div className="text-xl font-bold text-white tracking-tight">
+                <div className="text-xl font-bold text-white tracking-tight font-mono">
                   Gemini 2.5 Flash
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs text-gray-400">
-                  <span>Inference Latency</span>
-                  <span className="text-pink-300 font-mono font-bold">~320ms / req</span>
+                  <span>Inference Streaming</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-pink-500/30 bg-pink-500/10 text-pink-300 shadow-[0_0_10px_rgba(236,72,153,0.2)]">
+                    SSE Active
+                  </span>
                 </div>
               </div>
             </div>
@@ -1759,7 +1846,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
             <div className="bg-zinc-900/60 border border-purple-500/20 hover:border-purple-500/40 rounded-2xl p-6 backdrop-blur-xl transition-all duration-300 hover:shadow-[0_0_25px_rgba(168,85,247,0.15)] flex flex-col justify-between">
               <div className="flex items-center justify-between mb-4">
                 <span className="text-xs font-mono uppercase tracking-wider text-gray-400 font-bold">
-                  Database Dual Sync
+                  Database & Telemetry Store
                 </span>
                 <div className="p-2.5 bg-purple-500/10 border border-purple-500/30 rounded-xl text-purple-400">
                   <Database size={20} />
@@ -1771,11 +1858,88 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
                   Firestore + Local
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs text-gray-400">
-                  <span>Offline Resilience</span>
-                  <span className="text-purple-300 font-mono font-bold">100% Up</span>
+                  <span>Persistence Layer</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold border border-purple-500/30 bg-purple-500/10 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.2)]">
+                    Dual Sync Ready
+                  </span>
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Live Telemetry Activity Feed */}
+          <div className="bg-zinc-900/60 border border-purple-500/20 rounded-2xl p-6 backdrop-blur-xl space-y-4 shadow-[0_0_30px_rgba(168,85,247,0.06)]">
+            <div className="flex items-center justify-between pb-3 border-b border-white/5">
+              <div className="flex items-center gap-2">
+                <Activity size={18} className="text-purple-400" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
+                  Live Engine Telemetry Stream
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2.5 py-1 rounded-full flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                {effectiveActivities.length} Events Recorded
+              </span>
+            </div>
+
+            {effectiveActivities.length === 0 ? (
+              <div className="p-8 text-center space-y-3">
+                <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mx-auto text-purple-400 shadow-[0_0_20px_rgba(168,85,247,0.15)]">
+                  <Radio size={24} className="animate-pulse" />
+                </div>
+                <div className="text-sm font-bold text-white">No Telemetry Recorded Yet</div>
+                <p className="text-xs text-gray-400 max-w-sm mx-auto leading-relaxed">
+                  Extract video transcripts in <span className="text-purple-300 font-semibold">Script Fetcher</span> or generate blueprints in <span className="text-purple-300 font-semibold">AI Video Architect</span> to populate real-time engine telemetry.
+                </p>
+                <div className="pt-2 flex justify-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-bold border border-purple-500/30 bg-purple-500/10 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.2)]">
+                    Neon Telemetry Ready
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="divide-y divide-white/5 overflow-hidden rounded-xl border border-white/5">
+                {effectiveActivities.slice(0, 8).map((act, idx) => {
+                  const isExtract = act.actionType === 'fetch_script';
+                  const isGen = act.actionType === 'generate' || act.actionType === 'script_generator';
+                  const isSave = act.actionType === 'save_idea';
+                  const isTransfer = act.actionType === 'transfer_to_architect';
+                  
+                  const badgeColor = isExtract 
+                    ? 'border-purple-500/30 bg-purple-500/10 text-purple-300' 
+                    : isGen 
+                    ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300'
+                    : isSave 
+                    ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                    : isTransfer
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300';
+
+                  return (
+                    <div key={act.id || idx} className="p-3.5 hover:bg-white/[0.02] transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-start sm:items-center gap-3 min-w-0">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shrink-0 border ${badgeColor}`}>
+                          {act.actionType}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-white truncate max-w-sm md:max-w-md">
+                            {act.actionTitle || 'Activity Event'}
+                          </div>
+                          {act.description && (
+                            <div className="text-[11px] text-gray-400 truncate max-w-sm md:max-w-lg">
+                              {act.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-mono text-gray-500 shrink-0 self-end sm:self-center">
+                        {act.timestamp || 'Just now'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

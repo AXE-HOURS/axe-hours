@@ -171,7 +171,20 @@ const HOOK_TRIGGERS = [
   "Experts are lying to you about..."
 ];
 
+export interface ArchitectImportedPayload {
+  title: string;
+  author: string;
+  openingHook: string;
+  fullTranscript: string;
+  sourceUrl: string;
+}
+
 const MIX_PRESETS = [
+  {
+    name: "Hook Remixer",
+    desc: "Directly adapt the pacing, psychological tension, and linguistic triggers of the imported reference hook.",
+    anchor: "Remix and adapt the high-retention structural cadence, curiosity gaps, and psychological hooks of the source reference hook for this new concept."
+  },
   {
     name: "Contrarian Loop Style",
     desc: "Amplify raw ideas specifically into contrarian arguments that challenge traditional industry ways to drive heavy content engagement.",
@@ -479,7 +492,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   selectedHistoryItem, 
   clearSelectedHistoryItem
 }) => {
-  const { user, dbUser, updateProfile, saveIdeaDB, logUserActivity } = useFirebase();
+  const { user, dbUser, updateProfile, saveIdeaDB, logUserActivity, logActivity } = useFirebase();
   const { sendToCalibrationLab } = useCalibrationBridge();
   const uid = user?.uid || "guest";
 
@@ -487,6 +500,24 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   const [result, setResult] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+
+  // External context imported from ScriptFetcher
+  const [importedContext, setImportedContext] = useState<ArchitectImportedPayload | null>(() => {
+    try {
+      const s = sessionStorage.getItem('pending_architect_payload');
+      return s ? JSON.parse(s) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const handleClearImportedContext = () => {
+    setImportedContext(null);
+    try {
+      sessionStorage.removeItem('pending_architect_payload');
+    } catch {}
+    showToast("Imported context cleared", "info");
+  };
 
   // Structural Hook Angles
   const [angleAHook, setAngleAHook] = useState<string>("");
@@ -1261,10 +1292,26 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
     }
   }, [selectedHistoryItem, clearSelectedHistoryItem]);
 
-  // Listen for external configuration commands (e.g., from AJ Popout Assistant / chatbot)
+  // Listen for external configuration commands (e.g., from ScriptFetcher or AJ Popout Assistant / chatbot)
   useEffect(() => {
+    // Check for serialized context payload from ScriptFetcher
+    const pendingPayloadStr = sessionStorage.getItem('pending_architect_payload');
+    if (pendingPayloadStr) {
+      try {
+        const payload: ArchitectImportedPayload = JSON.parse(pendingPayloadStr);
+        setImportedContext(payload);
+        if (payload.title) {
+          setPrompt(payload.title);
+        }
+        // Pre-select 'Hook Remixer' mode (first preset index 0)
+        setSelectedMixPresetIndex(0);
+      } catch (err) {
+        console.error("Error parsing pending_architect_payload:", err);
+      }
+    }
+
     const pendingPrompt = localStorage.getItem('pending_architect_prompt');
-    if (pendingPrompt) {
+    if (pendingPrompt && !pendingPayloadStr) {
       setPrompt(pendingPrompt); // Force-update the local text area state
       localStorage.removeItem('pending_architect_prompt'); // Consume and clear the buffer safely
     }
@@ -1273,6 +1320,10 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       const customEvent = e as CustomEvent;
       const data = customEvent.detail;
       if (data) {
+        if (data.architectPayload) {
+          setImportedContext(data.architectPayload);
+          setSelectedMixPresetIndex(0);
+        }
         if (data.prompt !== undefined) setPrompt(data.prompt);
         if (data.brandVoice !== undefined) setBrandVoice(data.brandVoice);
         if (data.engine !== undefined) setEngine(data.engine);
@@ -1503,7 +1554,11 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
         boosted += `Suggested Format Angle: ${activePreset.name}\n\n`;
         
         if (selectedMixPresetIndex === 0) {
-          boosted += `Stop doing traditional implementation for: "${prompt}". Why 99% of developers fail this step by over-complicating boilerplate. Instead, deploy this modern microscopic code shortcut that automates the exact flow in 15 minutes. Show exactly how anyone can replicate this immediate cheat code.`;
+          if (importedContext?.openingHook) {
+            boosted += `Adapting Reference Hook DNA: "${importedContext.openingHook}".\nDeconstruct the opening psychological tension and curiosity loop of this viral hook and remix it for "${prompt}". Highlight the contrarian angle, retain the high-energy cadence, and deliver a seamless transition into the core solution.`;
+          } else {
+            boosted += `Stop doing traditional implementation for: "${prompt}". Why 99% of developers fail this step by over-complicating boilerplate. Instead, deploy this modern microscopic code shortcut that automates the exact flow in 15 minutes. Show exactly how anyone can replicate this immediate cheat code.`;
+          }
         } else if (selectedMixPresetIndex === 1) {
           boosted += `The 0.1% of advanced creators are using an underground loop trick to solve: "${prompt}". Why standard tutorials are hiding this productivity method, and how it reduces cognitive overhead with zero setup.`;
         } else if (selectedMixPresetIndex === 2) {
@@ -1533,6 +1588,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
           presetName: activePreset.name,
           presetPrompt: activePreset.anchor,
           customKey: activeKey,
+          referenceHook: importedContext?.openingHook || null,
           uid
         })
       });
@@ -1596,7 +1652,7 @@ Niche Target: ${targetNiche}
 Voice Tone Rules: ${brandVoice} (Sub-tone Preset: ${hookTone})
 Format: ${duration}
 Aesthetic Vibe: ${visualStyle}
-
+${importedContext?.openingHook ? `Reference Hook Grounding: "${importedContext.openingHook}". Directly adapt its psychological triggers and pacing.\n` : ""}
 Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [SCENE-BY-SCENE VISUAL BLUEPRINT], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
             stream: false
           })
@@ -1613,6 +1669,7 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
           setResult(generatedText);
           saveToHistory(prompt, generatedText);
           parseScriptStructure(generatedText);
+          logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Ollama.`);
           showToast("Local Ollama compiled script blueprint successfully! 🦾", "success");
         } else {
           throw new Error("No payload found in local generation response.");
@@ -1643,6 +1700,8 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
           duration,
           customKey: activeKey,
           customInstructions,
+          referenceHook: importedContext?.openingHook || null,
+          sourceTitle: importedContext?.title || null,
           uid
         })
       });
@@ -1695,6 +1754,7 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
       if (generatedText) {
         saveToHistory(prompt, generatedText);
         parseScriptStructure(generatedText);
+        logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Gemini Cloud.`);
         showToast("Viral script blueprint generated and structured! 🚀", "success");
       }
     } catch (error: any) {
@@ -1731,6 +1791,7 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
           setResult(generatedText);
           saveToHistory(prompt, generatedText);
           parseScriptStructure(generatedText);
+          logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Ollama failover.`);
           showToast("Routed failover session to local Ollama successfully! 🦾", "success");
         } else {
           throw new Error("Empty payload returned from local model.");
@@ -1983,6 +2044,7 @@ VOICEOVER: "Comment below to get the raw files."
         setIsLoading(false);
         saveToHistory(prompt, generatedText);
         parseScriptStructure(generatedText);
+        logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Sandbox generator.`);
         showToast("AI script compiled successfully under Sandbox fallback! 📽️", "success");
       }
     }, 45);
@@ -2475,9 +2537,108 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
 
         {/* Right column: Interactive drafting box */}
         <div className="lg:col-span-7 flex flex-col justify-between space-y-6">
+          {/* Dismissible banner indicating imported context */}
+          {importedContext && (
+            <div 
+              id="architect-imported-context-banner"
+              className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.12)] flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-300 shrink-0">
+                  <Sparkles size={16} className="text-purple-400 animate-pulse" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300 font-mono">
+                      Imported context from:
+                    </span>
+                    <span className="text-xs font-semibold text-white truncate max-w-[240px] sm:max-w-sm" title={importedContext.title}>
+                      {importedContext.title || "External Video"}
+                    </span>
+                    {importedContext.author && (
+                      <span className="text-[9px] text-gray-400 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+                        {importedContext.author}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5 text-[10px] text-purple-200/70">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    <span>Hook Remixer Mode Active</span>
+                    {importedContext.sourceUrl && (
+                      <>
+                        <span>•</span>
+                        <a 
+                          href={importedContext.sourceUrl} 
+                          target="_blank" 
+                          rel="noreferrer noopener" 
+                          className="text-purple-400 hover:text-purple-300 underline"
+                        >
+                          Source Link
+                        </a>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="clear-imported-context-btn"
+                onClick={handleClearImportedContext}
+                className="px-2.5 py-1 text-xs font-semibold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                title="Clear imported context"
+              >
+                <X size={12} />
+                <span>Clear</span>
+              </button>
+            </div>
+          )}
+
           <GlassCard id="ai-generator-textbox-wrapper" className="border-white/10 !p-5 relative overflow-visible flex-1 flex flex-col justify-between">
             <div className="space-y-3 flex-1 flex flex-col">
-              <span className="text-xs uppercase font-extrabold tracking-widest text-[#9d50bb] flex items-center gap-1.5"><Lightbulb size={14} /> Topic Prompt Entry</span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase font-extrabold tracking-widest text-[#9d50bb] flex items-center gap-1.5"><Lightbulb size={14} /> Topic Prompt Entry</span>
+                {importedContext && (
+                  <span className="text-[10px] font-mono text-purple-300 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full">
+                    ⚡ Seeded from Source Video
+                  </span>
+                )}
+              </div>
+
+              {/* Reference Hook Context Card */}
+              {importedContext?.openingHook && (
+                <div 
+                  id="reference-hook-context-card"
+                  className="p-3.5 rounded-xl bg-purple-950/30 border border-purple-500/25 relative overflow-hidden group"
+                >
+                  <div className="flex items-center justify-between pb-1.5 border-b border-purple-500/15 mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <Flame size={13} className="text-amber-400" />
+                      <span className="text-[10px] uppercase tracking-wider font-extrabold text-purple-300 font-mono">
+                        Reference Hook (Source DNA)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(importedContext.openingHook);
+                        showToast("Reference hook copied to clipboard!");
+                      }}
+                      className="text-[10px] text-purple-300 hover:text-white bg-purple-500/20 hover:bg-purple-500/30 px-2 py-0.5 rounded border border-purple-500/30 transition-all flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy size={10} />
+                      <span>Copy</span>
+                    </button>
+                  </div>
+                  <p className="text-xs text-purple-100/90 italic font-serif leading-relaxed line-clamp-2">
+                    "{importedContext.openingHook}"
+                  </p>
+                  <div className="mt-1.5 pt-1.5 border-t border-purple-500/10 flex items-center justify-between text-[9.5px] text-purple-300/70 font-mono">
+                    <span>Adapting psychological tension & cadence</span>
+                    <span className="text-emerald-400 font-semibold">Ready to Remix</span>
+                  </div>
+                </div>
+              )}
+
               <textarea
                 id="ai-prompt-textbox"
                 className="w-full bg-black/35 border border-white/5 hover:border-white/15 focus:border-primary rounded-xl p-4 text-white text-sm leading-relaxed focus:outline-none flex-1 min-h-[140px] resize-none"

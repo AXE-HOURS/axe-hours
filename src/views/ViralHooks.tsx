@@ -17,7 +17,8 @@ import {
   FileDown,
   Share2,
   Play,
-  Pause
+  Pause,
+  X
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { useToast } from '../context/ToastContext';
@@ -57,9 +58,57 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
     painPoint: "retaining viewers past 3 seconds"
   });
 
+  // External context imported from ScriptFetcher
+  const [importedContext, setImportedContext] = useState<{
+    title: string;
+    author: string;
+    openingHook: string;
+    fullTranscript: string;
+    sourceUrl: string;
+  } | null>(() => {
+    try {
+      const s = sessionStorage.getItem('pending_architect_payload');
+      return s ? JSON.parse(s) : null;
+    } catch {
+      return null;
+    }
+  });
+
   // Title Analyzer state
-  const [analyzedTitle, setAnalyzedTitle] = useState("Why 99% of developers FAIL under launch 🤦‍♂️");
+  const [analyzedTitle, setAnalyzedTitle] = useState(() => {
+    try {
+      const s = sessionStorage.getItem('pending_architect_payload');
+      if (s) {
+        const payload = JSON.parse(s);
+        if (payload.openingHook) return payload.openingHook;
+      }
+    } catch {}
+    return "Why 99% of developers FAIL under launch 🤦‍♂️";
+  });
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+
+  // Ingest pending architect payload on mount
+  useEffect(() => {
+    if (importedContext) {
+      if (importedContext.openingHook) {
+        setAnalyzedTitle(importedContext.openingHook);
+      }
+      if (importedContext.title) {
+        setInputs(prev => ({
+          ...prev,
+          topic: importedContext.title
+        }));
+      }
+    }
+  }, [importedContext]);
+
+  const handleClearImportedContext = () => {
+    setImportedContext(null);
+    try {
+      sessionStorage.removeItem('pending_architect_payload');
+    } catch {}
+    addToast("Imported context cleared", "info");
+  };
 
   // Lab Tab Controller
   const [labTab, setLabTab] = useState<'metrics' | 'audio' | 'tips' | 'share'>('metrics');
@@ -899,6 +948,62 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
           Polish structured script blueprints or stress-test custom video titles using our real-time cognitive metrics calculator.
         </p>
       </div>
+
+      {/* Dismissible banner indicating imported context */}
+      {importedContext && (
+        <div 
+          id="viral-hooks-imported-context-banner"
+          className="p-3.5 rounded-xl bg-purple-950/40 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.12)] flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 duration-300"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2 rounded-lg bg-purple-500/20 border border-purple-500/30 text-purple-300 shrink-0">
+              <Sparkles size={16} className="text-purple-400 animate-pulse" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-300 font-mono">
+                  Imported context from:
+                </span>
+                <span className="text-xs font-semibold text-white truncate max-w-[240px] sm:max-w-md" title={importedContext.title}>
+                  {importedContext.title || "External Video"}
+                </span>
+                {importedContext.author && (
+                  <span className="text-[9px] text-gray-400 bg-white/5 px-2 py-0.5 rounded-full border border-white/10">
+                    {importedContext.author}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5 text-[10px] text-purple-200/70">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>Reference Hook Loaded into CTR Analyzer</span>
+                {importedContext.sourceUrl && (
+                  <>
+                    <span>•</span>
+                    <a 
+                      href={importedContext.sourceUrl} 
+                      target="_blank" 
+                      rel="noreferrer noopener" 
+                      className="text-purple-400 hover:text-purple-300 underline"
+                    >
+                      Source Video
+                    </a>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            id="clear-viral-hooks-context-btn"
+            onClick={handleClearImportedContext}
+            className="px-2.5 py-1 text-xs font-semibold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all cursor-pointer flex items-center gap-1 shrink-0"
+            title="Clear imported context"
+          >
+            <X size={12} />
+            <span>Clear</span>
+          </button>
+        </div>
+      )}
 
       <div id="viral-hooks-main-grid" className="grid grid-cols-1 xl:grid-cols-12 gap-8 select-text">
         

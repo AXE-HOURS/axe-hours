@@ -95,7 +95,12 @@ interface FirebaseContextType {
   logUserActivity: (
     actionType: ActivityActionType,
     actionTitle: string,
-    description: string
+    description?: string
+  ) => Promise<void>;
+  logActivity: (
+    actionType: ActivityActionType,
+    actionTitle: string,
+    description?: string
   ) => Promise<void>;
   clearActivitiesDB: () => Promise<void>;
 }
@@ -632,7 +637,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const logUserActivity = async (
     actionType: ActivityActionType,
     actionTitle: string,
-    description: string
+    description: string = ''
   ) => {
     const id = Date.now();
     const timestamp = new Date().toLocaleString();
@@ -642,6 +647,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const path = 'user_activities';
       const newItem: UserActivityItem = { id, actionType, actionTitle, description, timestamp, createdAt };
       const updated = [newItem, ...getLocalActivities(user.uid)].slice(0, 100);
+      setUserActivities(updated);
       localStorage.setItem(`axe_hours_user_activities_${user.uid}`, JSON.stringify(updated));
       try {
         const docRef = doc(db, path, String(id));
@@ -664,6 +670,12 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       localStorage.setItem("axe_hours_user_activities", JSON.stringify(updated));
     }
   };
+
+  const logActivity = (
+    actionType: ActivityActionType,
+    actionTitle: string,
+    description: string = ''
+  ) => logUserActivity(actionType, actionTitle, description);
 
   const clearActivitiesDB = async () => {
     if (user) {
@@ -704,6 +716,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       removeIdeaDB,
       updateProfile,
       logUserActivity,
+      logActivity,
       clearActivitiesDB
     }}>
       {children}

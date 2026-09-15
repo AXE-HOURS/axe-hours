@@ -206,7 +206,7 @@ Return exactly this JSON schema:
 
   // Secure Gemini API Proxy with SSE Streaming support
   app.post("/api/generate-stream", checkAuthFallback, masterKeyLimiter, async (req, res) => {
-    const { prompt, brandVoice, targetNiche, style, duration, customKey, hookTone, customInstructions } = req.body;
+    const { prompt, brandVoice, targetNiche, style, duration, customKey, hookTone, customInstructions, referenceHook, sourceTitle } = req.body;
 
     const apiKey = customKey || process.env.GEMINI_API_KEY;
 
@@ -243,6 +243,17 @@ Niche Target: ${nicheDescriptor}
 Tone/Voice Tone: ${voiceDescriptor} (Sub-tone Preset: ${appliedTone})
 Video Duration Format: ${formatDuration}
 Visual Style/Aesthetic Vibe: ${styleVibe}
+${
+  referenceHook && typeof referenceHook === "string" && referenceHook.trim()
+    ? `\n[CRITICAL REFERENCE HOOK GROUNDING & PSYCHOLOGICAL REMIX]:
+Authentic Source Reference Hook${sourceTitle ? ` (from "${sourceTitle}")` : ""}:
+"${referenceHook}"
+
+GROUNDING & REMIXING INSTRUCTIONS:
+1. Deconstruct the reference hook's underlying psychological mechanism (curiosity loop, negative contrast, authority shock, pacing cadence, or numerical anchor).
+2. In [THE HOOK SCRIPTS (3 VARIATIONS)] and the opening scene of [SCENE-BY-SCENE VISUAL BLUEPRINT TIMELINE], you MUST directly adapt the cadence, rhythm, word economy, and cognitive tension curve of this reference hook for the new topic ("${prompt}"). Ensure the remix captures equal or greater scroll-stopping intensity.`
+    : ""
+}
 
 Produce an output in a well-structured Markdown-like hierarchy using these EXACT headers:
 [CORE CONCEPT & VIRAL ANGLE]
@@ -294,7 +305,11 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
 
       const responseStream = await ai.models.generateContentStream({
         model: "gemini-3.5-flash",
-        contents: prompt || "How to build automated prompt flows in 2026",
+        contents: `${prompt || "How to build automated prompt flows in 2026"}${
+          referenceHook && typeof referenceHook === "string" && referenceHook.trim()
+            ? `\n\n[Reference Hook to adapt and remix]:\n"${referenceHook}"`
+            : ""
+        }`,
         config: {
           systemInstruction: systemInstruction,
           temperature: 0.85,
@@ -1713,7 +1728,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
   // Prompt Booster / Preset Mixer Secure Proxy Endpoint
   app.post("/api/enhance-prompt", checkAuthFallback, async (req, res) => {
-    const { userPrompt, presetName, presetPrompt, customKey } = req.body;
+    const { userPrompt, presetName, presetPrompt, customKey, referenceHook } = req.body;
 
     const apiKey = customKey || process.env.GEMINI_API_KEY;
 
@@ -1740,6 +1755,11 @@ ${presetName}
 
 [STYLE PRESET GUIDELINE]
 "${presetPrompt}"
+${
+  referenceHook && typeof referenceHook === "string" && referenceHook.trim()
+    ? `\n[AUTHENTIC REFERENCE HOOK DNA]:\n"${referenceHook}"\nExplicitly adapt the structural cadence, curiosity gap, and psychological tension curve of this reference hook into the synthesized prompt.`
+    : ""
+}
 
 [USER'S RAW TOPIC/IDEA]
 "${userPrompt}"
