@@ -80,7 +80,8 @@ export const ScriptFetcher: React.FC = () => {
     metadataDesc: '',
     suggestedTags: [] as string[],
     hasTranscript: false,
-    transcriptErrorCode: ''
+    transcriptErrorCode: '',
+    transcriptErrorDetails: ''
   });
 
   // Manual Transcript & Whisper Audio Fallback states
@@ -103,6 +104,7 @@ export const ScriptFetcher: React.FC = () => {
       fullTranscript: parsed.formattedTranscript,
       hasTranscript: true,
       transcriptErrorCode: '',
+      transcriptErrorDetails: '',
       hookText: parsed.hookText,
       pacingSpeed: parsed.pacingSpeed
     }));
@@ -311,7 +313,8 @@ export const ScriptFetcher: React.FC = () => {
         metadataDesc: data.metadataDesc || 'N/A',
         suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
         hasTranscript: hasTranscript,
-        transcriptErrorCode: data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE')
+        transcriptErrorCode: data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE'),
+        transcriptErrorDetails: data.transcriptErrorDetails || ''
       });
 
       logActivity('fetch_script', data.title || 'Untitled Extraction', `Downloaded full transcript and calculated high-retention analytics from external video stream.`);
@@ -651,6 +654,23 @@ export const ScriptFetcher: React.FC = () => {
                     <p className={`text-xs leading-relaxed whitespace-pre-line ${extractedData.hasTranscript ? 'font-light text-white' : 'font-mono text-gray-400 italic bg-amber-500/5 p-3 rounded-lg border border-amber-500/15'}`}>
                       {extractedData.fullTranscript}
                     </p>
+
+                    {!extractedData.hasTranscript && (extractedData.transcriptErrorCode || extractedData.transcriptErrorDetails) && (
+                      <div className="flex items-center flex-wrap gap-2 px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-[11px] font-mono">
+                        <span className="text-gray-400 font-semibold flex items-center gap-1.5 shrink-0">
+                          <Info size={12} className="text-amber-400" />
+                          <span>Diagnosis:</span>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[10px]">
+                          {extractedData.transcriptErrorCode || 'NO_CAPTIONS_AVAILABLE'}
+                        </span>
+                        {extractedData.transcriptErrorDetails && (
+                          <span className="text-gray-400 text-[10.5px]">
+                            {extractedData.transcriptErrorDetails}
+                          </span>
+                        )}
+                      </div>
+                    )}
 
                     {!extractedData.hasTranscript && (
                       <div className="pt-3 border-t border-white/5 space-y-3">
