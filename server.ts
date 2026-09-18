@@ -475,7 +475,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     
     for (const event of events) {
       if (!event.segs || !Array.isArray(event.segs)) continue;
-      const text = event.segs.map((seg: any) => seg.utf8 || "").join("").trim();
+      const raw = event.segs.map((seg: any) => seg.utf8 || "").join("");
+      const text = cleanSubtitleText(raw);
       if (!text) continue;
       
       const start = (event.tStartMs || 0) / 1000;
@@ -604,9 +605,66 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       ...(sessionHeaders?.["Cookie"] ? { "Cookie": sessionHeaders["Cookie"] } : {})
     };
 
-    // 1. Try raw XML format (remove &fmt= if present)
+    // 1. Prioritize raw JSON3 format (&fmt=json3)
     try {
-      const xmlUrl = cleanUrl.replace(/&fmt=[^&]+/, '');
+      let jsonUrl = cleanUrl;
+      if (jsonUrl.includes('fmt=')) {
+        jsonUrl = jsonUrl.replace(/fmt=[^&]+/, 'fmt=json3');
+      } else {
+        jsonUrl += (jsonUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+      }
+
+      const jsonRes = await fetch(jsonUrl, {
+        headers,
+        keepalive: true
+      });
+      if (jsonRes.ok) {
+        const jsonText = await decodeHttpResponseText(jsonRes);
+        if (jsonText && jsonText.trim().length > 0) {
+          try {
+            const data = JSON.parse(jsonText);
+            const lines = parseJsonSubtitles(data);
+            if (lines && lines.length > 0) {
+              return lines;
+            }
+          } catch (_) {
+            // Fallback: XML parser in case response was not JSON
+            const lines = parseTimedTextXml(jsonText);
+            if (lines && lines.length > 0) {
+              return lines;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[SubtitleFetcher] JSON3 track fetch error:", e);
+    }
+
+    // 2. Try cleanUrl directly (as signed by player response)
+    try {
+      const directRes = await fetch(cleanUrl, {
+        headers,
+        keepalive: true
+      });
+      if (directRes.ok) {
+        const txt = await decodeHttpResponseText(directRes);
+        if (txt && txt.trim().length > 0) {
+          try {
+            const data = JSON.parse(txt);
+            const lines = parseJsonSubtitles(data);
+            if (lines && lines.length > 0) return lines;
+          } catch (_) {}
+          const lines = parseTimedTextXml(txt);
+          if (lines && lines.length > 0) return lines;
+        }
+      }
+    } catch (e) {
+      console.warn("[SubtitleFetcher] Direct track fetch error:", e);
+    }
+
+    // 3. Try raw XML format (remove &fmt= if present)
+    try {
+      const xmlUrl = cleanUrl.replace(/[?&]fmt=[^&]+/, '');
       const xmlRes = await fetch(xmlUrl, {
         headers,
         keepalive: true
@@ -622,48 +680,6 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       }
     } catch (e) {
       console.warn("[SubtitleFetcher] XML track fetch error:", e);
-    }
-
-    // 2. Try JSON3 format (&fmt=json3)
-    try {
-      const jsonUrl = cleanUrl.includes('?') ? `${cleanUrl}&fmt=json3` : `${cleanUrl}?fmt=json3`;
-      const jsonRes = await fetch(jsonUrl, {
-        headers,
-        keepalive: true
-      });
-      if (jsonRes.ok) {
-        const jsonText = await decodeHttpResponseText(jsonRes);
-        if (jsonText && jsonText.trim().length > 0) {
-          try {
-            const data = JSON.parse(jsonText);
-            const lines = parseJsonSubtitles(data);
-            if (lines && lines.length > 0) {
-              return lines;
-            }
-          } catch (_) {}
-        }
-      }
-    } catch (e) {
-      console.warn("[SubtitleFetcher] JSON3 track fetch error:", e);
-    }
-
-    // 3. Try cleanUrl directly
-    try {
-      const directRes = await fetch(cleanUrl, {
-        headers,
-        keepalive: true
-      });
-      if (directRes.ok) {
-        const txt = await decodeHttpResponseText(directRes);
-        if (txt && txt.trim().length > 0) {
-          const lines = parseTimedTextXml(txt);
-          if (lines && lines.length > 0) {
-            return lines;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("[SubtitleFetcher] Direct track fetch error:", e);
     }
 
     return null;
@@ -737,29 +753,40 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
 
       // -------------------------------------------------------------
-      // LAYER 1: Innertube Android Client (Resilient against Cloud/Render bot blocks & PO tokens)
+      // PRE-PROBE: Extract INNERTUBE_API_KEY and initial HTML from Watch Page
       // -------------------------------------------------------------
-      let innertubeApiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"; // Default Innertube client key
+      let innertubeApiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"; // Default Innertube client key fallback
+      let watchHtml = "";
+      let watchCookie = "";
+      const watchUserAgent = getRandomUserAgent();
+
       try {
-        // Attempt to extract live Innertube API key from watch page
         const probeRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
           headers: {
-            "User-Agent": getRandomUserAgent(),
+            "User-Agent": watchUserAgent,
             "Accept-Language": "en-US,en;q=0.9"
           }
         });
         if (probeRes.ok) {
-          const probeHtml = await probeRes.text();
-          const keyMatch = probeHtml.match(/"INNERTUBE_API_KEY":"([^"]+)"/) ||
-                           probeHtml.match(/INNERTUBE_API_KEY\\":\\"([^\\"]+)\\"/);
+          watchHtml = await probeRes.text();
+          watchCookie = probeRes.headers.get("set-cookie") || "";
+          const keyMatch = watchHtml.match(/"INNERTUBE_API_KEY":\s*"([^"]+)"/)?.[1] ||
+                           watchHtml.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1] ||
+                           watchHtml.match(/INNERTUBE_API_KEY\\":\\"([^\\"]+)\\"/)?.[1];
           if (keyMatch) {
-            innertubeApiKey = keyMatch[1];
+            innertubeApiKey = keyMatch;
+            console.log(`[SubtitleFetcher] Extracted live INNERTUBE_API_KEY from watch page: ${innertubeApiKey.slice(0, 10)}...`);
           }
         }
       } catch (probeErr) {
         console.warn("[SubtitleFetcher] Watch page probe skipped, using standard Innertube key:", probeErr);
       }
 
+      const playerEndpoint = `https://www.youtube.com/youtubei/v1/player?key=${innertubeApiKey}`;
+
+      // -------------------------------------------------------------
+      // LAYER 1: Innertube Android Client (Resilient against Cloud/Render bot blocks & PO tokens)
+      // -------------------------------------------------------------
       try {
         console.log("[SubtitleFetcher] Layer 1: Querying Innertube Android player API...");
         const androidHeaders: Record<string, string> = {
@@ -770,7 +797,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           "Accept-Encoding": "gzip, deflate, br"
         };
 
-        const playerRes = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${innertubeApiKey}`, {
+        const playerRes = await fetch(playerEndpoint, {
           method: "POST",
           headers: androidHeaders,
           body: JSON.stringify({
@@ -792,24 +819,24 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
           const tracks = tracklist?.captionTracks;
 
-          // Pin session headers (User-Agent and Set-Cookie) to maintain exact outbound socket and session IP
-          const sessionCookie = playerRes.headers.get("set-cookie") || "";
-          const sessionHeaders: Record<string, string> = {
-            "User-Agent": androidHeaders["User-Agent"],
-            ...(sessionCookie ? { "Cookie": sessionCookie } : {})
-          };
-
           if (tracks && Array.isArray(tracks) && tracks.length > 0) {
-            console.log(`[SubtitleFetcher] Layer 1 found ${tracks.length} caption tracks. Cascading with pinned session...`);
-            const sortedTracks = sortCaptionTracks(tracks);
+            console.log(`[SubtitleFetcher] Layer 1 (Android) found ${tracks.length} caption tracks. Cascading with pinned session...`);
+            const sessionCookie = playerRes.headers.get("set-cookie") || "";
+            const sessionHeaders: Record<string, string> = {
+              "User-Agent": androidHeaders["User-Agent"],
+              ...(sessionCookie ? { "Cookie": sessionCookie } : {})
+            };
 
+            const sortedTracks = sortCaptionTracks(tracks);
             for (const track of sortedTracks) {
               const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
               if (lines && lines.length > 0) {
-                console.log(`[SubtitleFetcher] Layer 1 successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
+                console.log(`[SubtitleFetcher] Layer 1 (Android) successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
                 return { lines, hasTracks: true };
               }
             }
+          } else {
+            console.log("[SubtitleFetcher] Layer 1 (Android) returned no caption tracks.");
           }
         }
       } catch (l1Err) {
@@ -817,38 +844,103 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       }
 
       // -------------------------------------------------------------
-      // LAYER 2: Primary Web Watch-Page Extraction with User-Agent Rotation
+      // LAYER 2: Innertube iOS Client Fallback
       // -------------------------------------------------------------
-      console.log("[SubtitleFetcher] Layer 2: Attempting watch-page HTML extraction...");
-      const url = `https://www.youtube.com/watch?v=${videoId}`;
-      const response = await fetch(url, {
-        headers: {
-          "User-Agent": getRandomUserAgent(),
-          "Accept-Language": "en-US,en;q=0.9"
+      try {
+        console.log("[SubtitleFetcher] Layer 2: Retrying with IOS client context...");
+        const iosHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+          "User-Agent": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)",
+          "X-YouTube-Client-Name": "5",
+          "X-YouTube-Client-Version": "19.45.4",
+          "Accept-Encoding": "gzip, deflate, br"
+        };
+
+        const iosRes = await fetch(playerEndpoint, {
+          method: "POST",
+          headers: iosHeaders,
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: "IOS",
+                clientVersion: "19.45.4",
+                deviceModel: "iPhone16,2",
+                hl: "en",
+                gl: "US"
+              }
+            },
+            videoId: videoId
+          }),
+          keepalive: true
+        });
+
+        if (iosRes.ok) {
+          const iosJson = await iosRes.json() as any;
+          const tracklist = iosJson.captions?.playerCaptionsTracklistRenderer || iosJson.playerCaptionsTracklistRenderer;
+          const tracks = tracklist?.captionTracks;
+
+          if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+            console.log(`[SubtitleFetcher] Layer 2 (iOS) found ${tracks.length} caption tracks. Cascading with pinned session...`);
+            const sessionCookie = iosRes.headers.get("set-cookie") || "";
+            const sessionHeaders: Record<string, string> = {
+              "User-Agent": iosHeaders["User-Agent"],
+              ...(sessionCookie ? { "Cookie": sessionCookie } : {})
+            };
+
+            const sortedTracks = sortCaptionTracks(tracks);
+            for (const track of sortedTracks) {
+              const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
+              if (lines && lines.length > 0) {
+                console.log(`[SubtitleFetcher] Layer 2 (iOS) successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
+                return { lines, hasTracks: true };
+              }
+            }
+          } else {
+            console.log("[SubtitleFetcher] Layer 2 (iOS) returned no caption tracks.");
+          }
         }
-      });
-      let html = "";
-      if (response.ok) {
-        html = await response.text();
+      } catch (l2Err) {
+        console.warn("[SubtitleFetcher] Layer 2 Innertube iOS fetch encountered error:", l2Err);
+      }
+
+      // -------------------------------------------------------------
+      // LAYER 3: Web Watch-Page HTML Extraction
+      // -------------------------------------------------------------
+      console.log("[SubtitleFetcher] Layer 3: Attempting watch-page HTML extraction...");
+      if (!watchHtml) {
+        try {
+          const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+            headers: {
+              "User-Agent": watchUserAgent,
+              "Accept-Language": "en-US,en;q=0.9"
+            }
+          });
+          if (response.ok) {
+            watchHtml = await response.text();
+            watchCookie = response.headers.get("set-cookie") || "";
+          }
+        } catch (watchErr) {
+          console.warn("[SubtitleFetcher] Watch page HTML re-fetch failed:", watchErr);
+        }
       }
 
       let captionTracks: any[] | null = null;
-      if (html) {
+      if (watchHtml) {
         // 1. Try ytInitialPlayerResponse
-        const playerResponse = extractJsonBlock(html, "ytInitialPlayerResponse");
+        const playerResponse = extractJsonBlock(watchHtml, "ytInitialPlayerResponse");
         if (playerResponse) {
           captionTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
         }
         
         // 2. Try ytInitialData
         if (!captionTracks) {
-          const initialData = extractJsonBlock(html, "ytInitialData");
+          const initialData = extractJsonBlock(watchHtml, "ytInitialData");
           captionTracks = initialData?.playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
         }
         
         // 3. Try regex fallback directly on captionTracks
         if (!captionTracks) {
-          const regexMatch = html.match(/"captionTracks"\s*:\s*(\[.+?\])/);
+          const regexMatch = watchHtml.match(/"captionTracks"\s*:\s*(\[.+?\])/);
           if (regexMatch) {
             try {
               captionTracks = JSON.parse(regexMatch[1]);
@@ -860,28 +952,35 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       }
 
       if (captionTracks && Array.isArray(captionTracks) && captionTracks.length > 0) {
-        console.log(`[SubtitleFetcher] Layer 2 found ${captionTracks.length} caption tracks. Cascading...`);
-        const sortedTracks = sortCaptionTracks(captionTracks);
+        console.log(`[SubtitleFetcher] Layer 3 (Web) found ${captionTracks.length} caption tracks. Cascading...`);
+        const sessionHeaders: Record<string, string> = {
+          "User-Agent": watchUserAgent,
+          ...(watchCookie ? { "Cookie": watchCookie } : {})
+        };
 
+        const sortedTracks = sortCaptionTracks(captionTracks);
         for (const track of sortedTracks) {
-          const lines = await fetchCaptionTrackLines(track.baseUrl);
+          const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
           if (lines && lines.length > 0) {
-            console.log(`[SubtitleFetcher] Layer 2 successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
+            console.log(`[SubtitleFetcher] Layer 3 (Web) successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
             return { lines, hasTracks: true };
           }
         }
       }
 
       // -------------------------------------------------------------
-      // LAYER 3: Direct XML Timedtext Fallback
+      // LAYER 4: Direct XML Timedtext Fallback
       // -------------------------------------------------------------
-      console.log("[SubtitleFetcher] Layer 3: Running XML parser fallback...");
+      console.log("[SubtitleFetcher] Layer 4: Running XML parser fallback...");
       return await fetchYoutubeSubtitlesFromXml(videoId);
     } catch (err) {
       console.error("[SubtitleFetcher] Error in fetchYoutubeSubtitles pipeline:", err);
       return { lines: null, hasTracks: false, errorCode: 'PIPELINE_ERROR' };
     }
   }
+
+  // Alias for compatibility
+  const fetchYouTubeCaptions = fetchYoutubeSubtitles;
 
   // Secure Script Fetcher and Analyzer with Google Search grounding
   app.post("/api/fetch-script", checkAuthFallback, async (req, res) => {
