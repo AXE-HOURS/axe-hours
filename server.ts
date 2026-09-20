@@ -753,6 +753,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     errorCode?: string; 
     errorDetails?: string; 
     tracksCount?: number; 
+    trackUrl?: string;
   }> {
     try {
       console.log(`[SubtitleFetcher] Querying XML list for video: ${videoId}`);
@@ -815,7 +816,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           hasTracks: true, 
           errorCode: isThrottled ? 'TIMEDTEXT_429_THROTTLED' : isForbidden ? 'TIMEDTEXT_403_FORBIDDEN' : 'TIMEDTEXT_BLOCKED',
           errorDetails: `XML timedtext track fetch for lang=${lang} returned HTTP ${subRes.status} (${subRes.statusText})`,
-          tracksCount: languages.length
+          tracksCount: languages.length,
+          trackUrl: xmlUrl
         };
       }
       const xmlText = await subRes.text();
@@ -824,6 +826,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         lines: lines.length > 0 ? lines : null, 
         hasTracks: true, 
         tracksCount: languages.length,
+        trackUrl: xmlUrl,
         errorCode: lines.length === 0 ? 'TIMEDTEXT_EMPTY' : undefined,
         errorDetails: lines.length === 0 ? 'XML track was received but contained 0 segment tags' : undefined
       };
@@ -974,6 +977,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     hasTracks: boolean; 
     errorCode?: string; 
     errorDetails?: string; 
+    clientDelegationUrl?: string;
+    status?: string;
   }> {
     try {
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
@@ -985,6 +990,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       let watchHtml = "";
       let watchCookie = "";
       let visitorData = "";
+      let candidateTrackUrl: string | null = null;
       let watchHttpStatus = 200;
       const watchUserAgent = getRandomUserAgent();
       const standardConsentCookie = "CONSENT=PENDING+999; SOCS=CAESEwgDEgk2MjE4Mzg0ODQaAmVuIAEaBgiA_LmvBg";
@@ -1081,6 +1087,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           };
 
           const sortedTracks = sortCaptionTracks(tracks);
+          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+            candidateTrackUrl = sortedTracks[0].baseUrl;
+          }
           for (const track of sortedTracks) {
             const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
             if (lines && lines.length > 0) {
@@ -1152,6 +1161,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           };
 
           const sortedTracks = sortCaptionTracks(iosTracks);
+          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+            candidateTrackUrl = sortedTracks[0].baseUrl;
+          }
           for (const track of sortedTracks) {
             const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
             if (lines && lines.length > 0) {
@@ -1227,6 +1239,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         };
 
         const sortedTracks = sortCaptionTracks(webTracks);
+        if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+          candidateTrackUrl = sortedTracks[0].baseUrl;
+        }
         for (const track of sortedTracks) {
           const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
           if (lines && lines.length > 0) {
@@ -1245,6 +1260,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       if (xmlResult.lines && xmlResult.lines.length > 0) {
         return xmlResult;
       }
+      if (!candidateTrackUrl && xmlResult.trackUrl) {
+        candidateTrackUrl = xmlResult.trackUrl;
+      }
 
       // -------------------------------------------------------------
       // LAYER 5: Cloud Fallback Layer (Invidious / Piped / Open Proxies)
@@ -1262,10 +1280,12 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       const totalTracksSeen = (tracks?.length || 0) + (iosTracks?.length || 0) + (webTracks?.length || 0) + (xmlResult.tracksCount || 0) + (cloudResult.hasTracks ? 1 : 0);
       let finalErrorCode = "NO_CAPTIONS_AVAILABLE";
       let finalErrorDetails = "";
+      let finalStatus: string | undefined = undefined;
 
-      if (totalTracksSeen > 0) {
-        finalErrorCode = "TIMEDTEXT_BLOCKED";
-        finalErrorDetails = `Discovered ${totalTracksSeen} caption track(s) across cascade, but timedtext segment download was rejected (403/IP block) or returned empty.`;
+      if (candidateTrackUrl || totalTracksSeen > 0) {
+        finalErrorCode = "REQUIRE_CLIENT_FETCH";
+        finalErrorDetails = `Discovered ${totalTracksSeen} caption track(s), but server timedtext requests were blocked (403 Forbidden/cloud datacenter IP block). Delegating fetch to client residential IP.`;
+        finalStatus = "REQUIRE_CLIENT_FETCH";
       } else if (step1Status === 429 || step2Status === 429 || watchHttpStatus === 429 || xmlResult.errorCode?.includes("429")) {
         finalErrorCode = "IP_THROTTLED_429";
         finalErrorDetails = "YouTube rate limited or throttled server IP address (HTTP 429 Too Many Requests).";
@@ -1277,12 +1297,14 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         finalErrorDetails = "0 tracks found across Android (Step 1), iOS (Step 2), Web HTML (Step 3), XML (Step 4), and Cloud Proxies (Step 5). Video may be non-verbal or captions disabled by creator.";
       }
 
-      console.log(`[Captions] Cascade finished with error: ${finalErrorCode} - ${finalErrorDetails}`);
+      console.log(`[Captions] Cascade finished with status: ${finalStatus || 'FAILED'} | error: ${finalErrorCode} - ${finalErrorDetails}`);
       return { 
         lines: null, 
         hasTracks: totalTracksSeen > 0, 
         errorCode: finalErrorCode, 
-        errorDetails: finalErrorDetails 
+        errorDetails: finalErrorDetails,
+        clientDelegationUrl: candidateTrackUrl || undefined,
+        status: finalStatus
       };
     } catch (err: any) {
       console.error("[SubtitleFetcher] Error in fetchYoutubeSubtitles pipeline:", err);
@@ -1394,6 +1416,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           scrapedData.hasTracks = subResult.hasTracks;
           scrapedData.transcriptErrorCode = subResult.errorCode || null;
           scrapedData.transcriptErrorDetails = subResult.errorDetails || null;
+          scrapedData.clientDelegationUrl = subResult.clientDelegationUrl || null;
+          scrapedData.status = subResult.status || null;
+          scrapedData.videoId = videoId;
           if (subResult.lines && subResult.lines.length > 0) {
             console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
             scrapedData.transcript = subResult.lines.map(line => line.text).join(" ");
@@ -1603,6 +1628,15 @@ Return exactly this JSON schema:
           parsedData.hasTranscript = true;
           parsedData.transcriptErrorCode = null;
           parsedData.transcriptErrorDetails = null;
+        } else if (scrapedData.clientDelegationUrl) {
+          parsedData.hasTranscript = false;
+          parsedData.clientDelegationUrl = scrapedData.clientDelegationUrl;
+          parsedData.status = 'REQUIRE_CLIENT_FETCH';
+          parsedData.videoId = scrapedData.videoId || (videoUrl ? extractYoutubeVideoId(videoUrl) : undefined);
+          parsedData.transcriptErrorCode = 'REQUIRE_CLIENT_FETCH';
+          parsedData.transcriptErrorDetails = 'YouTube timedtext blocked on datacenter IP. Delegating fetch to client residential IP.';
+          parsedData.fullTranscript = parsedData.fullTranscript || "[Notice: Client-side residential fetch required for closed captions.]";
+          parsedData.transcript = [];
         } else {
           parsedData.hasTranscript = false;
           parsedData.transcriptErrorCode = scrapedData.transcriptErrorCode || (scrapedData.hasTracks ? "TIMEDTEXT_BLOCKED" : "NO_CAPTIONS_AVAILABLE");
@@ -1784,8 +1818,11 @@ Return exactly this JSON schema:
         suggestedTags: suggestedTags,
         transcript: scrapedData.transcriptArray || [],
         hasTranscript: hasValidTranscript,
-        transcriptErrorCode: hasValidTranscript ? null : (scrapedData?.transcriptErrorCode || (scrapedData?.hasTracks ? "TIMEDTEXT_BLOCKED" : "NO_CAPTIONS_AVAILABLE")),
-        transcriptErrorDetails: hasValidTranscript ? null : (scrapedData?.transcriptErrorDetails || (scrapedData?.hasTracks ? "Caption tracks were discovered, but timedtext content could not be decoded." : "0 tracks found across Android, iOS, Web, and XML cascade."))
+        status: !hasValidTranscript && scrapedData?.clientDelegationUrl ? 'REQUIRE_CLIENT_FETCH' : undefined,
+        clientDelegationUrl: !hasValidTranscript ? (scrapedData?.clientDelegationUrl || undefined) : undefined,
+        videoId: scrapedData?.videoId || (videoUrl ? extractYoutubeVideoId(videoUrl) : undefined),
+        transcriptErrorCode: hasValidTranscript ? null : (!hasValidTranscript && scrapedData?.clientDelegationUrl ? 'REQUIRE_CLIENT_FETCH' : (scrapedData?.transcriptErrorCode || (scrapedData?.hasTracks ? "TIMEDTEXT_BLOCKED" : "NO_CAPTIONS_AVAILABLE"))),
+        transcriptErrorDetails: hasValidTranscript ? null : (!hasValidTranscript && scrapedData?.clientDelegationUrl ? 'YouTube timedtext blocked on datacenter IP. Delegating fetch to client residential IP.' : (scrapedData?.transcriptErrorDetails || (scrapedData?.hasTracks ? "Caption tracks were discovered, but timedtext content could not be decoded." : "0 tracks found across Android, iOS, Web, and XML cascade.")))
       };
     }
 

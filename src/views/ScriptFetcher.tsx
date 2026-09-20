@@ -29,7 +29,15 @@ import {
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
 import { useCalibrationBridge } from '../context/CalibrationBridgeContext';
-import { parseManualTranscript } from '../utils/transcriptParser';
+import { 
+  parseManualTranscript, 
+  parseJsonSubtitles, 
+  parseTimedTextXml, 
+  parseWebVttSubtitles, 
+  formatSubtitles, 
+  calculateHookScore, 
+  SubtitleLine 
+} from '../utils/transcriptParser';
 
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
@@ -81,8 +89,230 @@ export const ScriptFetcher: React.FC = () => {
     suggestedTags: [] as string[],
     hasTranscript: false,
     transcriptErrorCode: '',
-    transcriptErrorDetails: ''
+    transcriptErrorDetails: '',
+    clientDelegationUrl: '' as string | undefined,
+    videoId: '' as string | undefined,
+    status: '' as string | undefined
   });
+
+  const [isClientFetching, setIsClientFetching] = useState<boolean>(false);
+
+  const extractYoutubeId = (url: string): string => {
+    if (!url) return '';
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/))([\w-]{11})/);
+    return match ? match[1] : '';
+  };
+
+  /**
+   * Client-Side Fallback Fetcher:
+   * Executes residential browser fetches and cascades to open CORS proxies / Piped API / Invidious API
+   * when YouTube datacenter IP blocking (HTTP 403) occurs on Render.
+   */
+  const fetchClientTranscriptCascade = async (clientDelegationUrl?: string, targetVidId?: string): Promise<SubtitleLine[] | null> => {
+    console.log('[ClientSubtitleFetcher] Commencing client-side residential transcript cascade...');
+
+    // 1. Direct Residential Browser Fetch to clientDelegationUrl (&fmt=json3)
+    if (clientDelegationUrl) {
+      let jsonUrl = clientDelegationUrl;
+      if (jsonUrl.includes('fmt=')) {
+        jsonUrl = jsonUrl.replace(/fmt=[^&]+/, 'fmt=json3');
+      } else {
+        jsonUrl += (jsonUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+      }
+
+      // 1A. Direct fetch with json3
+      try {
+        console.log('[ClientSubtitleFetcher] Tier 1A: Attempting direct browser fetch to timedtext JSON3 endpoint...');
+        const res = await fetch(jsonUrl);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.trim().length > 0) {
+            try {
+              const data = JSON.parse(text);
+              const lines = parseJsonSubtitles(data);
+              if (lines.length > 0) {
+                console.log(`[ClientSubtitleFetcher] Tier 1A succeeded: extracted ${lines.length} lines`);
+                return lines;
+              }
+            } catch (_) {
+              const lines = parseTimedTextXml(text);
+              if (lines.length > 0) {
+                console.log(`[ClientSubtitleFetcher] Tier 1A (XML fallback) succeeded: extracted ${lines.length} lines`);
+                return lines;
+              }
+            }
+          }
+        } else {
+          console.warn(`[ClientSubtitleFetcher] Tier 1A direct fetch returned HTTP ${res.status}`);
+        }
+      } catch (err) {
+        console.warn('[ClientSubtitleFetcher] Tier 1A direct fetch failed (likely CORS or network):', err);
+      }
+
+      // 1B. Direct fetch with cleanUrl (without forced fmt=json3)
+      try {
+        console.log('[ClientSubtitleFetcher] Tier 1B: Attempting direct browser fetch to raw baseUrl...');
+        const res = await fetch(clientDelegationUrl);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.trim().length > 0) {
+            try {
+              const data = JSON.parse(text);
+              const lines = parseJsonSubtitles(data);
+              if (lines.length > 0) return lines;
+            } catch (_) {}
+            const lines = parseTimedTextXml(text);
+            if (lines.length > 0) return lines;
+          }
+        }
+      } catch (err) {
+        console.warn('[ClientSubtitleFetcher] Tier 1B raw baseUrl direct fetch failed:', err);
+      }
+
+      // 2. Open CORS Proxy Fallback (AllOrigins)
+      try {
+        console.log('[ClientSubtitleFetcher] Tier 2: Attempting AllOrigins CORS proxy fetch...');
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(jsonUrl)}`;
+        const pRes = await fetch(proxyUrl);
+        if (pRes.ok) {
+          const text = await pRes.text();
+          if (text && text.trim().length > 0) {
+            try {
+              const data = JSON.parse(text);
+              const lines = parseJsonSubtitles(data);
+              if (lines.length > 0) {
+                console.log(`[ClientSubtitleFetcher] Tier 2 (AllOrigins JSON3) succeeded: extracted ${lines.length} lines`);
+                return lines;
+              }
+            } catch (_) {
+              const lines = parseTimedTextXml(text);
+              if (lines.length > 0) {
+                console.log(`[ClientSubtitleFetcher] Tier 2 (AllOrigins XML) succeeded: extracted ${lines.length} lines`);
+                return lines;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[ClientSubtitleFetcher] Tier 2 AllOrigins proxy failed:', err);
+      }
+    }
+
+    // Determine target videoId
+    const targetVid = targetVidId || (videoUrl ? extractYoutubeId(videoUrl) : '');
+    if (!targetVid) {
+      console.warn('[ClientSubtitleFetcher] No valid videoId found for cloud stream proxies.');
+      return null;
+    }
+
+    // 3. Piped API Stream Subtitles Fallback
+    const pipedEndpoints = [
+      `https://pipedapi.kavin.rocks/streams/${targetVid}`,
+      `https://api.piped.private.coffee/streams/${targetVid}`
+    ];
+    for (const endpoint of pipedEndpoints) {
+      try {
+        console.log(`[ClientSubtitleFetcher] Tier 3: Querying Piped stream endpoint: ${endpoint}`);
+        const pRes = await fetch(endpoint, { signal: AbortSignal.timeout(5000) });
+        if (pRes.ok) {
+          const streamData = await pRes.json();
+          const subtitles = streamData.subtitles;
+          if (Array.isArray(subtitles) && subtitles.length > 0) {
+            const track = subtitles.find((s: any) => s.code === 'en' || s.name?.toLowerCase().includes('english')) || subtitles[0];
+            if (track?.url) {
+              const trackRes = await fetch(track.url, { signal: AbortSignal.timeout(4000) });
+              if (trackRes.ok) {
+                const trackText = await trackRes.text();
+                const lines = parseWebVttSubtitles(trackText);
+                if (lines.length > 0) {
+                  console.log(`[ClientSubtitleFetcher] Tier 3 (Piped) succeeded: extracted ${lines.length} lines`);
+                  return lines;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[ClientSubtitleFetcher] Tier 3 Piped instance failed (${endpoint}):`, e);
+      }
+    }
+
+    // 4. Invidious Captions API Fallback
+    const invidiousEndpoints = [
+      `https://inv.nadeko.net/api/v1/captions/${targetVid}`,
+      `https://inv.tux.pizza/api/v1/captions/${targetVid}`
+    ];
+    for (const endpoint of invidiousEndpoints) {
+      try {
+        console.log(`[ClientSubtitleFetcher] Tier 4: Querying Invidious captions endpoint: ${endpoint}`);
+        const invRes = await fetch(endpoint, { signal: AbortSignal.timeout(5000) });
+        if (invRes.ok) {
+          const invData = await invRes.json();
+          const captions = invData.captions;
+          if (Array.isArray(captions) && captions.length > 0) {
+            const capTrack = captions.find((c: any) => c.language_code === 'en' || c.label?.toLowerCase().includes('english')) || captions[0];
+            const baseUrl = endpoint.split('/api/v1/')[0];
+            const subUrl = capTrack.url.startsWith('http') ? capTrack.url : `${baseUrl}${capTrack.url}`;
+            const subRes = await fetch(subUrl, { signal: AbortSignal.timeout(4000) });
+            if (subRes.ok) {
+              const subText = await subRes.text();
+              const lines = parseWebVttSubtitles(subText);
+              if (lines.length > 0) {
+                console.log(`[ClientSubtitleFetcher] Tier 4 (Invidious) succeeded: extracted ${lines.length} lines`);
+                return lines;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn(`[ClientSubtitleFetcher] Tier 4 Invidious instance failed (${endpoint}):`, e);
+      }
+    }
+
+    return null;
+  };
+
+  const handleManualClientFallbackFetch = async () => {
+    if (!extractedData.clientDelegationUrl && !extractedData.videoId) {
+      addToast("No client delegation URL or video ID available to fetch.", "error");
+      return;
+    }
+    setIsClientFetching(true);
+    addToast("Executing browser residential transcript fetch...", "info");
+    try {
+      const lines = await fetchClientTranscriptCascade(extractedData.clientDelegationUrl, extractedData.videoId);
+      if (lines && lines.length > 0) {
+        const fullTranscript = formatSubtitles(lines);
+        const firstWords = lines.slice(0, 4).map(l => l.text).join(' ');
+        const totalWords = lines.reduce((sum, l) => sum + l.text.split(/\s+/).filter(Boolean).length, 0);
+        const lastLine = lines[lines.length - 1];
+        const totalSec = (lastLine ? lastLine.start + lastLine.duration : 0) || 60;
+        const calculatedWpm = Math.round(totalWords / (totalSec / 60));
+        const pacingSpeed = `${calculatedWpm} words/min (Authentic Dialogue Pacing)`;
+        const hookScore = calculateHookScore(firstWords || extractedData.hookText, calculatedWpm, extractedData.platform);
+
+        setExtractedData(prev => ({
+          ...prev,
+          fullTranscript,
+          hasTranscript: true,
+          hookText: firstWords || prev.hookText,
+          hookScore: hookScore || prev.hookScore,
+          pacingSpeed: pacingSpeed || prev.pacingSpeed,
+          transcriptErrorCode: '',
+          transcriptErrorDetails: ''
+        }));
+        playAudio(880);
+        addToast(`Bypassed block! Recovered authentic transcript (${lines.length} lines) 🚀`, "success");
+        logActivity('fetch_script', extractedData.title || 'Client Transcript Fallback', 'Recovered full transcript via client delegation.');
+      } else {
+        addToast("Residential client fetch and open proxies could not decode captions for this video.", "error");
+      }
+    } catch (err: any) {
+      addToast(`Client fetch failed: ${err.message || 'Unknown error'}`, "error");
+    } finally {
+      setIsClientFetching(false);
+    }
+  };
 
   // Manual Transcript & Whisper Audio Fallback states
   const [isManualInputOpen, setIsManualInputOpen] = useState<boolean>(false);
@@ -295,9 +525,49 @@ export const ScriptFetcher: React.FC = () => {
 
       const data = await response.json();
 
-      const hasTranscript = data.hasTranscript !== undefined
+      let hasTranscript = data.hasTranscript !== undefined
         ? Boolean(data.hasTranscript)
         : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:'));
+
+      let fullTranscript = data.fullTranscript || 'N/A';
+      let hookText = data.hookText || 'N/A';
+      let hookScore = Number(data.hookScore) || 90;
+      let pacingSpeed = data.pacingSpeed || 'N/A';
+      let transcriptErrorCode = data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE');
+      let transcriptErrorDetails = data.transcriptErrorDetails || '';
+
+      const targetVideoId = data.videoId || extractYoutubeId(videoUrl);
+
+      // Check if server indicated REQUIRE_CLIENT_FETCH or provided clientDelegationUrl
+      if (!hasTranscript && (data.status === 'REQUIRE_CLIENT_FETCH' || data.clientDelegationUrl)) {
+        setProgressText('Server 403 bypassed. Executing residential client subtitle fetch...');
+        setProgressVal(94);
+        try {
+          const clientLines = await fetchClientTranscriptCascade(data.clientDelegationUrl, targetVideoId);
+          if (clientLines && clientLines.length > 0) {
+            hasTranscript = true;
+            fullTranscript = formatSubtitles(clientLines);
+            const firstWords = clientLines.slice(0, 4).map(l => l.text).join(' ');
+            if (firstWords.trim()) {
+              hookText = firstWords;
+            }
+            const totalWords = clientLines.reduce((sum, l) => sum + l.text.split(/\s+/).filter(Boolean).length, 0);
+            const lastLine = clientLines[clientLines.length - 1];
+            const totalSec = (lastLine ? lastLine.start + lastLine.duration : 0) || 60;
+            const calculatedWpm = Math.round(totalWords / (totalSec / 60));
+            pacingSpeed = `${calculatedWpm} words/min (Authentic Dialogue Pacing)`;
+            hookScore = calculateHookScore(hookText, calculatedWpm, data.platform || 'youtube');
+            transcriptErrorCode = '';
+            transcriptErrorDetails = '';
+            addToast('Authentic transcript recovered via client residential fetch! 🚀', 'success');
+          } else {
+            transcriptErrorCode = 'CLIENT_FETCH_FAILED';
+            transcriptErrorDetails = 'Residential client fetch and open proxies were unable to decode timedtext.';
+          }
+        } catch (clientErr) {
+          console.warn('[ScriptFetcher] Client-side transcript cascade error:', clientErr);
+        }
+      }
 
       setExtractedData({
         title: data.title || 'Untitled Extraction',
@@ -305,16 +575,19 @@ export const ScriptFetcher: React.FC = () => {
         platform: data.platform || 'youtube',
         duration: data.duration || 'N/A',
         views: data.views || 'N/A',
-        hookScore: Number(data.hookScore) || 90,
-        pacingSpeed: data.pacingSpeed || 'N/A',
+        hookScore: hookScore,
+        pacingSpeed: pacingSpeed,
         thumbnailSuggestion: data.thumbnailSuggestion || 'N/A',
-        hookText: data.hookText || 'N/A',
-        fullTranscript: data.fullTranscript || 'N/A',
+        hookText: hookText,
+        fullTranscript: fullTranscript,
         metadataDesc: data.metadataDesc || 'N/A',
         suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
         hasTranscript: hasTranscript,
-        transcriptErrorCode: data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE'),
-        transcriptErrorDetails: data.transcriptErrorDetails || ''
+        transcriptErrorCode: transcriptErrorCode,
+        transcriptErrorDetails: transcriptErrorDetails,
+        clientDelegationUrl: data.clientDelegationUrl || '',
+        videoId: targetVideoId || '',
+        status: hasTranscript ? 'SUCCESS' : (data.status || '')
       });
 
       logActivity('fetch_script', data.title || 'Untitled Extraction', `Downloaded full transcript and calculated high-retention analytics from external video stream.`);
@@ -675,6 +948,17 @@ export const ScriptFetcher: React.FC = () => {
                     {!extractedData.hasTranscript && (
                       <div className="pt-3 border-t border-white/5 space-y-3">
                         <div className="flex flex-wrap items-center gap-2.5">
+                          {(extractedData.clientDelegationUrl || extractedData.transcriptErrorCode === 'REQUIRE_CLIENT_FETCH' || extractedData.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || extractedData.transcriptErrorCode === 'CLIENT_FETCH_FAILED') && (
+                            <button
+                              type="button"
+                              onClick={handleManualClientFallbackFetch}
+                              disabled={isClientFetching}
+                              className="px-3 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                            >
+                              <RefreshCw size={13} className={`text-amber-400 ${isClientFetching ? 'animate-spin' : ''}`} />
+                              <span>{isClientFetching ? "Fetching from Residential IP..." : "Bypass Datacenter Block (Residential Client Fetch)"}</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => setIsManualInputOpen(!isManualInputOpen)}

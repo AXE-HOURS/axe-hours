@@ -166,3 +166,206 @@ export function parseManualTranscript(rawInput: string): ParseTranscriptResult {
   };
 }
 
+export interface SubtitleLine {
+  text: string;
+  start: number;
+  duration: number;
+}
+
+/**
+ * Cleans raw subtitle text by stripping HTML tags, unescaping XML/HTML entities,
+ * and normalizing internal line breaks and whitespace.
+ */
+export function cleanSubtitleText(text: string): string {
+  if (!text) return "";
+  return text
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Parses YouTube JSON3 format (&fmt=json3) events into standard SubtitleLine segments.
+ */
+export function parseJsonSubtitles(data: any): SubtitleLine[] {
+  const lines: SubtitleLine[] = [];
+  if (!data) return lines;
+
+  const events = data.events || [];
+  for (const event of events) {
+    if (!event.segs) continue;
+    const startMs = event.tStartMs || 0;
+    const durMs = event.dDurationMs || 0;
+    const rawText = event.segs.map((s: any) => s.utf8 || "").join("");
+    const text = cleanSubtitleText(rawText);
+    if (text) {
+      lines.push({
+        text,
+        start: startMs / 1000,
+        duration: durMs / 1000
+      });
+    }
+  }
+  return lines;
+}
+
+/**
+ * Parses YouTube Format 3 XML (<p t="startMs" d="durMs">) and Format 1 XML (<text start="s" dur="s">).
+ */
+export function parseTimedTextXml(xmlText: string): SubtitleLine[] {
+  const lines: SubtitleLine[] = [];
+  if (!xmlText || typeof xmlText !== "string") return lines;
+
+  // Format 3 XML: <p t="startMs" d="durMs">...</p>
+  const pRegex = /<p\s+t="(\d+)"(?:\s+d="(\d+)")?[^>]*>([\s\S]*?)<\/p>/gi;
+  let pMatch;
+  while ((pMatch = pRegex.exec(xmlText)) !== null) {
+    const startMs = parseInt(pMatch[1], 10);
+    const durMs = pMatch[2] ? parseInt(pMatch[2], 10) : 0;
+    const text = cleanSubtitleText(pMatch[3]);
+    if (text) {
+      lines.push({
+        text,
+        start: startMs / 1000,
+        duration: durMs / 1000
+      });
+    }
+  }
+
+  // Format 1 XML: <text start="s" dur="s">...</text>
+  if (lines.length === 0) {
+    const textRegex = /<text\s+start="([\d.]+)"(?:\s+dur="([\d.]+)")?[^>]*>([\s\S]*?)<\/text>/gi;
+    let tMatch;
+    while ((tMatch = textRegex.exec(xmlText)) !== null) {
+      const start = parseFloat(tMatch[1]);
+      const duration = tMatch[2] ? parseFloat(tMatch[2]) : 0;
+      const text = cleanSubtitleText(tMatch[3]);
+      if (text) {
+        lines.push({ text, start, duration });
+      }
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * Parses WebVTT / SRT cue blocks into SubtitleLine segments.
+ */
+export function parseWebVttSubtitles(vttText: string): SubtitleLine[] {
+  const lines: SubtitleLine[] = [];
+  if (!vttText || typeof vttText !== "string") return lines;
+
+  const blocks = vttText.split(/\r?\n\s*\r?\n/);
+  const timeRegex = /((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)/;
+
+  for (const block of blocks) {
+    const match = block.match(timeRegex);
+    if (!match) continue;
+
+    const parseTs = (ts: string): number => {
+      const parts = ts.trim().replace(',', '.').split(':');
+      if (parts.length === 3) {
+        return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+      } else if (parts.length === 2) {
+        return parseFloat(parts[0]) * 60 + parseFloat(parts[1]);
+      }
+      return parseFloat(parts[0]) || 0;
+    };
+
+    const startSec = parseTs(match[1]);
+    const endSec = parseTs(match[2]);
+    const duration = Math.max(0, endSec - startSec);
+
+    const blockLines = block.split(/\r?\n/);
+    const timeLineIndex = blockLines.findIndex(l => timeRegex.test(l));
+    if (timeLineIndex === -1) continue;
+
+    const rawText = blockLines.slice(timeLineIndex + 1).join(" ");
+    const text = cleanSubtitleText(rawText);
+    if (text) {
+      lines.push({ text, start: startSec, duration });
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * Formats subtitle lines into a human-readable timestamped script:
+ * [00:00] First spoken line
+ * [00:04] Second spoken line
+ */
+export function formatSubtitles(lines: SubtitleLine[]): string {
+  if (!lines || lines.length === 0) return "";
+  return lines
+    .map(line => `[${formatSecondsToTimestamp(line.start)}] ${line.text}`)
+    .join("\n");
+}
+
+/**
+ * Calculates hook quality score (0-100) based on linguistic triggers,
+ * length density, punctuation emphasis, and delivery pacing speed.
+ */
+export function calculateHookScore(hookText: string, wpm?: number, platform?: string): number {
+  let score = 50;
+  const words = (hookText || '').trim().split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+
+  // 1. Length density constraint (Optimal hook is dense but punchy, e.g. 6 to 14 words)
+  if (wordCount >= 6 && wordCount <= 14) {
+    score += 15;
+  } else if (wordCount > 0 && wordCount < 6) {
+    score += 5;
+  } else if (wordCount > 20) {
+    score -= 10;
+  } else {
+    score += 8;
+  }
+
+  // 2. Behavioral high retention linguistic triggers scan
+  const triggerWords = ["stop", "fail", "secret", "never", "hidden", "why", "how", "impossible", "hack", "mistake", "everyone", "wrong", "trap", "insane", "waste"];
+  let detectedTriggersCount = 0;
+  words.forEach(w => {
+    const cleaned = w.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (triggerWords.includes(cleaned)) {
+      detectedTriggersCount++;
+    }
+  });
+  score += Math.min(25, detectedTriggersCount * 12);
+
+  // 3. Punctuation emphasis / pattern attention check
+  if (/[!?]/.test(hookText || '')) {
+    score += 10;
+  }
+
+  // 4. Words per minute pacing check
+  const pace = wpm || 145;
+  if (platform === "tiktok") {
+    if (pace >= 155 && pace <= 180) score += 15;
+    else if (pace < 135) score -= 12;
+    else score += 5;
+  } else if (platform === "instagram") {
+    if (pace >= 145 && pace <= 165) score += 15;
+    else if (pace < 125) score -= 12;
+    else score += 6;
+  } else {
+    // YouTube
+    if (pace >= 135 && pace <= 155) score += 15;
+    else if (pace > 175) score -= 10;
+    else score += 6;
+  }
+
+  return Math.min(100, Math.max(12, score));
+}
+
+
