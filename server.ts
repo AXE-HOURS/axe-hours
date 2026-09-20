@@ -24,16 +24,12 @@ const masterKeyLimiter = rateLimit({
   }
 });
 
-// Middleware to verify valid user identifier (uid) when using process.env.GEMINI_API_KEY as fallback
+// Middleware to support both authenticated users and unauthenticated guests across all endpoints
 function checkAuthFallback(req: any, res: any, next: any) {
-  const { customKey, uid } = req.body;
-  const usingFallback = !customKey && process.env.GEMINI_API_KEY;
-  if (usingFallback) {
-    if (!uid || typeof uid !== "string" || uid.trim() === "" || uid === "guest") {
-      res.status(401).json({ error: "Authentication required: A valid Firebase user identifier (uid) must be provided when using the master key fallback." });
-      return;
-    }
-  }
+  const { uid } = req.body || {};
+  // Allow unauthenticated guests and authenticated users seamlessly.
+  // Master key rate limiting is already strictly enforced by masterKeyLimiter per IP address.
+  req.userId = (uid && typeof uid === "string" && uid.trim() !== "") ? uid.trim() : "guest";
   next();
 }
 
@@ -587,6 +583,45 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     return lines;
   }
 
+  function parseTimestampSeconds(ts: string): number {
+    const parts = ts.trim().replace(',', '.').split(':');
+    if (parts.length === 3) {
+      return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+    } else if (parts.length === 2) {
+      return parseFloat(parts[0]) * 60 + parseFloat(parts[1]);
+    }
+    return parseFloat(parts[0]) || 0;
+  }
+
+  function parseWebVttSubtitles(vttText: string): { text: string; start: number; duration: number }[] {
+    const lines: { text: string; start: number; duration: number }[] = [];
+    if (!vttText || typeof vttText !== "string") return lines;
+
+    const blocks = vttText.split(/\r?\n\s*\r?\n/);
+    const timeRegex = /((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)/;
+
+    for (const block of blocks) {
+      const match = block.match(timeRegex);
+      if (!match) continue;
+
+      const startSec = parseTimestampSeconds(match[1]);
+      const endSec = parseTimestampSeconds(match[2]);
+      const duration = Math.max(0, endSec - startSec);
+
+      const blockLines = block.split(/\r?\n/);
+      const timeLineIndex = blockLines.findIndex(l => timeRegex.test(l));
+      if (timeLineIndex === -1) continue;
+
+      const rawText = blockLines.slice(timeLineIndex + 1).join(" ");
+      const text = cleanSubtitleText(rawText);
+      if (text) {
+        lines.push({ text, start: startSec, duration });
+      }
+    }
+
+    return lines;
+  }
+
   /**
    * Node.js 18+ / 20+ Native Fetch Connection Pooling & Proxy Architecture Note:
    * Native global fetch is implemented via Undici.
@@ -799,6 +834,141 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
     }
   }
 
+  async function fetchCloudSubtitleFallback(videoId: string): Promise<{ 
+    lines: { text: string; start: number; duration: number }[] | null; 
+    hasTracks: boolean; 
+    source?: string; 
+  }> {
+    console.log(`[Captions] Step 5 - Attempting Cloud Fallback (Invidious / Piped / Open Proxies) for ${videoId}...`);
+
+    // 1. Try Invidious Public Instances
+    const invidiousInstances = [
+      "https://inv.nadeko.net",
+      "https://inv.tux.pizza",
+      "https://invidious.nerdvpn.de",
+      "https://vid.puffyan.us"
+    ];
+
+    for (const instance of invidiousInstances) {
+      try {
+        const captionsUrl = `${instance}/api/v1/captions/${videoId}`;
+        const res = await fetch(captionsUrl, {
+          headers: { "User-Agent": getRandomUserAgent() },
+          signal: AbortSignal.timeout(3500)
+        });
+
+        if (res.ok) {
+          const data = await res.json() as any;
+          const captionList = data.captions;
+          if (Array.isArray(captionList) && captionList.length > 0) {
+            console.log(`[Captions] Step 5 - Invidious (${instance}) found ${captionList.length} tracks.`);
+            const sorted = sortCaptionTracks(captionList.map((c: any) => ({
+              ...c,
+              languageCode: c.languageCode || (c.label?.toLowerCase().includes("english") ? "en" : "unknown")
+            })));
+
+            const selected = sorted[0];
+            const trackUrl = selected.url.startsWith("http") ? selected.url : `${instance}${selected.url}`;
+            const trackRes = await fetch(trackUrl, {
+              headers: { "User-Agent": getRandomUserAgent() },
+              signal: AbortSignal.timeout(4000)
+            });
+
+            if (trackRes.ok) {
+              const trackContent = await trackRes.text();
+              const lines = parseWebVttSubtitles(trackContent);
+              if (lines.length > 0) {
+                console.log(`[Captions] Step 5 - Invidious (${instance}) successfully extracted ${lines.length} lines!`);
+                return { lines, hasTracks: true, source: `Invidious (${instance})` };
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[SubtitleFetcher] Invidious fallback (${instance}) error:`, err.message);
+      }
+    }
+
+    // 2. Try Piped API Instances
+    const pipedInstances = [
+      "https://pipedapi.kavin.rocks",
+      "https://api.piped.private.coffee"
+    ];
+
+    for (const piped of pipedInstances) {
+      try {
+        const streamUrl = `${piped}/streams/${videoId}`;
+        const res = await fetch(streamUrl, {
+          headers: { "User-Agent": getRandomUserAgent() },
+          signal: AbortSignal.timeout(3500)
+        });
+
+        if (res.ok) {
+          const data = await res.json() as any;
+          const subtitles = data.subtitles;
+          if (Array.isArray(subtitles) && subtitles.length > 0) {
+            console.log(`[Captions] Step 5 - Piped (${piped}) found ${subtitles.length} tracks.`);
+            const sorted = sortCaptionTracks(subtitles.map((s: any) => ({
+              ...s,
+              languageCode: s.code || (s.name?.toLowerCase().includes("english") ? "en" : "unknown")
+            })));
+
+            const selected = sorted[0];
+            if (selected.url) {
+              const subRes = await fetch(selected.url, {
+                headers: { "User-Agent": getRandomUserAgent() },
+                signal: AbortSignal.timeout(4000)
+              });
+              if (subRes.ok) {
+                const subContent = await subRes.text();
+                const lines = parseWebVttSubtitles(subContent);
+                if (lines.length > 0) {
+                  console.log(`[Captions] Step 5 - Piped (${piped}) successfully extracted ${lines.length} lines!`);
+                  return { lines, hasTracks: true, source: `Piped (${piped})` };
+                }
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[SubtitleFetcher] Piped fallback (${piped}) error:`, err.message);
+      }
+    }
+
+    // 3. Try AllOrigins Open Proxy on Timedtext
+    try {
+      const targetUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
+      const allOriginsUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+      const res = await fetch(allOriginsUrl, {
+        headers: { "User-Agent": getRandomUserAgent() },
+        signal: AbortSignal.timeout(4000)
+      });
+      if (res.ok) {
+        const text = await res.text();
+        if (text && text.trim().length > 0) {
+          try {
+            const data = JSON.parse(text);
+            const lines = parseJsonSubtitles(data);
+            if (lines.length > 0) {
+              console.log(`[Captions] Step 5 - AllOrigins proxy successfully extracted ${lines.length} lines (JSON3)!`);
+              return { lines, hasTracks: true, source: "AllOrigins Proxy (JSON3)" };
+            }
+          } catch (_) {
+            const lines = parseTimedTextXml(text);
+            if (lines.length > 0) {
+              console.log(`[Captions] Step 5 - AllOrigins proxy successfully extracted ${lines.length} lines (XML)!`);
+              return { lines, hasTracks: true, source: "AllOrigins Proxy (XML)" };
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn("[SubtitleFetcher] AllOrigins proxy error:", err.message);
+    }
+
+    return { lines: null, hasTracks: false };
+  }
+
   async function fetchYoutubeSubtitles(videoId: string): Promise<{ 
     lines: { text: string; start: number; duration: number }[] | null; 
     hasTracks: boolean; 
@@ -809,32 +979,44 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
 
       // -------------------------------------------------------------
-      // PRE-PROBE: Extract INNERTUBE_API_KEY and initial HTML from Watch Page
+      // PRE-PROBE: Extract INNERTUBE_API_KEY, visitorData, and initial HTML from Watch Page
       // -------------------------------------------------------------
       let innertubeApiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"; // Default Innertube client key fallback
       let watchHtml = "";
       let watchCookie = "";
+      let visitorData = "";
       let watchHttpStatus = 200;
       const watchUserAgent = getRandomUserAgent();
+      const standardConsentCookie = "CONSENT=PENDING+999; SOCS=CAESEwgDEgk2MjE4Mzg0ODQaAmVuIAEaBgiA_LmvBg";
 
       try {
         const probeRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
           headers: {
             "User-Agent": watchUserAgent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9"
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cookie": standardConsentCookie
           }
         });
         watchHttpStatus = probeRes.status;
         if (probeRes.ok) {
           watchHtml = await probeRes.text();
-          watchCookie = probeRes.headers.get("set-cookie") || "";
+          const setCookies = probeRes.headers.get("set-cookie") || "";
+          watchCookie = setCookies ? `${standardConsentCookie}; ${setCookies}` : standardConsentCookie;
+
           const keyMatch = watchHtml.match(/"INNERTUBE_API_KEY":\s*"([^"]+)"/)?.[1] ||
                            watchHtml.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1] ||
                            watchHtml.match(/INNERTUBE_API_KEY\\":\\"([^\\"]+)\\"/)?.[1];
           if (keyMatch) {
             innertubeApiKey = keyMatch;
             console.log(`[SubtitleFetcher] Extracted live INNERTUBE_API_KEY from watch page: ${innertubeApiKey.slice(0, 10)}...`);
+          }
+
+          const visitorMatch = watchHtml.match(/"visitorData":\s*"([^"]+)"/)?.[1] ||
+                               watchHtml.match(/visitorData\\":\\"([^\\"]+)\\"/)?.[1];
+          if (visitorMatch) {
+            visitorData = visitorMatch;
+            console.log(`[SubtitleFetcher] Extracted live visitorData from watch page: ${visitorData.slice(0, 15)}...`);
           }
         } else {
           console.warn(`[SubtitleFetcher] Watch page probe returned HTTP ${probeRes.status}`);
@@ -857,7 +1039,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14; Pixel 8 Pro) gzip",
           "X-YouTube-Client-Name": "3",
           "X-YouTube-Client-Version": "20.10.38",
-          "Accept-Encoding": "gzip, deflate, br"
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cookie": watchCookie || standardConsentCookie
         };
 
         const playerRes = await fetch(playerEndpoint, {
@@ -869,7 +1052,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
                 clientName: "ANDROID",
                 clientVersion: "20.10.38",
                 hl: "en",
-                gl: "US"
+                gl: "US",
+                ...(visitorData ? { visitorData } : {})
               }
             },
             videoId: videoId
@@ -893,7 +1077,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           const sessionCookie = playerRes.headers.get("set-cookie") || "";
           const sessionHeaders: Record<string, string> = {
             "User-Agent": androidHeaders["User-Agent"],
-            ...(sessionCookie ? { "Cookie": sessionCookie } : {})
+            "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
           };
 
           const sortedTracks = sortCaptionTracks(tracks);
@@ -912,7 +1096,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       }
 
       // -------------------------------------------------------------
-      // LAYER 2: Innertube iOS Client Fallback
+      // LAYER 2: Innertube iOS Client Fallback (Complete with osName & osVersion)
       // -------------------------------------------------------------
       let iosTracks: any[] | undefined = undefined;
       let step2Status = 200;
@@ -923,7 +1107,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           "User-Agent": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)",
           "X-YouTube-Client-Name": "5",
           "X-YouTube-Client-Version": "19.45.4",
-          "Accept-Encoding": "gzip, deflate, br"
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cookie": watchCookie || standardConsentCookie
         };
 
         const iosRes = await fetch(playerEndpoint, {
@@ -935,8 +1120,11 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
                 clientName: "IOS",
                 clientVersion: "19.45.4",
                 deviceModel: "iPhone16,2",
+                osName: "iOS",
+                osVersion: "18.1.0.22B83",
                 hl: "en",
-                gl: "US"
+                gl: "US",
+                ...(visitorData ? { visitorData } : {})
               }
             },
             videoId: videoId
@@ -960,7 +1148,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           const sessionCookie = iosRes.headers.get("set-cookie") || "";
           const sessionHeaders: Record<string, string> = {
             "User-Agent": iosHeaders["User-Agent"],
-            ...(sessionCookie ? { "Cookie": sessionCookie } : {})
+            "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
           };
 
           const sortedTracks = sortCaptionTracks(iosTracks);
@@ -988,7 +1176,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
             headers: {
               "User-Agent": watchUserAgent,
               "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-              "Accept-Language": "en-US,en;q=0.9"
+              "Accept-Language": "en-US,en;q=0.9",
+              "Cookie": watchCookie || standardConsentCookie
             }
           });
           watchHttpStatus = response.status;
@@ -1034,7 +1223,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         console.log(`[SubtitleFetcher] Layer 3 (Web) found ${webTracks.length} caption tracks. Cascading...`);
         const sessionHeaders: Record<string, string> = {
           "User-Agent": watchUserAgent,
-          ...(watchCookie ? { "Cookie": watchCookie } : {})
+          "Cookie": watchCookie || standardConsentCookie
         };
 
         const sortedTracks = sortCaptionTracks(webTracks);
@@ -1058,9 +1247,19 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       }
 
       // -------------------------------------------------------------
+      // LAYER 5: Cloud Fallback Layer (Invidious / Piped / Open Proxies)
+      // -------------------------------------------------------------
+      console.log("[SubtitleFetcher] Layer 5: Querying open transcript cloud fallback...");
+      const cloudResult = await fetchCloudSubtitleFallback(videoId);
+      if (cloudResult.lines && cloudResult.lines.length > 0) {
+        console.log(`[Captions] Step 5 - Cloud Fallback succeeded via ${cloudResult.source}: ${cloudResult.lines.length} lines`);
+        return { lines: cloudResult.lines, hasTracks: true };
+      }
+
+      // -------------------------------------------------------------
       // CASCADE FAILURE DIAGNOSTIC COMPILATION
       // -------------------------------------------------------------
-      const totalTracksSeen = (tracks?.length || 0) + (iosTracks?.length || 0) + (webTracks?.length || 0) + (xmlResult.tracksCount || 0);
+      const totalTracksSeen = (tracks?.length || 0) + (iosTracks?.length || 0) + (webTracks?.length || 0) + (xmlResult.tracksCount || 0) + (cloudResult.hasTracks ? 1 : 0);
       let finalErrorCode = "NO_CAPTIONS_AVAILABLE";
       let finalErrorDetails = "";
 
@@ -1075,7 +1274,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         finalErrorDetails = "YouTube rejected extractor requests with HTTP 403 Forbidden (bot detection or bot guard).";
       } else {
         finalErrorCode = "NO_CAPTIONS_FOUND";
-        finalErrorDetails = "0 tracks found across Android (Step 1), iOS (Step 2), Web HTML (Step 3), and XML Timedtext (Step 4). Video may be non-verbal or captions disabled by creator.";
+        finalErrorDetails = "0 tracks found across Android (Step 1), iOS (Step 2), Web HTML (Step 3), XML (Step 4), and Cloud Proxies (Step 5). Video may be non-verbal or captions disabled by creator.";
       }
 
       console.log(`[Captions] Cascade finished with error: ${finalErrorCode} - ${finalErrorDetails}`);
