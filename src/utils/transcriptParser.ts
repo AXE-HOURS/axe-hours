@@ -302,13 +302,13 @@ export function parseWebVttSubtitles(vttText: string): SubtitleLine[] {
 
 /**
  * Formats subtitle lines into a human-readable timestamped script:
- * [00:00] First spoken line
- * [00:04] Second spoken line
+ * 00:00 - First spoken line
+ * 00:04 - Second spoken line
  */
 export function formatSubtitles(lines: SubtitleLine[]): string {
   if (!lines || lines.length === 0) return "";
   return lines
-    .map(line => `[${formatSecondsToTimestamp(line.start)}] ${line.text}`)
+    .map(line => `${formatSecondsToTimestamp(line.start)} - ${line.text}`)
     .join("\n");
 }
 
@@ -366,6 +366,284 @@ export function calculateHookScore(hookText: string, wpm?: number, platform?: st
   }
 
   return Math.min(100, Math.max(12, score));
+}
+
+/**
+ * Automated Client-Side Transcript Resolver
+ * Cascades across 3 robust residential client pathways when backend datacenter IP hits HTTP 403:
+ * - Stage 1: Piped API Gateway (pipedapi.kavin.rocks, api.piped.private.coffee)
+ * - Stage 2: Invidious Public Instances (inv.nadeko.net, invidious.nerdvpn.de)
+ * - Stage 3: CORS Proxy to Watch Page (api.allorigins.win, corsproxy.io)
+ */
+export async function resolveTranscriptClientSide(
+  videoId: string,
+  clientDelegationUrl?: string,
+  onProgress?: (message: string) => void
+): Promise<SubtitleLine[] | null> {
+  if (!videoId && !clientDelegationUrl) {
+    console.warn('[resolveTranscriptClientSide] No videoId or clientDelegationUrl provided.');
+    return null;
+  }
+
+  // Early Shortcut: If clientDelegationUrl is available from Innertube metadata, attempt residential fetch
+  if (clientDelegationUrl) {
+    try {
+      onProgress?.('Attempting direct residential fetch from timedtext URL...');
+      let directUrl = clientDelegationUrl;
+      if (directUrl.includes('fmt=')) {
+        directUrl = directUrl.replace(/fmt=[^&]+/, 'fmt=json3');
+      } else {
+        directUrl += (directUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+      }
+
+      try {
+        const directRes = await fetch(directUrl);
+        if (directRes.ok) {
+          const directText = await directRes.text();
+          try {
+            const data = JSON.parse(directText);
+            const lines = parseJsonSubtitles(data);
+            if (lines.length > 0) return lines;
+          } catch (_) {
+            const lines = parseTimedTextXml(directText);
+            if (lines.length > 0) return lines;
+          }
+        }
+      } catch (_) {}
+
+      // Try AllOrigins proxy on delegation URL
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
+      const pRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
+      if (pRes.ok) {
+        const pText = await pRes.text();
+        try {
+          const data = JSON.parse(pText);
+          const lines = parseJsonSubtitles(data);
+          if (lines.length > 0) return lines;
+        } catch (_) {
+          const lines = parseTimedTextXml(pText);
+          if (lines.length > 0) return lines;
+        }
+      }
+    } catch (err) {
+      console.warn('[resolveTranscriptClientSide] Direct delegation fetch failed, escalating to Stage 1:', err);
+    }
+  }
+
+  if (!videoId) return null;
+
+  // -------------------------------------------------------------
+  // STAGE 1: Piped API Gateway
+  // -------------------------------------------------------------
+  const pipedInstances = [
+    `https://pipedapi.kavin.rocks/streams/${videoId}`,
+    `https://api.piped.private.coffee/streams/${videoId}`
+  ];
+
+  for (const endpoint of pipedInstances) {
+    try {
+      onProgress?.('Stage 1: Resolving transcript via Piped API Gateway...');
+      console.log(`[resolveTranscriptClientSide] Stage 1 - Querying Piped: ${endpoint}`);
+      const res = await fetch(endpoint, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const data = await res.json();
+        const subtitles = data.subtitles;
+        if (Array.isArray(subtitles) && subtitles.length > 0) {
+          const enTrack = subtitles.find((s: any) => 
+            s.code === 'en' || 
+            s.code?.startsWith('en') || 
+            s.name?.toLowerCase().includes('english')
+          ) || subtitles[0];
+
+          if (enTrack?.url) {
+            const subRes = await fetch(enTrack.url, { signal: AbortSignal.timeout(5000) });
+            if (subRes.ok) {
+              const subText = await subRes.text();
+              let lines = parseWebVttSubtitles(subText);
+              if (lines.length === 0) {
+                try {
+                  const jsonData = JSON.parse(subText);
+                  lines = parseJsonSubtitles(jsonData);
+                } catch (_) {
+                  lines = parseTimedTextXml(subText);
+                }
+              }
+              if (lines.length > 0) {
+                console.log(`[resolveTranscriptClientSide] Stage 1 succeeded via ${endpoint}: ${lines.length} lines`);
+                return lines;
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[resolveTranscriptClientSide] Stage 1 instance failed (${endpoint}):`, err);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // STAGE 2: Invidious Public Instances
+  // -------------------------------------------------------------
+  const invidiousInstances = [
+    `https://inv.nadeko.net/api/v1/captions/${videoId}?label=English`,
+    `https://invidious.nerdvpn.de/api/v1/captions/${videoId}?label=English`,
+    `https://inv.nadeko.net/api/v1/captions/${videoId}`,
+    `https://invidious.nerdvpn.de/api/v1/captions/${videoId}`,
+    `https://inv.tux.pizza/api/v1/captions/${videoId}`
+  ];
+
+  for (const endpoint of invidiousInstances) {
+    try {
+      onProgress?.('Stage 2: Resolving transcript via Invidious Public Instances...');
+      console.log(`[resolveTranscriptClientSide] Stage 2 - Querying Invidious: ${endpoint}`);
+      const res = await fetch(endpoint, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const text = await res.text();
+        // Check if endpoint returned VTT content directly
+        if (text.includes('-->') || text.startsWith('WEBVTT')) {
+          const lines = parseWebVttSubtitles(text);
+          if (lines.length > 0) {
+            console.log(`[resolveTranscriptClientSide] Stage 2 succeeded via direct VTT (${endpoint}): ${lines.length} lines`);
+            return lines;
+          }
+        }
+
+        // Try parsing as JSON captions list
+        try {
+          const data = JSON.parse(text);
+          const captions = Array.isArray(data) ? data : data.captions;
+          if (Array.isArray(captions) && captions.length > 0) {
+            const enTrack = captions.find((c: any) => 
+              c.label?.toLowerCase().includes('english') || 
+              c.language_code === 'en' || 
+              c.language_code?.startsWith('en')
+            ) || captions[0];
+
+            if (enTrack?.url) {
+              const baseUrl = endpoint.split('/api/v1/')[0];
+              const subUrl = enTrack.url.startsWith('http') ? enTrack.url : `${baseUrl}${enTrack.url}`;
+              const subRes = await fetch(subUrl, { signal: AbortSignal.timeout(5000) });
+              if (subRes.ok) {
+                const subText = await subRes.text();
+                let lines = parseWebVttSubtitles(subText);
+                if (lines.length === 0) {
+                  lines = parseTimedTextXml(subText);
+                }
+                if (lines.length > 0) {
+                  console.log(`[resolveTranscriptClientSide] Stage 2 succeeded via ${subUrl}: ${lines.length} lines`);
+                  return lines;
+                }
+              }
+            }
+          }
+        } catch (_) {}
+      }
+    } catch (err) {
+      console.warn(`[resolveTranscriptClientSide] Stage 2 instance failed (${endpoint}):`, err);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // STAGE 3: CORS Proxy to Watch Page
+  // -------------------------------------------------------------
+  try {
+    onProgress?.('Stage 3: Extracting caption tracks via Watch Page CORS Proxy...');
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+    const proxyUrls = [
+      `https://api.allorigins.win/raw?url=${encodeURIComponent(watchUrl)}`,
+      `https://corsproxy.io/?url=${encodeURIComponent(watchUrl)}`
+    ];
+
+    for (const proxyUrl of proxyUrls) {
+      try {
+        console.log(`[resolveTranscriptClientSide] Stage 3 - Fetching watch page via proxy: ${proxyUrl}`);
+        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) continue;
+        const html = await res.text();
+        if (!html) continue;
+
+        // Regex extract "captionTracks":\s*(\[.*?\])
+        const match = html.match(/"captionTracks"\s*:\s*(\[.*?\])/) || 
+                      html.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])/);
+        if (match) {
+          let tracks: any[] = [];
+          try {
+            tracks = JSON.parse(match[1]);
+          } catch (_) {
+            const startIdx = html.indexOf('"captionTracks"');
+            if (startIdx > -1) {
+              const openBracket = html.indexOf('[', startIdx);
+              const closeBracket = html.indexOf(']', openBracket);
+              if (openBracket > -1 && closeBracket > openBracket) {
+                tracks = JSON.parse(html.slice(openBracket, closeBracket + 1));
+              }
+            }
+          }
+
+          if (Array.isArray(tracks) && tracks.length > 0) {
+            const enTrack = tracks.find((t: any) => 
+              t.languageCode === 'en' || 
+              t.languageCode?.startsWith('en') || 
+              t.vssId?.includes('.en') || 
+              t.name?.simpleText?.toLowerCase().includes('english')
+            ) || tracks[0];
+
+            if (enTrack?.baseUrl) {
+              let jsonUrl = enTrack.baseUrl;
+              if (jsonUrl.includes('fmt=')) {
+                jsonUrl = jsonUrl.replace(/fmt=[^&]+/, 'fmt=json3');
+              } else {
+                jsonUrl += (jsonUrl.includes('?') ? '&' : '?') + 'fmt=json3';
+              }
+
+              // Direct browser fetch (residential IP)
+              try {
+                const subRes = await fetch(jsonUrl);
+                if (subRes.ok) {
+                  const subText = await subRes.text();
+                  try {
+                    const jsonData = JSON.parse(subText);
+                    const lines = parseJsonSubtitles(jsonData);
+                    if (lines.length > 0) {
+                      console.log(`[resolveTranscriptClientSide] Stage 3 direct fetch succeeded: ${lines.length} lines`);
+                      return lines;
+                    }
+                  } catch (_) {
+                    const lines = parseTimedTextXml(subText);
+                    if (lines.length > 0) return lines;
+                  }
+                }
+              } catch (_) {}
+
+              // Fallback via CORS proxy on track URL
+              const subProxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(jsonUrl)}`;
+              const subProxyRes = await fetch(subProxyUrl, { signal: AbortSignal.timeout(6000) });
+              if (subProxyRes.ok) {
+                const subText = await subProxyRes.text();
+                try {
+                  const jsonData = JSON.parse(subText);
+                  const lines = parseJsonSubtitles(jsonData);
+                  if (lines.length > 0) {
+                    console.log(`[resolveTranscriptClientSide] Stage 3 proxy fetch succeeded: ${lines.length} lines`);
+                    return lines;
+                  }
+                } catch (_) {
+                  const lines = parseTimedTextXml(subText);
+                  if (lines.length > 0) return lines;
+                }
+              }
+            }
+          }
+        }
+      } catch (proxyErr) {
+        console.warn(`[resolveTranscriptClientSide] Stage 3 proxy attempt failed (${proxyUrl}):`, proxyErr);
+      }
+    }
+  } catch (err) {
+    console.warn('[resolveTranscriptClientSide] Stage 3 watch page extraction failed:', err);
+  }
+
+  return null;
 }
 
 
