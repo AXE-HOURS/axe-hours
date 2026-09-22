@@ -88,3 +88,4 @@ export function enforceTelemetryMasking(): void {
     console.warn('[Privacy] DOM privacy observer error:', err);
   }
 }
+

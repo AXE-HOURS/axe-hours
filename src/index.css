@@ -1,5 +1,13 @@
+@import "@fontsource/plus-jakarta-sans/400.css";
+@import "@fontsource/plus-jakarta-sans/500.css";
+@import "@fontsource/plus-jakarta-sans/600.css";
+@import "@fontsource/plus-jakarta-sans/700.css";
+@import "@fontsource/plus-jakarta-sans/800.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
 @import "@fontsource/inter/index.css";
-@import "@fontsource/geist-sans/index.css";
 @import "tailwindcss";
 
 :root {
@@ -49,7 +57,9 @@
   --color-surface: #000000;
   --color-on-surface-variant: #94a3b8;
   
-  --font-sans: "Geist", "Inter", sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   
   --background-image-purple-glow: radial-gradient(circle at 50% 50%, var(--primary-color) 15%, transparent 70%);
   --background-image-primary-gradient: var(--primary-gradient);
@@ -70,6 +80,15 @@ html, body {
   font-family: var(--font-sans);
   overflow-x: hidden;
   transition: background-color 0.5s ease;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Razor-sharp heading letter-spacing */
+h1, h2, h3, h4, h5, h6, .font-heading {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
 }
 
 /* Custom Scrollbars */

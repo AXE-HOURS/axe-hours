@@ -385,7 +385,69 @@ export async function resolveTranscriptClientSide(
     return null;
   }
 
-  // Early Shortcut: If clientDelegationUrl is available from Innertube metadata, attempt residential fetch
+  // -------------------------------------------------------------
+  // TIER 1: Direct Native YouTube Timedtext Endpoint (Residential IP)
+  // Executes directly from the user's browser, bypassing datacenter 403 blocks
+  // -------------------------------------------------------------
+  if (videoId) {
+    const directUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
+    const asrUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`;
+
+    // 1. Direct browser fetch
+    for (const url of [directUrl, asrUrl]) {
+      try {
+        onProgress?.('Tier 1: Querying direct native YouTube timedtext...');
+        console.log(`[resolveTranscriptClientSide] Tier 1 - Direct native call: ${url}`);
+        const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
+        if (res.ok) {
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            const lines = parseJsonSubtitles(data);
+            if (lines.length > 0) {
+              console.log(`[resolveTranscriptClientSide] Tier 1 succeeded directly (${url}): ${lines.length} lines`);
+              return lines;
+            }
+          } catch (_) {
+            const lines = parseTimedTextXml(text);
+            if (lines.length > 0) return lines;
+          }
+        }
+      } catch (err) {
+        console.warn(`[resolveTranscriptClientSide] Tier 1 direct fetch failed (${url}):`, err);
+      }
+    }
+
+    // 2. Cascade to corsproxy.io if direct client call triggers CORS
+    for (const targetUrl of [asrUrl, directUrl]) {
+      try {
+        onProgress?.('Tier 1: Querying native timedtext via corsproxy.io...');
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
+        console.log(`[resolveTranscriptClientSide] Tier 1 - Querying corsproxy.io: ${proxyUrl}`);
+        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
+        if (res.ok) {
+          const text = await res.text();
+          try {
+            const data = JSON.parse(text);
+            const lines = parseJsonSubtitles(data);
+            if (lines.length > 0) {
+              console.log(`[resolveTranscriptClientSide] Tier 1 succeeded via corsproxy.io: ${lines.length} lines`);
+              return lines;
+            }
+          } catch (_) {
+            const lines = parseTimedTextXml(text);
+            if (lines.length > 0) return lines;
+          }
+        }
+      } catch (err) {
+        console.warn(`[resolveTranscriptClientSide] corsproxy.io failed for ${targetUrl}:`, err);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // TIER 2: Delegated Timedtext URL (from Innertube Watch Metadata)
+  // -------------------------------------------------------------
   if (clientDelegationUrl) {
     try {
       onProgress?.('Attempting direct residential fetch from timedtext URL...');
@@ -411,29 +473,33 @@ export async function resolveTranscriptClientSide(
         }
       } catch (_) {}
 
-      // Try AllOrigins proxy on delegation URL
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-      const pRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
-      if (pRes.ok) {
-        const pText = await pRes.text();
+      // Try AllOrigins and corsproxy.io proxy on delegation URL
+      for (const proxyBase of ['https://api.allorigins.win/raw?url=', 'https://corsproxy.io/?url=']) {
         try {
-          const data = JSON.parse(pText);
-          const lines = parseJsonSubtitles(data);
-          if (lines.length > 0) return lines;
-        } catch (_) {
-          const lines = parseTimedTextXml(pText);
-          if (lines.length > 0) return lines;
-        }
+          const proxyUrl = `${proxyBase}${encodeURIComponent(directUrl)}`;
+          const pRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
+          if (pRes.ok) {
+            const pText = await pRes.text();
+            try {
+              const data = JSON.parse(pText);
+              const lines = parseJsonSubtitles(data);
+              if (lines.length > 0) return lines;
+            } catch (_) {
+              const lines = parseTimedTextXml(pText);
+              if (lines.length > 0) return lines;
+            }
+          }
+        } catch (_) {}
       }
     } catch (err) {
-      console.warn('[resolveTranscriptClientSide] Direct delegation fetch failed, escalating to Stage 1:', err);
+      console.warn('[resolveTranscriptClientSide] Direct delegation fetch failed, escalating:', err);
     }
   }
 
   if (!videoId) return null;
 
   // -------------------------------------------------------------
-  // STAGE 1: Piped API Gateway
+  // TIER 3: Piped API Gateway
   // -------------------------------------------------------------
   const pipedInstances = [
     `https://pipedapi.kavin.rocks/streams/${videoId}`,
