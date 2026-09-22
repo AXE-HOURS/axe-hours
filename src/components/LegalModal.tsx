@@ -1,14 +1,22 @@
-import React from 'react';
-import { Shield, FileText, X, Check, Lock, Globe, Server, UserCheck } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Shield, FileText, X, Check, Lock, Globe, Server, UserCheck, Scale, AlertOctagon, Mail } from 'lucide-react';
 import { GlassCard } from './GlassCard';
+
+export type LegalDocType = 'privacy' | 'terms' | 'dmca';
 
 interface LegalModalProps {
   isOpen: boolean;
   onClose: () => void;
-  type: 'privacy' | 'terms';
+  type: LegalDocType;
 }
 
-export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type }) => {
+export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: initialType }) => {
+  const [activeType, setActiveType] = useState<LegalDocType>(initialType);
+
+  useEffect(() => {
+    setActiveType(initialType);
+  }, [initialType]);
+
   if (!isOpen) return null;
 
   return (
@@ -19,17 +27,17 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type })
         <div className="flex border-b border-white/10 p-5 justify-between items-center bg-[#0d0e12]/90 shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-300">
-              {type === 'privacy' ? <Shield size={20} /> : <FileText size={20} />}
+              {activeType === 'privacy' ? <Shield size={20} /> : activeType === 'terms' ? <FileText size={20} /> : <Scale size={20} />}
             </div>
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                {type === 'privacy' ? 'AXE Hours AI Privacy Policy' : 'AXE Hours AI Terms of Service'}
+                {activeType === 'privacy' ? 'AXE Hours AI Privacy Policy' : activeType === 'terms' ? 'AXE Hours AI Terms of Service' : 'AXE Hours AI DMCA Copyright & Takedown Policy'}
                 <span className="text-[10px] font-mono uppercase bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full">
                   Official Legal Document
                 </span>
               </h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                Effective Date: January 1, 2026 | Version 2.4 | AXE Hours AI Suite
+                Effective Date: January 1, 2026 | Version 2.5 | AXE Hours AI Legal Suite
               </p>
             </div>
           </div>
@@ -43,10 +51,50 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type })
           </button>
         </div>
 
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-2 px-6 py-2.5 bg-[#090a0d] border-b border-white/5 text-xs font-semibold shrink-0 overflow-x-auto">
+          <button
+            type="button"
+            onClick={() => setActiveType('privacy')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeType === 'privacy'
+                ? 'bg-purple-600/25 border border-purple-500/40 text-purple-200'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+            }`}
+          >
+            <Shield size={13} />
+            Privacy Policy
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveType('terms')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeType === 'terms'
+                ? 'bg-purple-600/25 border border-purple-500/40 text-purple-200'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+            }`}
+          >
+            <FileText size={13} />
+            Terms of Service
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveType('dmca')}
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeType === 'dmca'
+                ? 'bg-purple-600/25 border border-purple-500/40 text-purple-200'
+                : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+            }`}
+          >
+            <Scale size={13} />
+            DMCA Takedown
+          </button>
+        </div>
+
         {/* Legal Document Content */}
         <div className="flex-1 min-h-0 overflow-y-auto p-6 pr-4 space-y-6 text-gray-300 text-xs leading-relaxed custom-scrollbar bg-[#08080a]">
           
-          {type === 'privacy' ? (
+          {activeType === 'privacy' ? (
             /* PRIVACY POLICY CONTENT */
             <div className="space-y-6">
               
@@ -118,12 +166,12 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type })
                   5. Contact & Privacy Inquiries
                 </h3>
                 <p className="text-gray-400">
-                  For privacy questions, data export requests, or security disclosures, reach out to the AXE Hours AI Data Protection Team at <a href="mailto:privacy@axe-hours.ai" className="text-purple-400 hover:underline">privacy@axe-hours.ai</a>.
+                  For privacy questions, data export requests, or security disclosures, reach out to the AXE Hours AI Data Protection Team at <a href="mailto:legal@axe-hours.com" className="text-purple-400 hover:underline">legal@axe-hours.com</a> (or <a href="mailto:support@axe-hours.com" className="text-purple-400 hover:underline">support@axe-hours.com</a>).
                 </p>
               </section>
 
             </div>
-          ) : (
+          ) : activeType === 'terms' ? (
             /* TERMS OF SERVICE CONTENT */
             <div className="space-y-6">
               
@@ -197,7 +245,89 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type })
                   6. Contact & Legal Inquiries
                 </h3>
                 <p className="text-gray-400">
-                  For legal inquiries or terms clarification, contact <a href="mailto:legal@axe-hours.ai" className="text-purple-400 hover:underline">legal@axe-hours.ai</a>.
+                  For legal inquiries or terms clarification, contact <a href="mailto:legal@axe-hours.com" className="text-purple-400 hover:underline">legal@axe-hours.com</a>.
+                </p>
+              </section>
+
+            </div>
+          ) : (
+            /* DMCA TAKEDOWN POLICY CONTENT */
+            <div className="space-y-6">
+              
+              <div className="bg-purple-950/20 border border-purple-500/20 rounded-xl p-4 flex items-start gap-3">
+                <Scale className="text-purple-400 shrink-0 mt-0.5" size={18} />
+                <div>
+                  <h3 className="font-bold text-white text-sm">DMCA Copyright & Takedown Policy</h3>
+                  <p className="text-gray-300 mt-1">
+                    AXE Hours AI respects intellectual property rights and complies with the Digital Millennium Copyright Act of 1998 (17 U.S.C. § 512). This page outlines the procedures for submitting a formal Notice of Claimed Infringement and submitting Counter-Notices.
+                  </p>
+                </div>
+              </div>
+
+              {/* DMCA Designated Agent */}
+              <section className="p-4 bg-white/5 border border-purple-500/30 rounded-xl space-y-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Mail size={15} className="text-purple-400" /> Designated Copyright Agent
+                </h3>
+                <p className="text-gray-300">
+                  All copyright infringement notices must be submitted in writing to our designated DMCA Agent:
+                </p>
+                <div className="bg-black/60 p-3 rounded-lg font-mono text-xs text-purple-300 space-y-1 border border-white/5">
+                  <p><strong className="text-gray-300">Designated Agent:</strong> Copyright Legal Department</p>
+                  <p><strong className="text-gray-300">Organization:</strong> AXE Hours AI</p>
+                  <p><strong className="text-gray-300">Primary DMCA Email:</strong> <a href="mailto:legal@axe-hours.com" className="underline text-purple-400">legal@axe-hours.com</a></p>
+                  <p><strong className="text-gray-300">Support Desk:</strong> <a href="mailto:support@axe-hours.com" className="underline text-purple-400">support@axe-hours.com</a></p>
+                </div>
+              </section>
+
+              {/* Section 1: Notice Requirements */}
+              <section className="space-y-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-white/10 pb-1.5">
+                  1. Requirements for a Valid DMCA Notice (17 U.S.C. § 512(c)(3))
+                </h3>
+                <p className="text-gray-400">
+                  To be effective under the DMCA, your written notification must include substantially the following:
+                </p>
+                <ul className="list-disc pl-5 space-y-1.5 text-gray-400">
+                  <li><strong className="text-gray-200">Signature:</strong> A physical or electronic signature of a person authorized to act on behalf of the copyright owner.</li>
+                  <li><strong className="text-gray-200">Identification of Work:</strong> Identification of the copyrighted work claimed to have been infringed (or a representative list).</li>
+                  <li><strong className="text-gray-200">Identification of Material:</strong> Identification of the material claimed to be infringing or to be the subject of infringing activity, including specific URLs or location indicators.</li>
+                  <li><strong className="text-gray-200">Contact Information:</strong> Your name, physical mailing address, telephone number, and active email address.</li>
+                  <li><strong className="text-gray-200">Good Faith Statement:</strong> A statement that you have a good faith belief that use of the material in the manner complained of is not authorized by the copyright owner, its agent, or the law.</li>
+                  <li><strong className="text-gray-200">Perjury Statement:</strong> A statement that the information in the notification is accurate, and under penalty of perjury, that you are authorized to act on behalf of the owner of an exclusive right that is allegedly infringed.</li>
+                </ul>
+              </section>
+
+              {/* Section 2: Counter-Notification */}
+              <section className="space-y-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-white/10 pb-1.5">
+                  2. Counter-Notification Procedure (17 U.S.C. § 512(g)(3))
+                </h3>
+                <p className="text-gray-400 leading-relaxed">
+                  If material that you posted or stored on AXE Hours AI has been removed or disabled as a result of a DMCA notice, and you believe the removal was a mistake or misidentification, you may send a written Counter-Notification to our Designated Agent at <a href="mailto:legal@axe-hours.com" className="text-purple-400 hover:underline">legal@axe-hours.com</a>.
+                </p>
+                <p className="text-gray-400 leading-relaxed">
+                  Upon receipt of a valid Counter-Notification, we will forward a copy to the original complaining party. If the copyright owner does not file a court action within 10-14 business days, we may restore the removed material pursuant to the DMCA safe harbor rules.
+                </p>
+              </section>
+
+              {/* Section 3: Repeat Infringer Policy */}
+              <section className="space-y-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-white/10 pb-1.5">
+                  3. Repeat Infringer Policy (17 U.S.C. § 512(i)(1)(A))
+                </h3>
+                <p className="text-gray-400 leading-relaxed">
+                  AXE Hours AI maintains a strict repeat infringer policy. In accordance with applicable law, accounts determined to be repeat infringers will have their access, account privileges, and cloud synchronizations permanently revoked and terminated.
+                </p>
+              </section>
+
+              {/* Section 4: Misrepresentation Warning */}
+              <section className="space-y-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2 border-b border-white/10 pb-1.5">
+                  4. Warning Regarding False Claims (17 U.S.C. § 512(f))
+                </h3>
+                <p className="text-gray-400 leading-relaxed">
+                  Please be aware that under 17 U.S.C. § 512(f), any person who knowingly materially misrepresents that material or activity is infringing, or that material or activity was removed or disabled by mistake or misidentification, may be liable for statutory damages and attorneys' fees.
                 </p>
               </section>
 

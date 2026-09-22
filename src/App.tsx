@@ -5,6 +5,7 @@ import { TopNav } from './components/TopNav';
 import { Footer } from './components/Footer';
 import { AIPopoutAssistant } from './components/AIPopoutAssistant';
 import { OnboardingTour } from './components/OnboardingTour';
+import { UpgradeModal } from './components/UpgradeModal';
 import { Settings } from './views/Settings';
 import { LandingPage } from './views/LandingPage';
 import { SavedIdeas } from './views/SavedIdeas';
@@ -87,8 +88,9 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [showNotifications, setShowNotifications] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
 
-  // General tab switcher listener
+  // General tab switcher and modal listener
   useEffect(() => {
     const handleViewChange = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -96,8 +98,14 @@ export default function App() {
         setCurrentView(customEvent.detail.view);
       }
     };
+    const handleOpenUpgrade = () => setIsUpgradeModalOpen(true);
+
     window.addEventListener("change-active-view", handleViewChange);
-    return () => window.removeEventListener("change-active-view", handleViewChange);
+    window.addEventListener("open-upgrade-modal", handleOpenUpgrade);
+    return () => {
+      window.removeEventListener("change-active-view", handleViewChange);
+      window.removeEventListener("open-upgrade-modal", handleOpenUpgrade);
+    };
   }, []);
 
   // Initialize and load user theme
@@ -236,6 +244,7 @@ export default function App() {
           onSelectHistory={handleSelectHistory}
           onLogout={handleLogout}
           user={user}
+          onOpenUpgrade={() => setIsUpgradeModalOpen(true)}
         />
         
         <div id="axe-hours-viewport" className="flex-1 flex flex-col md:ml-64 min-h-screen">
@@ -315,6 +324,7 @@ export default function App() {
       </div>
       <AIPopoutAssistant currentView={currentView} setCurrentView={setCurrentView} />
       <OnboardingTour isOpen={isTourOpen} onClose={() => setIsTourOpen(false)} />
+      <UpgradeModal isOpen={isUpgradeModalOpen} onClose={() => setIsUpgradeModalOpen(false)} />
     </div>
   );
 }

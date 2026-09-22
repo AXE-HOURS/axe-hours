@@ -23,6 +23,7 @@ interface SidebarProps {
   onSelectHistory: (item: GenerationItem) => void;
   onLogout: () => void;
   user: UserData | null;
+  onOpenUpgrade?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ 
@@ -31,7 +32,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   recentGenerations = [], 
   onSelectHistory, 
   onLogout, 
-  user 
+  user,
+  onOpenUpgrade
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -136,7 +138,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ) : (
           <button 
             id="sidebar-upgrade-btn"
-            onClick={() => setActiveTab('settings')}
+            onClick={() => onOpenUpgrade ? onOpenUpgrade() : setActiveTab('settings')}
             className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer"
           >
             <Crown size={20} className="text-yellow-400" />

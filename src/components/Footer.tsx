@@ -10,7 +10,7 @@ import { useFirebase } from '../context/FirebaseContext';
 export const Footer: React.FC = () => {
   const { dbUser, user } = useFirebase();
   const [isOpen, setIsOpen] = useState(false);
-  const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | null>(null);
+  const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'dmca' | null>(null);
   const [activeTab, setActiveTab] = useState<'getting-started' | 'features' | 'secrets' | 'simulator'>('getting-started');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -271,6 +271,13 @@ export const Footer: React.FC = () => {
               className="hover:text-gray-300 transition-colors cursor-pointer"
             >
               Terms of Service
+            </button>
+            <button 
+              type="button"
+              onClick={() => setLegalModalType('dmca')} 
+              className="hover:text-gray-300 transition-colors cursor-pointer text-purple-400/90 hover:text-purple-300"
+            >
+              DMCA Takedown
             </button>
             <span className="h-3 w-[1px] bg-white/10" />
             <p className="flex items-center gap-1">

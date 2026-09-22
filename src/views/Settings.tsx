@@ -187,10 +187,11 @@ export const Settings: React.FC = () => {
                 <input 
                   id="settings-api-key-box"
                   type="password" 
+                  data-private="true"
                   value={apiKey} 
                   onChange={(e) => setApiKey(e.target.value)} 
                   placeholder="Google GenAI key (AI Studio secrets)" 
-                  className="w-full bg-black/40 border border-white/10 rounded-ax p-3 text-sm text-white focus:outline-none focus:border-primary font-mono" 
+                  className="w-full bg-black/40 border border-white/10 rounded-ax p-3 text-sm text-white focus:outline-none focus:border-primary font-mono ph-no-capture" 
                 />
                 <span className="block text-[10px] text-gray-500 font-light mt-1">
                   Scoped secret token for your personal generative content studio.
@@ -290,13 +291,14 @@ export const Settings: React.FC = () => {
                   <textarea
                     id="settings-firebase-config-textarea"
                     rows={5}
+                    data-private="true"
                     value={firebaseJson}
                     onChange={(e) => {
                       setFirebaseJson(e.target.value);
                       setFbError("");
                     }}
                     placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "my-custom-app.firebaseapp.com",\n  "projectId": "my-custom-app",\n  "storageBucket": "my-custom-app.firebasestorage.app",\n  "messagingSenderId": "...",\n  "appId": "..."\n}`}
-                    className="w-full bg-black/40 border border-white/10 rounded-ax p-3 text-xs text-white focus:outline-none focus:border-primary font-mono placeholder:text-gray-600 resize-none"
+                    className="w-full bg-black/40 border border-white/10 rounded-ax p-3 text-xs text-white focus:outline-none focus:border-primary font-mono placeholder:text-gray-600 resize-none ph-no-capture"
                   />
                   {fbError && (
                     <p className="text-xs text-red-400 font-mono bg-red-950/20 border border-red-500/20 p-2.5 rounded-lg">

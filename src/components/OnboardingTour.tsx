@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { playAudioCue as playAudio } from '../utils/audio';
 import { useToast } from '../context/ToastContext';
+import { LegalModal, LegalDocType } from './LegalModal';
 
 interface OnboardingTourProps {
   onClose?: () => void;
@@ -15,6 +16,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
   const [isOpen, setIsOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+  const [legalModalType, setLegalModalType] = useState<LegalDocType | null>(null);
   const { addToast } = useToast();
 
   // Check if tour should auto-trigger on first load
@@ -52,6 +54,30 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
           <p>
             Welcome, Creator! Let's align your production pipeline with high-retention mechanics.
           </p>
+          <div className="p-3 bg-purple-500/10 border border-purple-500/25 rounded-xl text-[11px] text-purple-200/90 leading-relaxed select-none">
+            By continuing, you confirm that you are at least 13 years of age and agree to our{' '}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLegalModalType('terms');
+              }}
+              className="text-[#a8c7fa] underline hover:text-white font-medium cursor-pointer"
+            >
+              Terms of Service
+            </button>{' '}
+            and{' '}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setLegalModalType('privacy');
+              }}
+              className="text-[#a8c7fa] underline hover:text-white font-medium cursor-pointer"
+            >
+              Privacy Policy
+            </button>.
+          </div>
           <p>
             The <span className="font-bold text-purple-400">Data Bridge button</span> allows you to extract and decode short-form speech transcripts from raw reference videos, map hook density, and seamlessly transfer the raw text script data straight across your workspace.
           </p>
@@ -265,6 +291,13 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
           </div>
         </div>
       </div>
+
+      {/* Embedded Legal Documents Modal */}
+      <LegalModal 
+        isOpen={!!legalModalType} 
+        type={legalModalType || 'privacy'} 
+        onClose={() => setLegalModalType(null)} 
+      />
     </div>
   );
 };

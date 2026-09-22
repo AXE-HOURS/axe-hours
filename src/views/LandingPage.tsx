@@ -48,7 +48,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showEmailForm, setShowEmailForm] = useState(false);
-  const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | null>(null);
+  const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'dmca' | null>(null);
+  const [termsAffirmed, setTermsAffirmed] = useState(false);
 
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
@@ -111,6 +112,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!termsAffirmed) {
+      setError("Please confirm you are at least 13 years of age and agree to our Terms of Service and Privacy Policy to continue.");
+      playAudio(220, "sawtooth", 0.4);
+      return;
+    }
     setError('');
     setIsLoading(true);
     
@@ -140,6 +146,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
   };
 
   const handleGoogleLogin = async () => {
+    if (!termsAffirmed) {
+      setError("Please confirm you are at least 13 years of age and agree to our Terms of Service and Privacy Policy to continue.");
+      playAudio(220, "sawtooth", 0.4);
+      return;
+    }
     setError('');
     setIsLoading(true);
     try {
@@ -859,10 +870,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
               </ul>
             </div>
 
+            <div className="mt-6 pt-3 border-t border-purple-500/20 text-center">
+              <p className="text-[11px] text-purple-200/90 leading-relaxed font-sans">
+                Recurring billing. Cancel anytime from your Profile Settings. By clicking Subscribe, you agree that your plan will automatically renew monthly until canceled.
+              </p>
+            </div>
+
             <PrimaryButton 
               id="price-pro-action-btn" 
               onClick={() => openModal('signup')} 
-              className="w-full py-4.5 mt-8 text-sm md:text-base font-black uppercase tracking-widest cursor-pointer shadow-[0_0_30px_rgba(168,85,247,0.5)] border border-purple-400 rounded-2xl"
+              className="w-full py-4 mt-3 text-sm md:text-base font-black uppercase tracking-widest cursor-pointer shadow-[0_0_30px_rgba(168,85,247,0.5)] border border-purple-400 rounded-2xl"
             >
               Unlock Pro Node Suite
             </PrimaryButton>
@@ -941,6 +958,46 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                     </div>
                   )}
 
+                  {/* Explicit COPPA 13+ & Terms/Privacy Confirmation Statement */}
+                  <div className="p-3.5 rounded-xl bg-purple-950/25 border border-purple-500/40">
+                    <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        id="auth-coppa-terms-checkbox"
+                        checked={termsAffirmed}
+                        onChange={(e) => {
+                          setTermsAffirmed(e.target.checked);
+                          if (e.target.checked) setError('');
+                        }}
+                        className="mt-0.5 rounded border-white/30 text-purple-600 focus:ring-0 cursor-pointer h-4 w-4 bg-black/50 accent-purple-500 shrink-0"
+                      />
+                      <span className="text-xs text-[#d1d5db] leading-relaxed font-sans">
+                        By continuing, you confirm that you are at least 13 years of age and agree to our{' '}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLegalModalType('terms');
+                          }}
+                          className="text-[#a8c7fa] underline hover:text-[#c2e7ff] font-medium cursor-pointer"
+                        >
+                          Terms of Service
+                        </button>{' '}
+                        and{' '}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLegalModalType('privacy');
+                          }}
+                          className="text-[#a8c7fa] underline hover:text-[#c2e7ff] font-medium cursor-pointer"
+                        >
+                          Privacy Policy
+                        </button>.
+                      </span>
+                    </label>
+                  </div>
+
                   {/* Provider List */}
                   <div className="border-t border-b border-[#303134] divide-y divide-[#303134]">
                     {/* Google Row */}
@@ -1000,8 +1057,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
 
                   <p className="text-xs text-[#9aa0a6] leading-relaxed pt-1">
                     Before using this app, you can review Axe Hours AI's{" "}
-                    <span className="text-[#a8c7fa] underline cursor-pointer hover:text-[#c2e7ff]">Privacy Policy</span> and{" "}
-                    <span className="text-[#a8c7fa] underline cursor-pointer hover:text-[#c2e7ff]">Terms of Service</span>.
+                    <button
+                      type="button"
+                      onClick={() => setLegalModalType('privacy')}
+                      className="text-[#a8c7fa] underline cursor-pointer hover:text-[#c2e7ff]"
+                    >
+                      Privacy Policy
+                    </button>{" "}
+                    and{" "}
+                    <button
+                      type="button"
+                      onClick={() => setLegalModalType('terms')}
+                      className="text-[#a8c7fa] underline cursor-pointer hover:text-[#c2e7ff]"
+                    >
+                      Terms of Service
+                    </button>.
                   </p>
                 </div>
               ) : (
@@ -1033,10 +1103,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                           id="auth-email-input"
                           type="email" 
                           required 
+                          data-private="true"
                           value={email} 
                           onChange={(e) => setEmail(e.target.value)} 
                           placeholder="name@example.com" 
-                          className="w-full bg-[#030307] border border-[#303134] rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500" 
+                          className="w-full bg-[#030307] border border-[#303134] rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500 ph-no-capture" 
                         />
                       </div>
                     </div>
@@ -1049,13 +1120,54 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                           id="auth-password-input"
                           type="password" 
                           required 
+                          data-private="true"
                           value={password} 
                           onChange={(e) => setPassword(e.target.value)} 
                           placeholder="••••••••" 
-                          className="w-full bg-[#030307] border border-[#303134] rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500" 
+                          className="w-full bg-[#030307] border border-[#303134] rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-purple-500 placeholder-gray-500 ph-no-capture" 
                         />
                       </div>
                     </div>
+                  </div>
+
+                  {/* Explicit COPPA 13+ & Terms/Privacy Affirmation in Email Form */}
+                  <div className="p-3 rounded-xl bg-purple-950/25 border border-purple-500/40 select-none">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        id="auth-email-coppa-terms-checkbox"
+                        checked={termsAffirmed}
+                        onChange={(e) => {
+                          setTermsAffirmed(e.target.checked);
+                          if (e.target.checked) setError('');
+                        }}
+                        className="mt-0.5 rounded border-white/30 text-purple-600 focus:ring-0 cursor-pointer h-4 w-4 bg-black/50 accent-purple-500 shrink-0"
+                      />
+                      <span className="text-xs text-[#d1d5db] leading-relaxed font-sans">
+                        By continuing, you confirm that you are at least 13 years of age and agree to our{' '}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLegalModalType('terms');
+                          }}
+                          className="text-[#a8c7fa] underline hover:text-[#c2e7ff] font-medium cursor-pointer"
+                        >
+                          Terms of Service
+                        </button>{' '}
+                        and{' '}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setLegalModalType('privacy');
+                          }}
+                          className="text-[#a8c7fa] underline hover:text-[#c2e7ff] font-medium cursor-pointer"
+                        >
+                          Privacy Policy
+                        </button>.
+                      </span>
+                    </label>
                   </div>
 
                   <div className="flex items-center justify-between text-xs pt-1">
@@ -1104,6 +1216,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                 className="hover:text-white transition-colors cursor-pointer"
               >
                 Terms of Service
+              </button>
+              <button 
+                type="button" 
+                onClick={() => setLegalModalType('dmca')} 
+                className="hover:text-white transition-colors cursor-pointer text-purple-400/90 hover:text-purple-300"
+              >
+                DMCA Takedown
               </button>
             </div>
           </div>
