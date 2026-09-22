@@ -1,12 +1,11 @@
-@import "@fontsource/plus-jakarta-sans/400.css";
-@import "@fontsource/plus-jakarta-sans/500.css";
-@import "@fontsource/plus-jakarta-sans/600.css";
-@import "@fontsource/plus-jakarta-sans/700.css";
-@import "@fontsource/plus-jakarta-sans/800.css";
-@import "@fontsource/inter/index.css";
+@import '@fontsource/geist-sans/latin.css';
+@import '@fontsource/inter/latin.css';
 @import "tailwindcss";
 
 :root {
+  --font-sans: 'Geist Sans', 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Geist Sans', 'Geist', sans-serif;
+
   --primary-color: #9d50bb;
   --secondary-color: #6e48aa;
   --primary-gradient: linear-gradient(135deg, #9d50bb 0%, #6e48aa 100%);
@@ -53,7 +52,8 @@
   --color-surface: #000000;
   --color-on-surface-variant: #94a3b8;
   
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Geist Sans', 'Geist', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Geist Sans', 'Geist', sans-serif;
   
   --background-image-purple-glow: radial-gradient(circle at 50% 50%, var(--primary-color) 15%, transparent 70%);
   --background-image-primary-gradient: var(--primary-gradient);
@@ -71,14 +71,14 @@
 html, body {
   background-color: #000000;
   color: #ffffff;
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-sans);
   overflow-x: hidden;
   transition: background-color 0.5s ease;
 }
 
-/* Headings: Clean modern SaaS sans-serif */
-h1, h2, h3, h4, h5, h6 {
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+h1, h2, h3, h4, h5, h6, .font-heading {
+  font-family: var(--font-heading);
+  letter-spacing: -0.03em;
 }
 
 /* Only use monospace explicitly inside <pre> and <code> blocks */
@@ -86,9 +86,13 @@ pre, code, kbd, samp, pre *, code * {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace !important;
 }
 
-/* Prevent font-mono class from turning headings, buttons, notices, and UI cards into monospace */
+/* Do NOT apply monospace to badges or buttons. Keep them in font-sans or font-heading */
+button, .badge, [class*="badge"], input, select, textarea {
+  font-family: var(--font-sans);
+}
+
 .font-mono:not(pre):not(code):not(kbd):not(samp) {
-  font-family: inherit;
+  font-family: var(--font-sans);
 }
 
 /* Custom Scrollbars */

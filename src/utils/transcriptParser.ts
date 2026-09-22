@@ -390,15 +390,15 @@ export async function resolveTranscriptClientSide(
   // Executes directly from the user's browser, bypassing datacenter 403 blocks
   // -------------------------------------------------------------
   if (videoId) {
-    const directUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`;
-    const asrUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`;
+    const directUrl = 'https://www.youtube.com/api/timedtext?v=' + videoId + '&lang=en&fmt=json3';
+    const asrUrl = 'https://www.youtube.com/api/timedtext?v=' + videoId + '&lang=en&kind=asr&fmt=json3';
 
-    // 1. Direct browser fetch
+    // 1. Direct browser fetch with mode: 'cors'
     for (const url of [directUrl, asrUrl]) {
       try {
         onProgress?.('Tier 1: Querying direct native YouTube timedtext...');
         console.log(`[resolveTranscriptClientSide] Tier 1 - Direct native call: ${url}`);
-        const res = await fetch(url, { signal: AbortSignal.timeout(4500) });
+        const res = await fetch(url, { mode: 'cors', signal: AbortSignal.timeout(4500) });
         if (res.ok) {
           const text = await res.text();
           try {
@@ -419,10 +419,10 @@ export async function resolveTranscriptClientSide(
     }
 
     // 2. Cascade to corsproxy.io if direct client call triggers CORS
-    for (const targetUrl of [asrUrl, directUrl]) {
+    for (const targetUrl of [directUrl, asrUrl]) {
       try {
         onProgress?.('Tier 1: Querying native timedtext via corsproxy.io...');
-        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}`;
+        const proxyUrl = 'https://corsproxy.io/?url=' + encodeURIComponent(targetUrl);
         console.log(`[resolveTranscriptClientSide] Tier 1 - Querying corsproxy.io: ${proxyUrl}`);
         const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
         if (res.ok) {
