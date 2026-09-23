@@ -101,7 +101,7 @@ export const ScriptFetcher: React.FC = () => {
   const [isResolvingClientSide, setIsResolvingClientSide] = useState<boolean>(false);
 
   const validateVideoUrl = (rawUrl: string): { isValid: boolean; platform?: 'youtube' | 'instagram' | 'tiktok'; errorMessage?: string; toastMessage?: string } => {
-    const trimmed = rawUrl.trim();
+    let trimmed = rawUrl.trim();
     if (!trimmed) {
       return { 
         isValid: false, 
@@ -109,9 +109,13 @@ export const ScriptFetcher: React.FC = () => {
       };
     }
 
+    if (!/^https?:\/\//i.test(trimmed)) {
+      trimmed = `https://${trimmed}`;
+    }
+
     let parsed: URL;
     try {
-      parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+      parsed = new URL(trimmed);
     } catch {
       return {
         isValid: false,
@@ -495,13 +499,21 @@ export const ScriptFetcher: React.FC = () => {
     const rawUrl = videoUrl.trim();
     if (!rawUrl) return;
 
+    let cleanedUrl = rawUrl;
+    if (!/^https?:\/\//i.test(cleanedUrl)) {
+      cleanedUrl = `https://${cleanedUrl}`;
+    }
+    if (cleanedUrl !== videoUrl) {
+      setVideoUrl(cleanedUrl);
+    }
+
     // Client-Side Regex Pre-Check for YouTube URLs
-    const isYouTube = rawUrl.includes('youtube.com') || rawUrl.includes('youtu.be');
+    const isYouTube = cleanedUrl.includes('youtube.com') || cleanedUrl.includes('youtu.be');
     if (isYouTube) {
-      const ytMatch = rawUrl.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+      const ytMatch = cleanedUrl.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
       let candidateId = '';
       try {
-        const parsed = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+        const parsed = new URL(cleanedUrl);
         if (parsed.searchParams.get('v')) {
           candidateId = parsed.searchParams.get('v') || '';
         } else if (parsed.pathname.startsWith('/shorts/')) {
@@ -529,7 +541,7 @@ export const ScriptFetcher: React.FC = () => {
     }
 
     // Client-Side URL Validation Guard
-    const validation = validateVideoUrl(rawUrl);
+    const validation = validateVideoUrl(cleanedUrl);
     if (!validation.isValid) {
       const errHint = validation.errorMessage || 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)';
       const toastHint = validation.toastMessage || errHint;
@@ -570,7 +582,7 @@ export const ScriptFetcher: React.FC = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          videoUrl: rawUrl,
+          videoUrl: cleanedUrl,
           customKey: savedKey,
           uid
         })
@@ -602,15 +614,20 @@ export const ScriptFetcher: React.FC = () => {
           return;
         }
 
-        const msg = errData.message || errData.error || "Failed to fetch video details";
+        const errorMessage = errData.message || (
+          errData.error === 'INVALID_VIDEO_URL'
+            ? 'Invalid YouTube link: Video IDs must be exactly 11 characters.'
+            : (typeof errData.error === 'string' && !errData.error.includes('_') ? errData.error : 'Unable to process video link.')
+        );
+
         setIsLoading(false);
         setExtractionDone(true);
         setIsManualInputOpen(true);
         if (errData.error === 'INVALID_VIDEO_URL') {
-          setUrlValidationError(msg);
-          addToast(msg, 'warning');
+          setUrlValidationError(errorMessage);
+          addToast(errorMessage, 'warning');
         } else {
-          addToast(msg, 'error');
+          addToast(errorMessage, 'error');
         }
         return;
       }
@@ -635,7 +652,7 @@ export const ScriptFetcher: React.FC = () => {
         ? (data.transcriptErrorDetails || data.message || 'This video is private, removed, or region-restricted by YouTube.') 
         : (data.transcriptErrorDetails || '');
 
-      const targetVideoId = data.videoId || extractYoutubeId(videoUrl);
+      const targetVideoId = data.videoId || extractYoutubeId(cleanedUrl);
 
       if (isUnavailable) {
         setIsManualInputOpen(true);
@@ -685,7 +702,7 @@ export const ScriptFetcher: React.FC = () => {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  videoUrl: videoUrl.trim(),
+                  videoUrl: cleanedUrl,
                   customKey: savedKey,
                   title: data.title,
                   author: data.author
@@ -891,7 +908,7 @@ export const ScriptFetcher: React.FC = () => {
                 <div className="relative">
                   <Play className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 select-none" size={13} />
                   <input 
-                    type="url"
+                    type="text"
                     required
                     placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
                     value={videoUrl}
