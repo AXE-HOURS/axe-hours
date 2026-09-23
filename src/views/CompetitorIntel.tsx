@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
+import { formatTelemetryTime } from '../utils/telemetryTime';
 
 interface CompetitorVideo {
   title: string;
@@ -503,7 +504,7 @@ export const CompetitorIntel: React.FC = () => {
           // Add to alerts history state
           const newAlert = {
             id: `${c.id}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: formatTelemetryTime(Date.now()),
             creatorName: c.name,
             handle: c.handle,
             videoTitle: v.title,

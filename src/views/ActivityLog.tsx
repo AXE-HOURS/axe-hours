@@ -7,6 +7,7 @@ import { useFirebase, UserActivityItem } from '../context/FirebaseContext';
 import { useToast } from '../context/ToastContext';
 import { GlassCard } from '../components/GlassCard';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import { formatTelemetryTime } from '../utils/telemetryTime';
 
 export const ActivityLog: React.FC = () => {
   const { userActivities, clearActivitiesDB } = useFirebase();
@@ -55,7 +56,7 @@ export const ActivityLog: React.FC = () => {
 
   const lastActivityDate = useMemo(() => {
     if (totalCount === 0) return 'N/A';
-    return userActivities[0].timestamp || 'Just now';
+    return formatTelemetryTime(userActivities[0].createdAt || userActivities[0].timestamp || userActivities[0].id);
   }, [userActivities, totalCount]);
 
   // Chart Data Assembly (Group by day of week or date)
@@ -292,7 +293,9 @@ export const ActivityLog: React.FC = () => {
 
                       <div className="flex items-center gap-1.5 mt-3 text-[9px] font-mono text-gray-500">
                         <Calendar size={10} />
-                        <span>{act.timestamp}</span>
+                        <span title={act.createdAt || act.timestamp || String(act.id)}>
+                          {formatTelemetryTime(act.createdAt || act.timestamp || act.id)}
+                        </span>
                       </div>
                     </div>
                   </GlassCard>

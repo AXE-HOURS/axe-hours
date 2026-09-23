@@ -40,6 +40,9 @@ import { playAudioCue } from '../utils/audio';
 import { useFirebase } from '../context/FirebaseContext';
 import { useToast } from '../context/ToastContext';
 import { signInWithGoogle } from '../lib/firebase';
+import { formatTelemetryTime } from '../utils/telemetryTime';
+
+export { formatTelemetryTime };
 
 interface AnalyticsViewProps {
   recentGenerations?: any[];
@@ -1932,8 +1935,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
                           )}
                         </div>
                       </div>
-                      <span className="text-[10px] font-mono text-gray-500 shrink-0 self-end sm:self-center">
-                        {act.timestamp || 'Just now'}
+                      <span 
+                        title={act.createdAt || act.timestamp || String(act.id)}
+                        className="text-[10px] font-mono text-gray-400 shrink-0 self-end sm:self-center font-medium"
+                      >
+                        {formatTelemetryTime(act.createdAt || act.timestamp || act.id)}
                       </span>
                     </div>
                   );
