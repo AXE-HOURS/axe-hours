@@ -100,7 +100,7 @@ export const ScriptFetcher: React.FC = () => {
 
   const [isResolvingClientSide, setIsResolvingClientSide] = useState<boolean>(false);
 
-  const validateVideoUrl = (rawUrl: string): { isValid: boolean; platform?: 'youtube' | 'instagram' | 'tiktok'; errorMessage?: string } => {
+  const validateVideoUrl = (rawUrl: string): { isValid: boolean; platform?: 'youtube' | 'instagram' | 'tiktok'; errorMessage?: string; toastMessage?: string } => {
     const trimmed = rawUrl.trim();
     if (!trimmed) {
       return { 
@@ -142,21 +142,34 @@ export const ScriptFetcher: React.FC = () => {
         };
       }
 
-      const hasVParam = Boolean(searchParams.get('v'));
-      const isWatch = (pathname === '/watch' || pathname === '/watch/') && hasVParam;
-      const isShorts = pathname.startsWith('/shorts/') && pathname.replace('/shorts/', '').replace(/\//g, '').length > 0;
-      const isYoutuBe = hostname === 'youtu.be' && pathname.replace(/\//g, '').length > 0;
-      const isLive = pathname.startsWith('/live/') && pathname.replace('/live/', '').replace(/\//g, '').length > 0;
-      const isEmbed = pathname.startsWith('/embed/') && pathname.replace('/embed/', '').replace(/\//g, '').length > 0;
-
-      if (isWatch || isShorts || isYoutuBe || isLive || isEmbed) {
-        return { isValid: true, platform: 'youtube' };
+      // Extract candidate video ID
+      let candidateId = '';
+      if (searchParams.get('v')) {
+        candidateId = searchParams.get('v') || '';
+      } else if (pathname.startsWith('/shorts/')) {
+        candidateId = pathname.replace('/shorts/', '').split('/')[0].split('?')[0];
+      } else if (hostname === 'youtu.be') {
+        candidateId = pathname.replace(/^\//, '').split('/')[0].split('?')[0];
+      } else if (pathname.startsWith('/embed/')) {
+        candidateId = pathname.replace('/embed/', '').split('/')[0].split('?')[0];
+      } else if (pathname.startsWith('/live/')) {
+        candidateId = pathname.replace('/live/', '').split('/')[0].split('?')[0];
+      } else if (pathname.startsWith('/v/')) {
+        candidateId = pathname.replace('/v/', '').split('/')[0].split('?')[0];
       }
 
-      return {
-        isValid: false,
-        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
-      };
+      // Candidate ID must be strictly 11 characters
+      const ytMatch = trimmed.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/);
+
+      if (!candidateId || candidateId.length !== 11 || !ytMatch) {
+        return {
+          isValid: false,
+          errorMessage: 'Invalid YouTube video link. YouTube video IDs must be exactly 11 characters (e.g. watch?v=dQw4w9WgXcQ)',
+          toastMessage: 'Invalid Video Link: YouTube video IDs must be exactly 11 characters.'
+        };
+      }
+
+      return { isValid: true, platform: 'youtube' };
     }
 
     // 2. Instagram Validation
@@ -482,13 +495,47 @@ export const ScriptFetcher: React.FC = () => {
     const rawUrl = videoUrl.trim();
     if (!rawUrl) return;
 
+    // Client-Side Regex Pre-Check for YouTube URLs
+    const isYouTube = rawUrl.includes('youtube.com') || rawUrl.includes('youtu.be');
+    if (isYouTube) {
+      const ytMatch = rawUrl.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+      let candidateId = '';
+      try {
+        const parsed = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+        if (parsed.searchParams.get('v')) {
+          candidateId = parsed.searchParams.get('v') || '';
+        } else if (parsed.pathname.startsWith('/shorts/')) {
+          candidateId = parsed.pathname.replace('/shorts/', '').split('/')[0].split('?')[0];
+        } else if (parsed.hostname.includes('youtu.be')) {
+          candidateId = parsed.pathname.replace(/^\//, '').split('/')[0].split('?')[0];
+        } else if (parsed.pathname.startsWith('/embed/')) {
+          candidateId = parsed.pathname.replace('/embed/', '').split('/')[0].split('?')[0];
+        } else if (parsed.pathname.startsWith('/live/')) {
+          candidateId = parsed.pathname.replace('/live/', '').split('/')[0].split('?')[0];
+        } else if (parsed.pathname.startsWith('/v/')) {
+          candidateId = parsed.pathname.replace('/v/', '').split('/')[0].split('?')[0];
+        }
+      } catch {
+        // Fallback
+      }
+
+      if (!ytMatch || (candidateId && candidateId.length !== 11)) {
+        const errorText = 'Invalid YouTube video link. YouTube video IDs must be exactly 11 characters (e.g. watch?v=dQw4w9WgXcQ)';
+        setUrlValidationError(errorText);
+        setIsLoading(false);
+        addToast('Invalid Video Link: YouTube video IDs must be exactly 11 characters.', 'warning');
+        return;
+      }
+    }
+
     // Client-Side URL Validation Guard
     const validation = validateVideoUrl(rawUrl);
     if (!validation.isValid) {
       const errHint = validation.errorMessage || 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)';
+      const toastHint = validation.toastMessage || errHint;
       setUrlValidationError(errHint);
       setIsLoading(false);
-      addToast(errHint, 'warning');
+      addToast(toastHint, 'warning');
       return;
     }
     setUrlValidationError('');
@@ -533,50 +580,70 @@ export const ScriptFetcher: React.FC = () => {
 
       if (!response.ok) {
         const errData = await response.json();
-        if (errData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || errData.status === 'VIDEO_UNAVAILABLE') {
+        if (
+          errData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
+          errData.transcriptErrorCode === 'VIDEO_UNAVAILABLE' || 
+          errData.status === 'VIDEO_UNAVAILABLE'
+        ) {
           setExtractedData(prev => ({
             ...prev,
             title: errData.title || 'Private or Restricted Video',
             author: errData.author || '',
             hasTranscript: false,
-            transcriptErrorCode: 'VIDEO_PRIVATE_OR_REMOVED',
-            transcriptErrorDetails: errData.message || 'This video is private, deleted, or age-restricted.',
+            transcriptErrorCode: 'VIDEO_UNAVAILABLE',
+            transcriptErrorDetails: errData.transcriptErrorDetails || errData.message || 'This video is private, removed, or region-restricted by YouTube.',
             status: 'VIDEO_UNAVAILABLE',
-            fullTranscript: '[Notice: This video is private, deleted, or age-restricted. Automated transcript scrapers cannot access this content. Please paste a manual transcript below or upload the audio file.]'
+            fullTranscript: '[Notice: This video is private, removed, or region-restricted by YouTube. Automated transcript scrapers cannot access this content. Please paste a manual transcript below or upload the audio file.]'
           }));
           setIsManualInputOpen(true);
           setIsLoading(false);
           setExtractionDone(true);
-          addToast(errData.message || 'This video is private, deleted, or age-restricted. Manual editor opened.', 'warning');
+          addToast(errData.transcriptErrorDetails || errData.message || 'This video is private, removed, or region-restricted by YouTube.', 'warning');
           return;
         }
-        throw new Error(errData.error || errData.message || "Failed to fetch video details");
+
+        const msg = errData.message || errData.error || "Failed to fetch video details";
+        setIsLoading(false);
+        setExtractionDone(true);
+        setIsManualInputOpen(true);
+        if (errData.error === 'INVALID_VIDEO_URL') {
+          setUrlValidationError(msg);
+          addToast(msg, 'warning');
+        } else {
+          addToast(msg, 'error');
+        }
+        return;
       }
 
       const data = await response.json();
 
-      const isPrivateOrUnavailable = data.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || data.status === 'VIDEO_UNAVAILABLE';
+      const isUnavailable = 
+        data.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
+        data.transcriptErrorCode === 'VIDEO_UNAVAILABLE' || 
+        data.status === 'VIDEO_UNAVAILABLE';
 
-      let hasTranscript = !isPrivateOrUnavailable && (data.hasTranscript !== undefined
+      let hasTranscript = !isUnavailable && (data.hasTranscript !== undefined
         ? Boolean(data.hasTranscript)
         : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:')));
 
-      let fullTranscript = data.fullTranscript || (isPrivateOrUnavailable ? '[Notice: This video is private, deleted, or age-restricted. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
+      let fullTranscript = data.fullTranscript || (isUnavailable ? '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
       let hookText = data.hookText || 'N/A';
-      let hookScore = Number(data.hookScore) || (isPrivateOrUnavailable ? 50 : 90);
+      let hookScore = Number(data.hookScore) || (isUnavailable ? 50 : 90);
       let pacingSpeed = data.pacingSpeed || 'N/A';
-      let transcriptErrorCode = isPrivateOrUnavailable ? 'VIDEO_PRIVATE_OR_REMOVED' : (data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE'));
-      let transcriptErrorDetails = isPrivateOrUnavailable ? (data.message || 'This video is private, deleted, or age-restricted.') : (data.transcriptErrorDetails || '');
+      let transcriptErrorCode = isUnavailable ? 'VIDEO_UNAVAILABLE' : (data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE'));
+      let transcriptErrorDetails = isUnavailable 
+        ? (data.transcriptErrorDetails || data.message || 'This video is private, removed, or region-restricted by YouTube.') 
+        : (data.transcriptErrorDetails || '');
 
       const targetVideoId = data.videoId || extractYoutubeId(videoUrl);
 
-      if (isPrivateOrUnavailable) {
+      if (isUnavailable) {
         setIsManualInputOpen(true);
-        addToast(data.message || 'This video is private, deleted, or age-restricted. Manual editor opened.', 'warning');
+        addToast(transcriptErrorDetails || 'This video is private, removed, or region-restricted by YouTube.', 'warning');
       }
 
-      // Auto-Trigger on Server Failure (ONLY if NOT private or removed):
-      const shouldTriggerClientResolver = !isPrivateOrUnavailable && (!hasTranscript || 
+      // Auto-Trigger on Server Failure (ONLY if NOT unavailable):
+      const shouldTriggerClientResolver = !isUnavailable && (!hasTranscript || 
         data.transcriptErrorCode === 'HTTP_403_FORBIDDEN' || 
         data.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || 
         data.status === 'REQUIRE_CLIENT_FETCH' || 
@@ -671,32 +738,44 @@ export const ScriptFetcher: React.FC = () => {
         transcriptErrorDetails: transcriptErrorDetails,
         clientDelegationUrl: data.clientDelegationUrl || '',
         videoId: targetVideoId || '',
-        status: hasTranscript ? 'SUCCESS' : (data.status || (isPrivateOrUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
+        status: hasTranscript ? 'SUCCESS' : (data.status || (isUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
       });
 
-      logActivity('fetch_script', data.title || 'Untitled Extraction', `Downloaded full transcript and calculated high-retention analytics from external video stream.`);
+      logActivity('fetch_script', data.title || 'Untitled Extraction', `Processed video elements for extraction.`);
 
       setIsLoading(false);
       setExtractionDone(true);
-      playAudio(987);
-      addToast('Video elements successfully extracted & transcribed!', 'success');
+
+      const hasValidLines = fullTranscript && !fullTranscript.startsWith('[Notice:') && !fullTranscript.startsWith('[Note:');
+      if (hasTranscript && hasValidLines && !isUnavailable) {
+        playAudio(987);
+        addToast('Video elements successfully extracted & transcribed!', 'success');
+      } else {
+        setIsManualInputOpen(true);
+        if (!isUnavailable) {
+          const detailMsg = transcriptErrorDetails || data.transcriptErrorDetails || data.message || 'No spoken dialogue track found. Manual editor opened.';
+          addToast(detailMsg, 'warning');
+        }
+      }
     } catch (error: any) {
       clearInterval(progressInterval);
       console.error("YouTube Data API / Script Fetcher error detected:", error);
       setIsLoading(false);
+      setExtractionDone(true);
+      setIsManualInputOpen(true);
+
       const errorMsg = error.message || "Failed to fetch video details";
+      const isInputError = errorMsg.includes('11-character') || errorMsg.includes('INVALID_VIDEO_URL') || errorMsg.includes('Invalid YouTube video link');
       
-      // If the error suggests an API key, quota, or YouTube connection issue, show a targeted helpful toast
-      const isApiIssue = errorMsg.toLowerCase().includes("youtube") || 
-                          errorMsg.toLowerCase().includes("quota") || 
-                          errorMsg.toLowerCase().includes("api key") || 
-                          errorMsg.toLowerCase().includes("unauthorized") ||
-                          errorMsg.toLowerCase().includes("forbidden");
-                          
-      if (isApiIssue) {
-        addToast(`YouTube API is temporarily unavailable: ${errorMsg}`, 'error');
+      if (!isInputError && (
+        errorMsg.toLowerCase().includes("quota") || 
+        errorMsg.toLowerCase().includes("api key") || 
+        errorMsg.toLowerCase().includes("unauthorized") ||
+        errorMsg.toLowerCase().includes("forbidden")
+      )) {
+        addToast(`YouTube API service error: ${errorMsg}`, 'error');
       } else {
-        addToast(errorMsg, 'error');
+        addToast(errorMsg, isInputError ? 'warning' : 'error');
       }
     }
   };
@@ -831,7 +910,7 @@ export const ScriptFetcher: React.FC = () => {
                 )}
                 <div id="fetcher-url-pills" className="flex flex-wrap gap-1.5 pt-1.5 select-none">
                   {[
-                    { label: 'YouTube SaaS Example', url: 'https://youtube.com/watch?v=viral_saas_metrics' },
+                    { label: 'YouTube SaaS Example', url: 'https://youtube.com/watch?v=dQw4w9WgXcQ' },
                     { label: 'TikTok Coding Hack', url: 'https://tiktok.com/@creator/video/css_speed_loops' }
                   ].map((p, idx) => (
                     <button
@@ -1069,8 +1148,8 @@ export const ScriptFetcher: React.FC = () => {
                             <span className="text-[10px] text-gray-500 font-mono">1-Click Fallback</span>
                           </div>
                           <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
-                            {extractedData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED'
-                              ? 'This video is private, deleted, or age-restricted on YouTube. Automated scrapers cannot access this stream directly. You can paste a manual transcript or upload an audio file below.'
+                            {extractedData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || extractedData.transcriptErrorCode === 'VIDEO_UNAVAILABLE'
+                              ? 'This video is private, removed, or region-restricted on YouTube. Automated scrapers cannot access this stream directly. You can paste a manual transcript or upload an audio file below.'
                               : 'When YouTube closed captions are disabled by the creator or restricted, you can reconstruct the spoken dialogue using our AI Speech Engine, retry public gateways, or run Whisper.'}
                           </p>
                           <div className="flex flex-wrap items-center gap-2 pt-1">

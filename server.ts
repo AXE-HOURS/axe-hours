@@ -1082,8 +1082,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
             return {
               lines: null,
               hasTracks: false,
-              errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
-              errorDetails: playability?.reason || 'This video is private, deleted, or age-restricted.',
+              errorCode: 'VIDEO_UNAVAILABLE',
+              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
               status: 'VIDEO_UNAVAILABLE'
             };
           }
@@ -1173,8 +1173,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
             return {
               lines: null,
               hasTracks: false,
-              errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
-              errorDetails: playability?.reason || 'This video is private, deleted, or age-restricted.',
+              errorCode: 'VIDEO_UNAVAILABLE',
+              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
               status: 'VIDEO_UNAVAILABLE'
             };
           }
@@ -1248,8 +1248,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           return {
             lines: null,
             hasTracks: false,
-            errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
-            errorDetails: 'This video is private, deleted, or age-restricted.',
+            errorCode: 'VIDEO_UNAVAILABLE',
+            errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
             status: 'VIDEO_UNAVAILABLE'
           };
         }
@@ -1266,8 +1266,8 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
             return {
               lines: null,
               hasTracks: false,
-              errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
-              errorDetails: playability.reason || 'This video is private, deleted, or age-restricted.',
+              errorCode: 'VIDEO_UNAVAILABLE',
+              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
               status: 'VIDEO_UNAVAILABLE'
             };
           }
@@ -1407,8 +1407,11 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
 
       if (platform === "youtube") {
         const videoId = extractYoutubeVideoId(videoUrl);
-        if (!videoId) {
-          res.status(400).json({ error: "Unable to extract YouTube video ID from the provided URL." });
+        if (!videoId || videoId.length !== 11) {
+          res.status(400).json({ 
+            error: "INVALID_VIDEO_URL", 
+            message: "The provided link does not contain a valid 11-character YouTube video ID." 
+          });
           return;
         }
 
@@ -1440,8 +1443,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
             res.status(200).json({ 
               hasTranscript: false,
               status: 'VIDEO_UNAVAILABLE',
-              transcriptErrorCode: 'VIDEO_PRIVATE_OR_REMOVED',
-              message: 'This video is private, deleted, or age-restricted.',
+              transcriptErrorCode: 'VIDEO_UNAVAILABLE',
+              transcriptErrorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+              message: 'This video is private, removed, or region-restricted by YouTube.',
               title: "Private or Restricted Video",
               author: "YouTube Creator"
             });
@@ -1488,7 +1492,11 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           scrapedData.status = subResult.status || null;
           scrapedData.videoId = videoId;
 
-          if (subResult.errorCode === 'VIDEO_PRIVATE_OR_REMOVED' || subResult.status === 'VIDEO_UNAVAILABLE') {
+          if (
+            subResult.errorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
+            subResult.errorCode === 'VIDEO_UNAVAILABLE' || 
+            subResult.status === 'VIDEO_UNAVAILABLE'
+          ) {
             console.log(`[fetch-script] Video is private or unavailable for ID: ${videoId}`);
             res.status(200).json({
               title: scrapedData.title || "Private or Restricted Video",
@@ -1498,14 +1506,15 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
               views: scrapedData.views || "0",
               hasTranscript: false,
               status: 'VIDEO_UNAVAILABLE',
-              transcriptErrorCode: 'VIDEO_PRIVATE_OR_REMOVED',
-              message: 'This video is private, deleted, or age-restricted.',
-              fullTranscript: '[Notice: This video is private, deleted, or age-restricted. Please paste a manual transcript or upload an audio track.]',
+              transcriptErrorCode: 'VIDEO_UNAVAILABLE',
+              transcriptErrorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+              message: 'This video is private, removed, or region-restricted by YouTube.',
+              fullTranscript: '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript or upload an audio track.]',
               hookText: 'N/A',
               hookScore: 50,
               pacingSpeed: 'N/A',
               suggestedTags: scrapedData.tags || [],
-              metadataDesc: scrapedData.description || 'This video is private, deleted, or age-restricted.'
+              metadataDesc: scrapedData.description || 'This video is private, removed, or region-restricted by YouTube.'
             });
             return;
           }
