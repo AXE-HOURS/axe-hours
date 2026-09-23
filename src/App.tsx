@@ -15,6 +15,7 @@ import { ActivityLog } from './views/ActivityLog';
 import { useFirebase } from './context/FirebaseContext';
 import { useToast } from './context/ToastContext';
 import { Wand2 } from 'lucide-react';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
 const AIGenerator = lazy(() => import('./views/AIGenerator').then(m => ({ default: m.AIGenerator })));
@@ -273,49 +274,73 @@ export default function App() {
               </div>
             }>
               {currentView === 'dashboard' && (
-                <Dashboard 
-                  recentGenerations={recentGenerations}
-                  onSelectHistory={handleSelectHistory}
-                  onViewAllGens={() => setCurrentView('generator')}
-                />
+                <ErrorBoundary name="Dashboard">
+                  <Dashboard 
+                    recentGenerations={recentGenerations}
+                    onSelectHistory={handleSelectHistory}
+                    onViewAllGens={() => setCurrentView('generator')}
+                  />
+                </ErrorBoundary>
               )}
               {currentView === 'generator' && (
-                <AIGenerator 
-                  saveToHistory={saveToHistory}
-                  selectedHistoryItem={selectedHistoryItem}
-                  clearSelectedHistoryItem={() => setSelectedHistoryItem(null)}
-                />
+                <ErrorBoundary name="AIGenerator">
+                  <AIGenerator 
+                    saveToHistory={saveToHistory}
+                    selectedHistoryItem={selectedHistoryItem}
+                    clearSelectedHistoryItem={() => setSelectedHistoryItem(null)}
+                  />
+                </ErrorBoundary>
               )}
               {currentView === 'saved' && (
-                <SavedIdeas 
-                  savedIdeas={savedIdeas}
-                  removeIdea={removeIdea}
-                  updateIdea={updateIdea}
-                  onLoadIntoGenerator={handleSelectHistory}
-                />
+                <ErrorBoundary name="SavedIdeas">
+                  <SavedIdeas 
+                    savedIdeas={savedIdeas}
+                    removeIdea={removeIdea}
+                    updateIdea={updateIdea}
+                    onLoadIntoGenerator={handleSelectHistory}
+                  />
+                </ErrorBoundary>
               )}
               {currentView === 'viral' && (
-                <ViralHooks 
-                  onSelectHook={handleSelectHistory}
-                />
+                <ErrorBoundary name="ViralHooks">
+                  <ViralHooks 
+                    onSelectHook={handleSelectHistory}
+                  />
+                </ErrorBoundary>
               )}
               {currentView === 'competitor-intel' && (
-                <CompetitorIntel />
+                <ErrorBoundary name="CompetitorIntel">
+                  <CompetitorIntel />
+                </ErrorBoundary>
               )}
               {currentView === 'script-fetcher' && (
-                <ScriptFetcher />
+                <ErrorBoundary name="ScriptFetcher">
+                  <ScriptFetcher />
+                </ErrorBoundary>
               )}
               {currentView === 'activity-log' && (
-                <ActivityLog />
+                <ErrorBoundary name="ActivityLog">
+                  <ActivityLog />
+                </ErrorBoundary>
               )}
-              {currentView === 'settings' && <Settings />}
-              {currentView === 'analytics' && <Analytics recentGenerations={recentGenerations} />}
+              {currentView === 'settings' && (
+                <ErrorBoundary name="Settings">
+                  <Settings />
+                </ErrorBoundary>
+              )}
+              {currentView === 'analytics' && (
+                <ErrorBoundary name="AnalyticsView">
+                  <Analytics recentGenerations={recentGenerations} />
+                </ErrorBoundary>
+              )}
               {currentView === 'profile' && (
-                <Profile 
-                  user={user} 
-                  onUpdateUser={handleLogin} 
-                  savedIdeas={savedIdeas} 
-                />
+                <ErrorBoundary name="Profile">
+                  <Profile 
+                    user={user} 
+                    onUpdateUser={handleLogin} 
+                    savedIdeas={savedIdeas} 
+                  />
+                </ErrorBoundary>
               )}
             </Suspense>
           </main>

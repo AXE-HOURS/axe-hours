@@ -1687,8 +1687,18 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
     const savedKey = getSecureGeminiKey(uid);
     const activeKey = engine === 'gemini' ? savedKey : null;
 
+    const controller = new AbortController();
+    let isStreamTimedOut = false;
+    const timeoutId = setTimeout(() => {
+      isStreamTimedOut = true;
+      try {
+        controller.abort();
+      } catch {}
+    }, 45000);
+
     try {
       const response = await fetch("/api/generate-stream", {
+        signal: controller.signal,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1750,6 +1760,7 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         }
       }
 
+      clearTimeout(timeoutId);
       setIsLoading(false);
       if (generatedText) {
         saveToHistory(prompt, generatedText);
@@ -1758,6 +1769,15 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         showToast("Viral script blueprint generated and structured! 🚀", "success");
       }
     } catch (error: any) {
+      clearTimeout(timeoutId);
+      if (isStreamTimedOut || error.name === 'AbortError') {
+        console.warn("[AIGenerator] Synthesis stream connection timed out after 45s.");
+        setIsLoading(false);
+        showToast('Synthesis timed out. Reconnecting pipeline...', 'warning');
+        setResult(prev => (prev ? prev + "\n\n⚠️ [TIMEOUT GUARD] Synthesis timed out after 45 seconds. Pipeline reset." : "⚠️ [TIMEOUT GUARD] Synthesis timed out after 45 seconds. Please try again."));
+        return;
+      }
+
       console.warn("Gemini Cloud connection failed. Attempting automatic routing failover to Local Ollama...", error);
       setResult("📡 [FAILOVER TRIGGERED] Gemini Cloud unavailable or API rate limit reached.\nRouting pipeline to Local Ollama host (http://localhost:11434)... \n\n");
       showToast("Gemini Cloud failed. Testing automatic failover to local Ollama...", "warning");

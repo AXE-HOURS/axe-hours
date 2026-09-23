@@ -24,7 +24,8 @@ import {
   Edit3,
   Mic,
   Check,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
@@ -51,6 +52,7 @@ export const ScriptFetcher: React.FC = () => {
   const [extractionDone, setExtractionDone] = useState<boolean>(false);
   const [progressText, setProgressText] = useState<string>('');
   const [progressVal, setProgressVal] = useState<number>(0);
+  const [urlValidationError, setUrlValidationError] = useState<string>('');
 
   useEffect(() => {
     const checkPendingUrl = () => {
@@ -97,6 +99,108 @@ export const ScriptFetcher: React.FC = () => {
   });
 
   const [isResolvingClientSide, setIsResolvingClientSide] = useState<boolean>(false);
+
+  const validateVideoUrl = (rawUrl: string): { isValid: boolean; platform?: 'youtube' | 'instagram' | 'tiktok'; errorMessage?: string } => {
+    const trimmed = rawUrl.trim();
+    if (!trimmed) {
+      return { 
+        isValid: false, 
+        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)' 
+      };
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    } catch {
+      return {
+        isValid: false,
+        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
+      };
+    }
+
+    const hostname = parsed.hostname.toLowerCase().replace(/^(www\.|m\.)/, '');
+    const pathname = parsed.pathname;
+    const searchParams = parsed.searchParams;
+
+    // 1. YouTube Validation
+    if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com') || hostname === 'youtu.be') {
+      // Explicitly reject non-video links: channels, handles, search, feed
+      if (
+        pathname.startsWith('/channel/') ||
+        pathname.startsWith('/c/') ||
+        pathname.startsWith('/user/') ||
+        pathname.startsWith('/@') ||
+        pathname.startsWith('/results') ||
+        pathname.startsWith('/feed/') ||
+        pathname === '/' ||
+        pathname === ''
+      ) {
+        return {
+          isValid: false,
+          errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
+        };
+      }
+
+      const hasVParam = Boolean(searchParams.get('v'));
+      const isWatch = (pathname === '/watch' || pathname === '/watch/') && hasVParam;
+      const isShorts = pathname.startsWith('/shorts/') && pathname.replace('/shorts/', '').replace(/\//g, '').length > 0;
+      const isYoutuBe = hostname === 'youtu.be' && pathname.replace(/\//g, '').length > 0;
+      const isLive = pathname.startsWith('/live/') && pathname.replace('/live/', '').replace(/\//g, '').length > 0;
+      const isEmbed = pathname.startsWith('/embed/') && pathname.replace('/embed/', '').replace(/\//g, '').length > 0;
+
+      if (isWatch || isShorts || isYoutuBe || isLive || isEmbed) {
+        return { isValid: true, platform: 'youtube' };
+      }
+
+      return {
+        isValid: false,
+        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
+      };
+    }
+
+    // 2. Instagram Validation
+    if (hostname === 'instagram.com' || hostname.endsWith('.instagram.com')) {
+      if (
+        pathname.includes('/reel/') ||
+        pathname.includes('/reels/') ||
+        pathname.includes('/p/')
+      ) {
+        return { isValid: true, platform: 'instagram' };
+      }
+      return {
+        isValid: false,
+        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
+      };
+    }
+
+    // 3. TikTok Validation
+    if (
+      hostname === 'tiktok.com' ||
+      hostname.endsWith('.tiktok.com') ||
+      hostname === 'vm.tiktok.com' ||
+      hostname === 'vt.tiktok.com'
+    ) {
+      if (
+        pathname.includes('/video/') ||
+        hostname === 'vm.tiktok.com' ||
+        hostname === 'vt.tiktok.com' ||
+        pathname.startsWith('/t/') ||
+        (pathname.includes('/@') && pathname.length > 5)
+      ) {
+        return { isValid: true, platform: 'tiktok' };
+      }
+      return {
+        isValid: false,
+        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
+      };
+    }
+
+    return {
+      isValid: false,
+      errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
+    };
+  };
 
   const extractYoutubeId = (url: string): string => {
     if (!url) return '';
@@ -375,7 +479,19 @@ export const ScriptFetcher: React.FC = () => {
 
   const handleFetchScript = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!videoUrl.trim()) return;
+    const rawUrl = videoUrl.trim();
+    if (!rawUrl) return;
+
+    // Client-Side URL Validation Guard
+    const validation = validateVideoUrl(rawUrl);
+    if (!validation.isValid) {
+      const errHint = validation.errorMessage || 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)';
+      setUrlValidationError(errHint);
+      setIsLoading(false);
+      addToast(errHint, 'warning');
+      return;
+    }
+    setUrlValidationError('');
 
     setIsLoading(true);
     setExtractionDone(false);
@@ -407,7 +523,7 @@ export const ScriptFetcher: React.FC = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          videoUrl: videoUrl.trim(),
+          videoUrl: rawUrl,
           customKey: savedKey,
           uid
         })
@@ -417,32 +533,54 @@ export const ScriptFetcher: React.FC = () => {
 
       if (!response.ok) {
         const errData = await response.json();
-        throw new Error(errData.error || "Failed to fetch video details");
+        if (errData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || errData.status === 'VIDEO_UNAVAILABLE') {
+          setExtractedData(prev => ({
+            ...prev,
+            title: errData.title || 'Private or Restricted Video',
+            author: errData.author || '',
+            hasTranscript: false,
+            transcriptErrorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+            transcriptErrorDetails: errData.message || 'This video is private, deleted, or age-restricted.',
+            status: 'VIDEO_UNAVAILABLE',
+            fullTranscript: '[Notice: This video is private, deleted, or age-restricted. Automated transcript scrapers cannot access this content. Please paste a manual transcript below or upload the audio file.]'
+          }));
+          setIsManualInputOpen(true);
+          setIsLoading(false);
+          setExtractionDone(true);
+          addToast(errData.message || 'This video is private, deleted, or age-restricted. Manual editor opened.', 'warning');
+          return;
+        }
+        throw new Error(errData.error || errData.message || "Failed to fetch video details");
       }
 
       const data = await response.json();
 
-      let hasTranscript = data.hasTranscript !== undefined
-        ? Boolean(data.hasTranscript)
-        : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:'));
+      const isPrivateOrUnavailable = data.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || data.status === 'VIDEO_UNAVAILABLE';
 
-      let fullTranscript = data.fullTranscript || 'N/A';
+      let hasTranscript = !isPrivateOrUnavailable && (data.hasTranscript !== undefined
+        ? Boolean(data.hasTranscript)
+        : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:')));
+
+      let fullTranscript = data.fullTranscript || (isPrivateOrUnavailable ? '[Notice: This video is private, deleted, or age-restricted. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
       let hookText = data.hookText || 'N/A';
-      let hookScore = Number(data.hookScore) || 90;
+      let hookScore = Number(data.hookScore) || (isPrivateOrUnavailable ? 50 : 90);
       let pacingSpeed = data.pacingSpeed || 'N/A';
-      let transcriptErrorCode = data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE');
-      let transcriptErrorDetails = data.transcriptErrorDetails || '';
+      let transcriptErrorCode = isPrivateOrUnavailable ? 'VIDEO_PRIVATE_OR_REMOVED' : (data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE'));
+      let transcriptErrorDetails = isPrivateOrUnavailable ? (data.message || 'This video is private, deleted, or age-restricted.') : (data.transcriptErrorDetails || '');
 
       const targetVideoId = data.videoId || extractYoutubeId(videoUrl);
 
-      // Auto-Trigger on Server Failure:
-      // If the backend returns data.hasTranscript === false (or data.transcriptErrorCode === 'HTTP_403_FORBIDDEN'),
-      // do NOT stop there. Automatically call resolveTranscriptClientSide.
-      const shouldTriggerClientResolver = !hasTranscript || 
+      if (isPrivateOrUnavailable) {
+        setIsManualInputOpen(true);
+        addToast(data.message || 'This video is private, deleted, or age-restricted. Manual editor opened.', 'warning');
+      }
+
+      // Auto-Trigger on Server Failure (ONLY if NOT private or removed):
+      const shouldTriggerClientResolver = !isPrivateOrUnavailable && (!hasTranscript || 
         data.transcriptErrorCode === 'HTTP_403_FORBIDDEN' || 
         data.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || 
         data.status === 'REQUIRE_CLIENT_FETCH' || 
-        Boolean(data.clientDelegationUrl);
+        Boolean(data.clientDelegationUrl));
 
       if (shouldTriggerClientResolver && targetVideoId) {
         setIsResolvingClientSide(true);
@@ -533,7 +671,7 @@ export const ScriptFetcher: React.FC = () => {
         transcriptErrorDetails: transcriptErrorDetails,
         clientDelegationUrl: data.clientDelegationUrl || '',
         videoId: targetVideoId || '',
-        status: hasTranscript ? 'SUCCESS' : (data.status || '')
+        status: hasTranscript ? 'SUCCESS' : (data.status || (isPrivateOrUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
       });
 
       logActivity('fetch_script', data.title || 'Untitled Extraction', `Downloaded full transcript and calculated high-retention analytics from external video stream.`);
@@ -678,10 +816,19 @@ export const ScriptFetcher: React.FC = () => {
                     required
                     placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
                     value={videoUrl}
-                    onChange={(e) => setVideoUrl(e.target.value)}
-                    className="w-full bg-[#020203] border border-white/10 hover:border-emerald-500/20 focus:border-emerald-500/30 rounded-xl p-3 pl-9 text-xs text-white outline-none font-medium transition-all"
+                    onChange={(e) => {
+                      setVideoUrl(e.target.value);
+                      if (urlValidationError) setUrlValidationError('');
+                    }}
+                    className={`w-full bg-[#020203] border ${urlValidationError ? 'border-amber-500/50 focus:border-amber-500' : 'border-white/10 hover:border-emerald-500/20 focus:border-emerald-500/30'} rounded-xl p-3 pl-9 text-xs text-white outline-none font-medium transition-all`}
                   />
                 </div>
+                {urlValidationError && (
+                  <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                    <AlertCircle size={14} className="shrink-0 text-amber-400" />
+                    <span>{urlValidationError}</span>
+                  </div>
+                )}
                 <div id="fetcher-url-pills" className="flex flex-wrap gap-1.5 pt-1.5 select-none">
                   {[
                     { label: 'YouTube SaaS Example', url: 'https://youtube.com/watch?v=viral_saas_metrics' },
@@ -922,7 +1069,9 @@ export const ScriptFetcher: React.FC = () => {
                             <span className="text-[10px] text-gray-500 font-mono">1-Click Fallback</span>
                           </div>
                           <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
-                            When YouTube closed captions are disabled by the creator or restricted, you can reconstruct the spoken dialogue using our AI Speech Engine, retry public gateways, or run Whisper.
+                            {extractedData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED'
+                              ? 'This video is private, deleted, or age-restricted on YouTube. Automated scrapers cannot access this stream directly. You can paste a manual transcript or upload an audio file below.'
+                              : 'When YouTube closed captions are disabled by the creator or restricted, you can reconstruct the spoken dialogue using our AI Speech Engine, retry public gateways, or run Whisper.'}
                           </p>
                           <div className="flex flex-wrap items-center gap-2 pt-1">
                             {/* Single-Click AI Audio Transcription Button */}

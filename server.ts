@@ -1070,6 +1070,23 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         step1Status = playerRes.status;
         if (playerRes.ok) {
           const playerJson = await playerRes.json() as any;
+          const playability = playerJson.playabilityStatus;
+          if (
+            playability?.status === 'LOGIN_REQUIRED' ||
+            playability?.status === 'UNPLAYABLE' ||
+            playability?.reason?.toLowerCase().includes('private') ||
+            playability?.reason?.toLowerCase().includes('deleted') ||
+            playability?.reason?.toLowerCase().includes('removed')
+          ) {
+            console.warn(`[SubtitleFetcher] Video unavailable or private: ${playability?.status} (${playability?.reason})`);
+            return {
+              lines: null,
+              hasTracks: false,
+              errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+              errorDetails: playability?.reason || 'This video is private, deleted, or age-restricted.',
+              status: 'VIDEO_UNAVAILABLE'
+            };
+          }
           const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
           tracks = tracklist?.captionTracks;
         } else {
@@ -1144,6 +1161,23 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         step2Status = iosRes.status;
         if (iosRes.ok) {
           const iosJson = await iosRes.json() as any;
+          const playability = iosJson.playabilityStatus;
+          if (
+            playability?.status === 'LOGIN_REQUIRED' ||
+            playability?.status === 'UNPLAYABLE' ||
+            playability?.reason?.toLowerCase().includes('private') ||
+            playability?.reason?.toLowerCase().includes('deleted') ||
+            playability?.reason?.toLowerCase().includes('removed')
+          ) {
+            console.warn(`[SubtitleFetcher] Video unavailable or private (iOS): ${playability?.status} (${playability?.reason})`);
+            return {
+              lines: null,
+              hasTracks: false,
+              errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+              errorDetails: playability?.reason || 'This video is private, deleted, or age-restricted.',
+              status: 'VIDEO_UNAVAILABLE'
+            };
+          }
           const tracklist = iosJson.captions?.playerCaptionsTracklistRenderer || iosJson.playerCaptionsTracklistRenderer;
           iosTracks = tracklist?.captionTracks;
         } else {
@@ -1204,9 +1238,39 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
 
       let webTracks: any[] | null = null;
       if (watchHtml) {
+        if (
+          watchHtml.includes('"status":"LOGIN_REQUIRED"') ||
+          watchHtml.includes('"status": "LOGIN_REQUIRED"') ||
+          watchHtml.includes('This video is private') ||
+          watchHtml.includes('"reason":"This video is private"')
+        ) {
+          console.warn("[SubtitleFetcher] Watch page confirms video is private or restricted.");
+          return {
+            lines: null,
+            hasTracks: false,
+            errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+            errorDetails: 'This video is private, deleted, or age-restricted.',
+            status: 'VIDEO_UNAVAILABLE'
+          };
+        }
+
         // 1. Try ytInitialPlayerResponse
         const playerResponse = extractJsonBlock(watchHtml, "ytInitialPlayerResponse");
         if (playerResponse) {
+          const playability = playerResponse.playabilityStatus;
+          if (
+            playability?.status === 'LOGIN_REQUIRED' ||
+            playability?.status === 'UNPLAYABLE' ||
+            playability?.reason?.toLowerCase().includes('private')
+          ) {
+            return {
+              lines: null,
+              hasTracks: false,
+              errorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+              errorDetails: playability.reason || 'This video is private, deleted, or age-restricted.',
+              status: 'VIDEO_UNAVAILABLE'
+            };
+          }
           webTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
         }
         
@@ -1372,10 +1436,14 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
 
           const ytData = await ytResponse.json() as any;
           if (!ytData.items || ytData.items.length === 0) {
-            console.error("YouTube Data API returned 0 items for video ID:", videoId);
-            res.status(404).json({ 
-              error: "No video details found. Please ensure the video is public and the ID is correct.",
-              youtubeApiError: true
+            console.error("YouTube Data API returned 0 items for video ID (private or removed):", videoId);
+            res.status(200).json({ 
+              hasTranscript: false,
+              status: 'VIDEO_UNAVAILABLE',
+              transcriptErrorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+              message: 'This video is private, deleted, or age-restricted.',
+              title: "Private or Restricted Video",
+              author: "YouTube Creator"
             });
             return;
           }
@@ -1419,6 +1487,29 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           scrapedData.clientDelegationUrl = subResult.clientDelegationUrl || null;
           scrapedData.status = subResult.status || null;
           scrapedData.videoId = videoId;
+
+          if (subResult.errorCode === 'VIDEO_PRIVATE_OR_REMOVED' || subResult.status === 'VIDEO_UNAVAILABLE') {
+            console.log(`[fetch-script] Video is private or unavailable for ID: ${videoId}`);
+            res.status(200).json({
+              title: scrapedData.title || "Private or Restricted Video",
+              author: scrapedData.author || "YouTube Creator",
+              platform: "youtube",
+              duration: scrapedData.duration || "N/A",
+              views: scrapedData.views || "0",
+              hasTranscript: false,
+              status: 'VIDEO_UNAVAILABLE',
+              transcriptErrorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+              message: 'This video is private, deleted, or age-restricted.',
+              fullTranscript: '[Notice: This video is private, deleted, or age-restricted. Please paste a manual transcript or upload an audio track.]',
+              hookText: 'N/A',
+              hookScore: 50,
+              pacingSpeed: 'N/A',
+              suggestedTags: scrapedData.tags || [],
+              metadataDesc: scrapedData.description || 'This video is private, deleted, or age-restricted.'
+            });
+            return;
+          }
+
           if (subResult.lines && subResult.lines.length > 0) {
             console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
             scrapedData.transcript = subResult.lines.map(line => line.text).join(" ");
