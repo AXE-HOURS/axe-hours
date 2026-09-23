@@ -141,7 +141,7 @@ export const ScriptFetcher: React.FC = () => {
         addToast(`Bypassed block! Recovered authentic transcript (${lines.length} lines) 🚀`, "success");
         logActivity('fetch_script', extractedData.title || 'Client Transcript Fallback', 'Recovered full transcript via client delegation.');
       } else {
-        addToast("Residential gateway exhausted Piped, Invidious, and Watch Page proxies.", "error");
+        addToast("Residential gateway exhausted Lemnoslife, Piped, and Subtitles API endpoints.", "error");
       }
     } catch (err: any) {
       addToast(`Client fetch failed: ${err.message || 'Unknown error'}`, "error");
@@ -150,11 +150,72 @@ export const ScriptFetcher: React.FC = () => {
     }
   };
 
-  // Manual Transcript & Whisper Audio Fallback states
+  // Manual Transcript & Whisper / AI Audio Fallback states
+  const [isTranscribingAudio, setIsTranscribingAudio] = useState<boolean>(false);
   const [isManualInputOpen, setIsManualInputOpen] = useState<boolean>(false);
   const [manualInputText, setManualInputText] = useState<string>('');
   const [isWhisperModalOpen, setIsWhisperModalOpen] = useState<boolean>(false);
   const [whisperInputText, setWhisperInputText] = useState<string>('');
+
+  const handleRunAudioTranscription = async () => {
+    const targetUrl = videoUrl.trim();
+    if (!targetUrl) {
+      addToast("Please provide a video URL to transcribe.", "error");
+      return;
+    }
+    setIsTranscribingAudio(true);
+    addToast("Running AI Audio Speech-to-Text Pipeline... 🎙️", "info");
+    playAudio(523);
+    try {
+      const savedKey = getSecureGeminiKey(uid);
+      const res = await fetch("/api/transcribe-audio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoUrl: targetUrl,
+          customKey: savedKey,
+          title: extractedData.title,
+          author: extractedData.author
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || "Audio transcription pipeline failed");
+      }
+
+      const data = await res.json();
+      if (data.hasTranscript && data.fullTranscript) {
+        const calculatedWpm = data.calculatedWpm || 145;
+        const hookText = data.hookText || extractedData.hookText;
+        const hookScore = calculateHookScore(hookText, calculatedWpm, extractedData.platform);
+
+        setExtractedData(prev => ({
+          ...prev,
+          hasTranscript: true,
+          fullTranscript: data.fullTranscript,
+          hookText,
+          hookScore: hookScore || prev.hookScore,
+          pacingSpeed: data.pacingSpeed || prev.pacingSpeed,
+          transcriptErrorCode: '',
+          transcriptErrorDetails: ''
+        }));
+
+        playAudio(880);
+        addToast("Spoken dialogue reconstructed via AI Audio Transcription Pipeline! 🎙️🚀", "success");
+        logActivity('fetch_script', extractedData.title || 'Audio Transcription Fallback', 'Recovered full dialogue via AI speech reconstruction pipeline.');
+      } else {
+        addToast("Audio speech model found no continuous spoken dialogue. Opening Whisper CLI tool...", "info");
+        setIsWhisperModalOpen(true);
+      }
+    } catch (err: any) {
+      console.warn("[ScriptFetcher] Audio transcription error:", err);
+      addToast(`Audio transcription error: ${err.message || 'Pipeline failed'}. Opening Whisper tool...`, "error");
+      setIsWhisperModalOpen(true);
+    } finally {
+      setIsTranscribingAudio(false);
+    }
+  };
 
   const handleApplyManualTranscript = (customText?: string) => {
     const textToApply = (typeof customText === 'string' ? customText : manualInputText).trim();
@@ -412,8 +473,40 @@ export const ScriptFetcher: React.FC = () => {
             transcriptErrorDetails = '';
             addToast(`Bypassed datacenter block! Recovered authentic transcript (${clientLines.length} lines) 🚀`, 'success');
           } else {
-            transcriptErrorCode = 'CLIENT_FETCH_FAILED';
-            transcriptErrorDetails = 'Residential client gateway exhausted Piped, Invidious, and Watch Page proxies.';
+            // Auto-Fallback to Audio Transcription: If all caption services fail or captions disabled, trigger AI audio transcription
+            setProgressText('Captions restricted — Auto-triggering AI Audio Transcription Pipeline...');
+            try {
+              const audioRes = await fetch("/api/transcribe-audio", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  videoUrl: videoUrl.trim(),
+                  customKey: savedKey,
+                  title: data.title,
+                  author: data.author
+                })
+              });
+              if (audioRes.ok) {
+                const audioData = await audioRes.json();
+                if (audioData.hasTranscript && audioData.fullTranscript) {
+                  hasTranscript = true;
+                  fullTranscript = audioData.fullTranscript;
+                  hookText = audioData.hookText || hookText;
+                  pacingSpeed = audioData.pacingSpeed || pacingSpeed;
+                  hookScore = calculateHookScore(hookText, audioData.calculatedWpm || 145, data.platform || 'youtube');
+                  transcriptErrorCode = '';
+                  transcriptErrorDetails = '';
+                  addToast("Recovered spoken dialogue via AI Audio Transcription Pipeline! 🎙️🚀", "success");
+                }
+              }
+            } catch (audioErr) {
+              console.warn('[ScriptFetcher] Auto audio transcription failed:', audioErr);
+            }
+
+            if (!hasTranscript) {
+              transcriptErrorCode = 'CLIENT_FETCH_FAILED';
+              transcriptErrorDetails = 'Lemnoslife, Piped V1, Subtitles API, and Watch Page proxies found no caption tracks.';
+            }
           }
         } catch (clientErr) {
           console.warn('[ScriptFetcher] Client-side transcript resolution error:', clientErr);
@@ -679,7 +772,13 @@ export const ScriptFetcher: React.FC = () => {
                     <button
                       id="script-fetcher-transfer-btn"
                       onClick={onTransferToArchitect}
-                      className="px-3 py-2 bg-[#9d50bb] hover:bg-[#b06ab3] text-white rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                      disabled={!extractedData.hasTranscript}
+                      className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md ${
+                        extractedData.hasTranscript
+                          ? 'bg-[#9d50bb] hover:bg-[#b06ab3] text-white shadow-purple-500/25 cursor-pointer'
+                          : 'bg-white/10 text-gray-500 cursor-not-allowed opacity-50'
+                      }`}
+                      title={extractedData.hasTranscript ? "Transfer spoken transcript to AI Video Architect" : "Transfer unavailable: No authentic spoken dialogue was found for this video"}
                     >
                       <Wand2 size={12} />
                       <span>Transfer to Architect</span>
@@ -814,34 +913,59 @@ export const ScriptFetcher: React.FC = () => {
 
                     {!extractedData.hasTranscript && (
                       <div className="pt-3 border-t border-white/5 space-y-3">
-                        <div className="flex flex-wrap items-center gap-2.5">
-                          {(extractedData.clientDelegationUrl || extractedData.transcriptErrorCode === 'REQUIRE_CLIENT_FETCH' || extractedData.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || extractedData.transcriptErrorCode === 'CLIENT_FETCH_FAILED' || extractedData.transcriptErrorCode === 'HTTP_403_FORBIDDEN') && (
+                        <div className="p-3.5 bg-purple-950/20 border border-purple-500/25 rounded-xl space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5 font-mono">
+                              <Mic size={14} className="text-purple-400" />
+                              Captions Unavailable / Blocked? Fallback Audio Speech Pipeline
+                            </span>
+                            <span className="text-[10px] text-gray-500 font-mono">1-Click Fallback</span>
+                          </div>
+                          <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
+                            When YouTube closed captions are disabled by the creator or restricted, you can reconstruct the spoken dialogue using our AI Speech Engine, retry public gateways, or run Whisper.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            {/* Single-Click AI Audio Transcription Button */}
                             <button
                               type="button"
-                              onClick={handleManualClientFallbackFetch}
-                              disabled={isResolvingClientSide}
-                              className="px-3 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                              onClick={handleRunAudioTranscription}
+                              disabled={isTranscribingAudio}
+                              className="px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-950/50"
                             >
-                              <RefreshCw size={13} className={`text-amber-400 ${isResolvingClientSide ? 'animate-spin' : ''}`} />
-                              <span>{isResolvingClientSide ? "Resolving via Residential Gateway..." : "Bypass Datacenter Block (Residential Client Fetch)"}</span>
+                              <Mic size={13} className={isTranscribingAudio ? "animate-pulse" : ""} />
+                              <span>{isTranscribingAudio ? "Transcribing Audio Track..." : "Run AI Audio Transcription (Instant Fallback)"}</span>
                             </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => setIsManualInputOpen(!isManualInputOpen)}
-                            className="px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
-                          >
-                            <Edit3 size={13} className="text-emerald-400" />
-                            <span>{isManualInputOpen ? "Close Manual Editor" : "Paste Raw Transcript Manually"}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setIsWhisperModalOpen(true)}
-                            className="px-3 py-2 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
-                          >
-                            <Mic size={13} className="text-purple-400" />
-                            <span>Run Whisper / Audio Transcription</span>
-                          </button>
+
+                            {(extractedData.clientDelegationUrl || extractedData.transcriptErrorCode === 'REQUIRE_CLIENT_FETCH' || extractedData.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || extractedData.transcriptErrorCode === 'CLIENT_FETCH_FAILED' || extractedData.transcriptErrorCode === 'HTTP_403_FORBIDDEN') && (
+                              <button
+                                type="button"
+                                onClick={handleManualClientFallbackFetch}
+                                disabled={isResolvingClientSide}
+                                className="px-3 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                              >
+                                <RefreshCw size={13} className={`text-amber-400 ${isResolvingClientSide ? 'animate-spin' : ''}`} />
+                                <span>{isResolvingClientSide ? "Resolving via Gateways..." : "Retry Gateways (Lemnoslife / Piped / Fly)"}</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => setIsWhisperModalOpen(true)}
+                              className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                            >
+                              <Mic size={13} className="text-purple-400" />
+                              <span>Whisper CLI Pipeline</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setIsManualInputOpen(!isManualInputOpen)}
+                              className="px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
+                            >
+                              <Edit3 size={13} className="text-emerald-400" />
+                              <span>{isManualInputOpen ? "Close Manual Editor" : "Paste Raw Transcript"}</span>
+                            </button>
+                          </div>
                         </div>
 
                         {/* Collapsible Manual Transcript Input */}

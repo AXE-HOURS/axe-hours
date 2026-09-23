@@ -369,11 +369,84 @@ export function calculateHookScore(hookText: string, wpm?: number, platform?: st
 }
 
 /**
- * Automated Client-Side Transcript Resolver
- * Cascades across 3 robust residential client pathways when backend datacenter IP hits HTTP 403:
- * - Stage 1: Piped API Gateway (pipedapi.kavin.rocks, api.piped.private.coffee)
- * - Stage 2: Invidious Public Instances (inv.nadeko.net, invidious.nerdvpn.de)
- * - Stage 3: CORS Proxy to Watch Page (api.allorigins.win, corsproxy.io)
+ * Parses Lemnoslife Transcript Engine response cues into standard SubtitleLine items.
+ * Handles data.items[0].transcript.cues, data.transcript.cues, etc.
+ */
+export function parseLemnoslifeResponse(data: any): SubtitleLine[] {
+  const lines: SubtitleLine[] = [];
+  if (!data) return lines;
+
+  const cues = data.items?.[0]?.transcript?.cues || 
+               data.items?.[0]?.transcript?.segments || 
+               data.transcript?.cues || 
+               data.cues || 
+               (Array.isArray(data) ? data : []);
+
+  for (const cue of cues) {
+    const rawText = cue.text || cue.snippet || cue.cue || cue.label || '';
+    const text = cleanSubtitleText(rawText);
+    if (!text) continue;
+
+    let start = 0;
+    if (typeof cue.start === 'number') start = cue.start > 5000 ? cue.start / 1000 : cue.start;
+    else if (typeof cue.time === 'number') start = cue.time > 5000 ? cue.time / 1000 : cue.time;
+    else if (typeof cue.startMs === 'number') start = cue.startMs / 1000;
+    else if (typeof cue.start === 'string') start = parseTimestampToSeconds(cue.start);
+    else if (typeof cue.time === 'string') start = parseTimestampToSeconds(cue.time);
+
+    let duration = 3;
+    if (typeof cue.duration === 'number') duration = cue.duration > 1000 ? cue.duration / 1000 : cue.duration;
+    else if (typeof cue.dur === 'number') duration = cue.dur > 1000 ? cue.dur / 1000 : cue.dur;
+    else if (typeof cue.durationMs === 'number') duration = cue.durationMs / 1000;
+
+    lines.push({ text, start, duration });
+  }
+
+  return lines;
+}
+
+/**
+ * Parses Subtitles API (subtitles-for-youtube.fly.dev) JSON, XML, or VTT into SubtitleLine items.
+ */
+export function parseSubtitlesApiResponse(data: any, rawText?: string): SubtitleLine[] {
+  if (Array.isArray(data)) {
+    const lines: SubtitleLine[] = [];
+    for (const item of data) {
+      const text = cleanSubtitleText(item.text || item.content || item.line || '');
+      if (!text) continue;
+      const start = typeof item.start === 'number' ? item.start : (parseFloat(item.start) || 0);
+      const duration = typeof item.dur === 'number' ? item.dur : (typeof item.duration === 'number' ? item.duration : 3);
+      lines.push({ text, start, duration });
+    }
+    if (lines.length > 0) return lines;
+  }
+
+  if (data?.events) {
+    return parseJsonSubtitles(data);
+  }
+
+  if (data?.subtitles && Array.isArray(data.subtitles)) {
+    return parseSubtitlesApiResponse(data.subtitles);
+  }
+
+  if (rawText) {
+    const vtt = parseWebVttSubtitles(rawText);
+    if (vtt.length > 0) return vtt;
+    const xml = parseTimedTextXml(rawText);
+    if (xml.length > 0) return xml;
+  }
+
+  return [];
+}
+
+/**
+ * Automated High-Availability Client-Side Transcript Resolver
+ * Cascades across reliable residential client gateways:
+ * - Native YouTube Timedtext (Direct browser + corsproxy.io)
+ * - Tier 1: Lemnoslife Transcript Engine (yt.lemnoslife.com)
+ * - Tier 2: Piped V1 Instances (api.piped.private.coffee, pipedapi.tokhmi.xyz, pipedapi.kavin.rocks)
+ * - Tier 3: Subtitles API (subtitles-for-youtube.fly.dev)
+ * - Delegated Timedtext URL / Watch page parse
  */
 export async function resolveTranscriptClientSide(
   videoId: string,
@@ -386,8 +459,7 @@ export async function resolveTranscriptClientSide(
   }
 
   // -------------------------------------------------------------
-  // TIER 1: Direct Native YouTube Timedtext Endpoint (Residential IP)
-  // Executes directly from the user's browser, bypassing datacenter 403 blocks
+  // NATIVE: Direct YouTube Timedtext Endpoint (Residential IP)
   // -------------------------------------------------------------
   if (videoId) {
     const directUrl = 'https://www.youtube.com/api/timedtext?v=' + videoId + '&lang=en&fmt=json3';
@@ -396,8 +468,8 @@ export async function resolveTranscriptClientSide(
     // 1. Direct browser fetch with mode: 'cors'
     for (const url of [directUrl, asrUrl]) {
       try {
-        onProgress?.('Tier 1: Querying direct native YouTube timedtext...');
-        console.log(`[resolveTranscriptClientSide] Tier 1 - Direct native call: ${url}`);
+        onProgress?.('Querying native YouTube timedtext stream...');
+        console.log(`[resolveTranscriptClientSide] Direct native call: ${url}`);
         const res = await fetch(url, { mode: 'cors', signal: AbortSignal.timeout(4500) });
         if (res.ok) {
           const text = await res.text();
@@ -405,7 +477,7 @@ export async function resolveTranscriptClientSide(
             const data = JSON.parse(text);
             const lines = parseJsonSubtitles(data);
             if (lines.length > 0) {
-              console.log(`[resolveTranscriptClientSide] Tier 1 succeeded directly (${url}): ${lines.length} lines`);
+              console.log(`[resolveTranscriptClientSide] Direct call succeeded (${url}): ${lines.length} lines`);
               return lines;
             }
           } catch (_) {
@@ -414,16 +486,15 @@ export async function resolveTranscriptClientSide(
           }
         }
       } catch (err) {
-        console.warn(`[resolveTranscriptClientSide] Tier 1 direct fetch failed (${url}):`, err);
+        console.warn(`[resolveTranscriptClientSide] Direct fetch failed (${url}):`, err);
       }
     }
 
-    // 2. Cascade to corsproxy.io if direct client call triggers CORS
+    // 2. Cascade to corsproxy.io
     for (const targetUrl of [directUrl, asrUrl]) {
       try {
-        onProgress?.('Tier 1: Querying native timedtext via corsproxy.io...');
+        onProgress?.('Querying native timedtext via corsproxy.io...');
         const proxyUrl = 'https://corsproxy.io/?url=' + encodeURIComponent(targetUrl);
-        console.log(`[resolveTranscriptClientSide] Tier 1 - Querying corsproxy.io: ${proxyUrl}`);
         const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
         if (res.ok) {
           const text = await res.text();
@@ -431,7 +502,7 @@ export async function resolveTranscriptClientSide(
             const data = JSON.parse(text);
             const lines = parseJsonSubtitles(data);
             if (lines.length > 0) {
-              console.log(`[resolveTranscriptClientSide] Tier 1 succeeded via corsproxy.io: ${lines.length} lines`);
+              console.log(`[resolveTranscriptClientSide] corsproxy.io succeeded: ${lines.length} lines`);
               return lines;
             }
           } catch (_) {
@@ -445,8 +516,133 @@ export async function resolveTranscriptClientSide(
     }
   }
 
+  if (!videoId) return null;
+
   // -------------------------------------------------------------
-  // TIER 2: Delegated Timedtext URL (from Innertube Watch Metadata)
+  // TIER 1: Lemnoslife Transcript Engine
+  // https://yt.lemnoslife.com/videos?part=transcript&id=${videoId}
+  // -------------------------------------------------------------
+  try {
+    onProgress?.('Tier 1: Querying Lemnoslife Transcript Engine...');
+    const lemnosUrl = `https://yt.lemnoslife.com/videos?part=transcript&id=${videoId}`;
+    console.log(`[resolveTranscriptClientSide] Tier 1 - Lemnoslife: ${lemnosUrl}`);
+
+    const lemnosEndpoints = [
+      lemnosUrl,
+      `https://corsproxy.io/?url=${encodeURIComponent(lemnosUrl)}`
+    ];
+
+    for (const ep of lemnosEndpoints) {
+      try {
+        const res = await fetch(ep, { signal: AbortSignal.timeout(6000) });
+        if (res.ok) {
+          const data = await res.json();
+          const lines = parseLemnoslifeResponse(data);
+          if (lines.length > 0) {
+            console.log(`[resolveTranscriptClientSide] Tier 1 (Lemnoslife) succeeded: ${lines.length} lines`);
+            return lines;
+          }
+        }
+      } catch (err) {
+        console.warn(`[resolveTranscriptClientSide] Lemnoslife attempt failed (${ep}):`, err);
+      }
+    }
+  } catch (err) {
+    console.warn('[resolveTranscriptClientSide] Tier 1 Lemnoslife failed:', err);
+  }
+
+  // -------------------------------------------------------------
+  // TIER 2: Piped V1 Instances
+  // api.piped.private.coffee, pipedapi.tokhmi.xyz, pipedapi.kavin.rocks
+  // Extract subtitles where code === 'en'
+  // -------------------------------------------------------------
+  const pipedInstances = [
+    `https://api.piped.private.coffee/streams/${videoId}`,
+    `https://pipedapi.tokhmi.xyz/streams/${videoId}`,
+    `https://pipedapi.kavin.rocks/streams/${videoId}`
+  ];
+
+  for (const endpoint of pipedInstances) {
+    try {
+      onProgress?.('Tier 2: Resolving transcript via Piped V1 Instances...');
+      console.log(`[resolveTranscriptClientSide] Tier 2 - Querying Piped: ${endpoint}`);
+      const res = await fetch(endpoint, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const data = await res.json();
+        const subtitles = data.subtitles;
+        if (Array.isArray(subtitles) && subtitles.length > 0) {
+          const enTrack = subtitles.find((s: any) => 
+            s.code === 'en' || 
+            s.code?.startsWith('en') || 
+            s.name?.toLowerCase().includes('english')
+          ) || subtitles[0];
+
+          if (enTrack?.url) {
+            const subRes = await fetch(enTrack.url, { signal: AbortSignal.timeout(5000) });
+            if (subRes.ok) {
+              const subText = await subRes.text();
+              let lines = parseWebVttSubtitles(subText);
+              if (lines.length === 0) {
+                try {
+                  const jsonData = JSON.parse(subText);
+                  lines = parseJsonSubtitles(jsonData);
+                } catch (_) {
+                  lines = parseTimedTextXml(subText);
+                }
+              }
+              if (lines.length > 0) {
+                console.log(`[resolveTranscriptClientSide] Tier 2 succeeded via ${endpoint}: ${lines.length} lines`);
+                return lines;
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`[resolveTranscriptClientSide] Tier 2 instance failed (${endpoint}):`, err);
+    }
+  }
+
+  // -------------------------------------------------------------
+  // TIER 3: Subtitles API
+  // https://subtitles-for-youtube.fly.dev/subtitles/${videoId}
+  // -------------------------------------------------------------
+  try {
+    onProgress?.('Tier 3: Querying Subtitles API...');
+    const flyUrl = `https://subtitles-for-youtube.fly.dev/subtitles/${videoId}`;
+    console.log(`[resolveTranscriptClientSide] Tier 3 - Subtitles API: ${flyUrl}`);
+
+    const flyEndpoints = [
+      flyUrl,
+      `https://corsproxy.io/?url=${encodeURIComponent(flyUrl)}`
+    ];
+
+    for (const ep of flyEndpoints) {
+      try {
+        const res = await fetch(ep, { signal: AbortSignal.timeout(6000) });
+        if (res.ok) {
+          const text = await res.text();
+          let parsedData: any = null;
+          try {
+            parsedData = JSON.parse(text);
+          } catch (_) {}
+
+          const lines = parseSubtitlesApiResponse(parsedData, text);
+          if (lines.length > 0) {
+            console.log(`[resolveTranscriptClientSide] Tier 3 (Subtitles API) succeeded: ${lines.length} lines`);
+            return lines;
+          }
+        }
+      } catch (err) {
+        console.warn(`[resolveTranscriptClientSide] Subtitles API attempt failed (${ep}):`, err);
+      }
+    }
+  } catch (err) {
+    console.warn('[resolveTranscriptClientSide] Tier 3 Subtitles API failed:', err);
+  }
+
+  // -------------------------------------------------------------
+  // DELEGATED TIMEDTEXT URL (from Innertube Watch Metadata)
   // -------------------------------------------------------------
   if (clientDelegationUrl) {
     try {
@@ -473,162 +669,39 @@ export async function resolveTranscriptClientSide(
         }
       } catch (_) {}
 
-      // Try AllOrigins and corsproxy.io proxy on delegation URL
-      for (const proxyBase of ['https://api.allorigins.win/raw?url=', 'https://corsproxy.io/?url=']) {
-        try {
-          const proxyUrl = `${proxyBase}${encodeURIComponent(directUrl)}`;
-          const pRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
-          if (pRes.ok) {
-            const pText = await pRes.text();
-            try {
-              const data = JSON.parse(pText);
-              const lines = parseJsonSubtitles(data);
-              if (lines.length > 0) return lines;
-            } catch (_) {
-              const lines = parseTimedTextXml(pText);
-              if (lines.length > 0) return lines;
-            }
-          }
-        } catch (_) {}
-      }
-    } catch (err) {
-      console.warn('[resolveTranscriptClientSide] Direct delegation fetch failed, escalating:', err);
-    }
-  }
-
-  if (!videoId) return null;
-
-  // -------------------------------------------------------------
-  // TIER 3: Piped API Gateway
-  // -------------------------------------------------------------
-  const pipedInstances = [
-    `https://pipedapi.kavin.rocks/streams/${videoId}`,
-    `https://api.piped.private.coffee/streams/${videoId}`
-  ];
-
-  for (const endpoint of pipedInstances) {
-    try {
-      onProgress?.('Stage 1: Resolving transcript via Piped API Gateway...');
-      console.log(`[resolveTranscriptClientSide] Stage 1 - Querying Piped: ${endpoint}`);
-      const res = await fetch(endpoint, { signal: AbortSignal.timeout(6000) });
-      if (res.ok) {
-        const data = await res.json();
-        const subtitles = data.subtitles;
-        if (Array.isArray(subtitles) && subtitles.length > 0) {
-          const enTrack = subtitles.find((s: any) => 
-            s.code === 'en' || 
-            s.code?.startsWith('en') || 
-            s.name?.toLowerCase().includes('english')
-          ) || subtitles[0];
-
-          if (enTrack?.url) {
-            const subRes = await fetch(enTrack.url, { signal: AbortSignal.timeout(5000) });
-            if (subRes.ok) {
-              const subText = await subRes.text();
-              let lines = parseWebVttSubtitles(subText);
-              if (lines.length === 0) {
-                try {
-                  const jsonData = JSON.parse(subText);
-                  lines = parseJsonSubtitles(jsonData);
-                } catch (_) {
-                  lines = parseTimedTextXml(subText);
-                }
-              }
-              if (lines.length > 0) {
-                console.log(`[resolveTranscriptClientSide] Stage 1 succeeded via ${endpoint}: ${lines.length} lines`);
-                return lines;
-              }
-            }
+      // Fallback via corsproxy.io on delegation URL
+      try {
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
+        const pRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
+        if (pRes.ok) {
+          const pText = await pRes.text();
+          try {
+            const data = JSON.parse(pText);
+            const lines = parseJsonSubtitles(data);
+            if (lines.length > 0) return lines;
+          } catch (_) {
+            const lines = parseTimedTextXml(pText);
+            if (lines.length > 0) return lines;
           }
         }
-      }
+      } catch (_) {}
     } catch (err) {
-      console.warn(`[resolveTranscriptClientSide] Stage 1 instance failed (${endpoint}):`, err);
+      console.warn('[resolveTranscriptClientSide] Direct delegation fetch failed:', err);
     }
   }
 
   // -------------------------------------------------------------
-  // STAGE 2: Invidious Public Instances
-  // -------------------------------------------------------------
-  const invidiousInstances = [
-    `https://inv.nadeko.net/api/v1/captions/${videoId}?label=English`,
-    `https://invidious.nerdvpn.de/api/v1/captions/${videoId}?label=English`,
-    `https://inv.nadeko.net/api/v1/captions/${videoId}`,
-    `https://invidious.nerdvpn.de/api/v1/captions/${videoId}`,
-    `https://inv.tux.pizza/api/v1/captions/${videoId}`
-  ];
-
-  for (const endpoint of invidiousInstances) {
-    try {
-      onProgress?.('Stage 2: Resolving transcript via Invidious Public Instances...');
-      console.log(`[resolveTranscriptClientSide] Stage 2 - Querying Invidious: ${endpoint}`);
-      const res = await fetch(endpoint, { signal: AbortSignal.timeout(6000) });
-      if (res.ok) {
-        const text = await res.text();
-        // Check if endpoint returned VTT content directly
-        if (text.includes('-->') || text.startsWith('WEBVTT')) {
-          const lines = parseWebVttSubtitles(text);
-          if (lines.length > 0) {
-            console.log(`[resolveTranscriptClientSide] Stage 2 succeeded via direct VTT (${endpoint}): ${lines.length} lines`);
-            return lines;
-          }
-        }
-
-        // Try parsing as JSON captions list
-        try {
-          const data = JSON.parse(text);
-          const captions = Array.isArray(data) ? data : data.captions;
-          if (Array.isArray(captions) && captions.length > 0) {
-            const enTrack = captions.find((c: any) => 
-              c.label?.toLowerCase().includes('english') || 
-              c.language_code === 'en' || 
-              c.language_code?.startsWith('en')
-            ) || captions[0];
-
-            if (enTrack?.url) {
-              const baseUrl = endpoint.split('/api/v1/')[0];
-              const subUrl = enTrack.url.startsWith('http') ? enTrack.url : `${baseUrl}${enTrack.url}`;
-              const subRes = await fetch(subUrl, { signal: AbortSignal.timeout(5000) });
-              if (subRes.ok) {
-                const subText = await subRes.text();
-                let lines = parseWebVttSubtitles(subText);
-                if (lines.length === 0) {
-                  lines = parseTimedTextXml(subText);
-                }
-                if (lines.length > 0) {
-                  console.log(`[resolveTranscriptClientSide] Stage 2 succeeded via ${subUrl}: ${lines.length} lines`);
-                  return lines;
-                }
-              }
-            }
-          }
-        } catch (_) {}
-      }
-    } catch (err) {
-      console.warn(`[resolveTranscriptClientSide] Stage 2 instance failed (${endpoint}):`, err);
-    }
-  }
-
-  // -------------------------------------------------------------
-  // STAGE 3: CORS Proxy to Watch Page
+  // WATCH PAGE CORS SCRAPER (corsproxy.io only)
   // -------------------------------------------------------------
   try {
-    onProgress?.('Stage 3: Extracting caption tracks via Watch Page CORS Proxy...');
+    onProgress?.('Final Stage: Extracting caption tracks via Watch Page Proxy...');
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const proxyUrls = [
-      `https://api.allorigins.win/raw?url=${encodeURIComponent(watchUrl)}`,
-      `https://corsproxy.io/?url=${encodeURIComponent(watchUrl)}`
-    ];
+    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(watchUrl)}`;
 
-    for (const proxyUrl of proxyUrls) {
-      try {
-        console.log(`[resolveTranscriptClientSide] Stage 3 - Fetching watch page via proxy: ${proxyUrl}`);
-        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
-        if (!res.ok) continue;
-        const html = await res.text();
-        if (!html) continue;
-
-        // Regex extract "captionTracks":\s*(\[.*?\])
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+    if (res.ok) {
+      const html = await res.text();
+      if (html) {
         const match = html.match(/"captionTracks"\s*:\s*(\[.*?\])/) || 
                       html.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])/);
         if (match) {
@@ -662,7 +735,7 @@ export async function resolveTranscriptClientSide(
                 jsonUrl += (jsonUrl.includes('?') ? '&' : '?') + 'fmt=json3';
               }
 
-              // Direct browser fetch (residential IP)
+              // Direct browser fetch
               try {
                 const subRes = await fetch(jsonUrl);
                 if (subRes.ok) {
@@ -670,10 +743,7 @@ export async function resolveTranscriptClientSide(
                   try {
                     const jsonData = JSON.parse(subText);
                     const lines = parseJsonSubtitles(jsonData);
-                    if (lines.length > 0) {
-                      console.log(`[resolveTranscriptClientSide] Stage 3 direct fetch succeeded: ${lines.length} lines`);
-                      return lines;
-                    }
+                    if (lines.length > 0) return lines;
                   } catch (_) {
                     const lines = parseTimedTextXml(subText);
                     if (lines.length > 0) return lines;
@@ -681,18 +751,15 @@ export async function resolveTranscriptClientSide(
                 }
               } catch (_) {}
 
-              // Fallback via CORS proxy on track URL
-              const subProxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(jsonUrl)}`;
+              // Fallback via corsproxy.io on track URL
+              const subProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(jsonUrl)}`;
               const subProxyRes = await fetch(subProxyUrl, { signal: AbortSignal.timeout(6000) });
               if (subProxyRes.ok) {
                 const subText = await subProxyRes.text();
                 try {
                   const jsonData = JSON.parse(subText);
                   const lines = parseJsonSubtitles(jsonData);
-                  if (lines.length > 0) {
-                    console.log(`[resolveTranscriptClientSide] Stage 3 proxy fetch succeeded: ${lines.length} lines`);
-                    return lines;
-                  }
+                  if (lines.length > 0) return lines;
                 } catch (_) {
                   const lines = parseTimedTextXml(subText);
                   if (lines.length > 0) return lines;
@@ -701,12 +768,10 @@ export async function resolveTranscriptClientSide(
             }
           }
         }
-      } catch (proxyErr) {
-        console.warn(`[resolveTranscriptClientSide] Stage 3 proxy attempt failed (${proxyUrl}):`, proxyErr);
       }
     }
   } catch (err) {
-    console.warn('[resolveTranscriptClientSide] Stage 3 watch page extraction failed:', err);
+    console.warn('[resolveTranscriptClientSide] Watch page scraper failed:', err);
   }
 
   return null;
