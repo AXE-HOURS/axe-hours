@@ -34,11 +34,82 @@ import {
   Check,
   Bell,
   Play,
-  Radio
+  Radio,
+  Wand2,
+  AlertCircle,
+  ArrowRight
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
 import { formatTelemetryTime } from '../utils/telemetryTime';
+
+export interface RecentUpload {
+  videoId: string;
+  title: string;
+  publishedDate: string;
+  thumbnail: string;
+  link: string;
+}
+
+export interface TrackedChannel {
+  channelId: string;
+  title: string;
+  handle: string;
+  avatarUrl: string;
+  addedAt: string;
+  latestUpload?: RecentUpload;
+  recentUploads?: RecentUpload[];
+  lastSyncedAt?: string;
+}
+
+export const logTelemetryEvent = (eventType: string, payload: { title: string; channel: string; [key: string]: any }) => {
+  if (typeof window === 'undefined') return;
+  const event = {
+    id: `telemetry_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+    actionType: eventType,
+    actionTitle: `Competitor Upload Alert: ${payload.channel}`,
+    description: `New video detected from ${payload.channel}: "${payload.title}"`,
+    timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true }),
+    createdAt: new Date().toISOString(),
+    metadata: payload
+  };
+  window.dispatchEvent(new CustomEvent('axe_hours_telemetry', { detail: event }));
+  try {
+    const keys = ['axe_hours_user_activities'];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('axe_hours_user_activities_')) {
+        keys.push(k);
+      }
+    }
+    keys.forEach(k => {
+      try {
+        const raw = localStorage.getItem(k);
+        const list = raw ? JSON.parse(raw) : [];
+        list.unshift(event);
+        localStorage.setItem(k, JSON.stringify(list.slice(0, 100)));
+      } catch {}
+    });
+  } catch (err) {
+    console.warn('[Telemetry] Storage write warning:', err);
+  }
+};
+
+export const formatRelativePublishTime = (dateStr?: string): string => {
+  if (!dateStr) return 'Recently';
+  const diffMs = Date.now() - new Date(dateStr).getTime();
+  if (isNaN(diffMs) || diffMs < 0) return 'Just now';
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}h ago`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 30) return `${diffDay}d ago`;
+  const diffMonth = Math.floor(diffDay / 30);
+  return `${diffMonth}mo ago`;
+};
 
 interface CompetitorVideo {
   title: string;
@@ -442,6 +513,79 @@ export const CompetitorIntel: React.FC = () => {
     return () => unsubscribe();
   }, [uid]);
 
+  // Monitored Channels Baseline Seed
+  const SEED_MONITORED_CHANNELS: TrackedChannel[] = [
+    {
+      channelId: "UCBJycsmduvYEL83R_U4JriQ",
+      title: "Marques Brownlee",
+      handle: "@mkbhd",
+      avatarUrl: "https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHut3uI4MgIE0pdAnK7LqiQAv=s176-c-k-c0x00ffffff-no-rj",
+      addedAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+      latestUpload: {
+        videoId: "dQw4w9WgXcQ",
+        title: "The Ultimate Smartphone Camera Comparison",
+        publishedDate: new Date(Date.now() - 3600000 * 3).toISOString(),
+        thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+        link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      }
+    },
+    {
+      channelId: "UCoGdS1Tz2tqQZ8iXgGvhc6g",
+      title: "Ali Abdaal",
+      handle: "@aliabdaal",
+      avatarUrl: "https://yt3.googleusercontent.com/ytc/AIdro_n8t9x12J6z4k9K4aJ5=s176-c-k-c0x00ffffff-no-rj",
+      addedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
+      latestUpload: {
+        videoId: "dQw4w9WgXcQ",
+        title: "How I Remember Everything I Read",
+        publishedDate: new Date(Date.now() - 3600000 * 18).toISOString(),
+        thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+        link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      }
+    },
+    {
+      channelId: "UCX6OQ3DkcsbYNE6H8uQQuVA",
+      title: "MrBeast",
+      handle: "@mrbeast",
+      avatarUrl: "https://yt3.googleusercontent.com/fxGKYucJAVme-YzgnnvYENeuP9xSaNuioGwp_DAw3-FRJpwMrLapueOioMiDkDZdNxOBpMavenI=s176-c-k-c0x00ffffff-no-rj",
+      addedAt: new Date(Date.now() - 86400000 * 7).toISOString(),
+      latestUpload: {
+        videoId: "dQw4w9WgXcQ",
+        title: "I Survived 100 Days Inside A Red Circle",
+        publishedDate: new Date(Date.now() - 3600000 * 42).toISOString(),
+        thumbnail: "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+        link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      }
+    }
+  ];
+
+  // Monitored Channels State & LocalStorage / Firebase Persistence
+  const [monitoredChannels, setMonitoredChannels] = useState<TrackedChannel[]>(() => {
+    const key = uid !== "guest" ? `axe_hours_monitored_channels_${uid}` : "axe_hours_monitored_channels";
+    const saved = localStorage.getItem(key) || localStorage.getItem("axe_hours_monitored_channels");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+    return SEED_MONITORED_CHANNELS;
+  });
+
+  useEffect(() => {
+    const key = uid !== "guest" ? `axe_hours_monitored_channels_${uid}` : "axe_hours_monitored_channels";
+    try {
+      localStorage.setItem(key, JSON.stringify(monitoredChannels));
+      localStorage.setItem("axe_hours_monitored_channels", JSON.stringify(monitoredChannels));
+    } catch (e) {
+      console.warn("Storage write warning:", e);
+    }
+  }, [monitoredChannels, uid]);
+
+  const [quickHandleInput, setQuickHandleInput] = useState<string>('');
+  const [isAddingMonitoredChannel, setIsAddingMonitoredChannel] = useState<boolean>(false);
+  const [isSyncingChannels, setIsSyncingChannels] = useState<boolean>(false);
+
   // Push Notification Dispatcher State
   const [alerts, setAlerts] = useState<{
     id: string;
@@ -452,10 +596,199 @@ export const CompetitorIntel: React.FC = () => {
     duration: string;
     views: string;
     isShort: boolean;
-  }[]>([]);
+    videoLink?: string;
+  }[]>(() => {
+    try {
+      const saved = localStorage.getItem("axe_hours_competitor_alerts");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("axe_hours_competitor_alerts", JSON.stringify(alerts.slice(0, 50)));
+    } catch {}
+  }, [alerts]);
+
   const [isDispatcherActive, setIsDispatcherActive] = useState<boolean>(true);
   const seenVideoTitlesRef = React.useRef<Set<string>>(new Set());
   const isInitialLoadRef = React.useRef<boolean>(true);
+
+  // Direct action button: Navigate & Pipe video link into ScriptFetcher.tsx
+  const handleAnalyzeVideo = (videoLink: string, title?: string) => {
+    if (!videoLink) return;
+    sessionStorage.setItem('pending_script_fetcher_url', videoLink);
+    window.dispatchEvent(new CustomEvent('load-script-fetcher-url'));
+    window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'script-fetcher' } }));
+    addToast(`Piping "${title || 'video'}" directly into Script Fetcher... 🚀`, "success");
+    playAudio(880);
+  };
+
+  // Add Monitored Channel Handler (resolves handle via backend)
+  const handleAddMonitoredChannel = async (targetHandle?: string) => {
+    const query = (targetHandle || quickHandleInput).trim();
+    if (!query) {
+      addToast("Please enter a YouTube channel handle or URL (e.g. @mkbhd)", "warning");
+      return;
+    }
+
+    setIsAddingMonitoredChannel(true);
+    addToast(`Resolving YouTube creator channel "${query}"...`, "info");
+    playAudio(523);
+
+    try {
+      const res = await fetch("/api/competitor/add-channel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handleOrUrl: query })
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to resolve YouTube channel.");
+      }
+
+      // Check if already monitored
+      if (monitoredChannels.some(c => c.channelId === data.channelId)) {
+        addToast(`${data.title} (${data.handle}) is already in your monitored channels!`, "warning");
+        setQuickHandleInput('');
+        setIsAddingMonitoredChannel(false);
+        return;
+      }
+
+      // Create new tracked channel
+      let newChannel: TrackedChannel = {
+        channelId: data.channelId,
+        title: data.title,
+        handle: data.handle,
+        avatarUrl: data.avatarUrl,
+        addedAt: new Date().toISOString()
+      };
+
+      // Perform immediate sync to fetch latest uploads
+      try {
+        const syncRes = await fetch(`/api/competitor/sync?channelId=${encodeURIComponent(data.channelId)}`);
+        if (syncRes.ok) {
+          const syncData = await syncRes.json();
+          if (syncData.ok && syncData.recentUploads && syncData.recentUploads.length > 0) {
+            newChannel.recentUploads = syncData.recentUploads;
+            newChannel.latestUpload = syncData.recentUploads[0];
+            newChannel.lastSyncedAt = new Date().toISOString();
+          }
+        }
+      } catch (syncErr) {
+        console.warn("[CompetitorIntel] Initial channel sync warning:", syncErr);
+      }
+
+      setMonitoredChannels(prev => [newChannel, ...prev]);
+      setQuickHandleInput('');
+      playAudio(880);
+      addToast(`🎉 Successfully tracking ${newChannel.title} (${newChannel.handle})!`, "success");
+      logUserActivity('competitor_intel', `Added Monitored Channel: ${newChannel.title}`, `Started live tracking uploads from ${newChannel.handle} (Channel ID: ${newChannel.channelId}).`);
+    } catch (err: any) {
+      console.error("[CompetitorIntel] Add channel error:", err);
+      addToast(err.message || "Unable to resolve channel. Please check the handle and try again.", "error");
+    } finally {
+      setIsAddingMonitoredChannel(false);
+    }
+  };
+
+  // Remove a monitored channel
+  const handleRemoveMonitoredChannel = (channelId: string, channelName: string) => {
+    setMonitoredChannels(prev => prev.filter(c => c.channelId !== channelId));
+    addToast(`Untracked ${channelName}.`, "info");
+    playAudio(659);
+  };
+
+  // Sync Atom RSS feeds for all monitored channels and emit alerts
+  const syncChannelUploads = async (channelsToSync = monitoredChannels, isManual = false) => {
+    if (!channelsToSync || channelsToSync.length === 0) return;
+    setIsSyncingChannels(true);
+    if (isManual) {
+      addToast("Syncing native YouTube Atom feeds for all monitored channels...", "info");
+      playAudio(523);
+    }
+
+    try {
+      const updatedChannels = await Promise.all(channelsToSync.map(async (channel) => {
+        try {
+          const syncRes = await fetch(`/api/competitor/sync?channelId=${encodeURIComponent(channel.channelId)}`);
+          if (!syncRes.ok) return channel;
+          const syncData = await syncRes.json();
+          if (!syncData.ok || !syncData.recentUploads || syncData.recentUploads.length === 0) return channel;
+
+          const freshUploads: RecentUpload[] = syncData.recentUploads;
+          const freshTop = freshUploads[0];
+
+          // Check if top upload is new
+          const previousTopId = channel.latestUpload?.videoId;
+          const isNewUpload = Boolean(freshTop && previousTopId && freshTop.videoId !== previousTopId);
+
+          if (isNewUpload) {
+            // 1. Emit telemetry event
+            logTelemetryEvent('COMPETITOR_UPLOAD_ALERT', {
+              title: freshTop.title,
+              channel: channel.title,
+              videoId: freshTop.videoId,
+              link: freshTop.link
+            });
+
+            // 2. Add alert badge to alert dispatcher feed
+            const newAlertItem = {
+              id: `${channel.channelId}_${Date.now()}_${freshTop.videoId}`,
+              timestamp: formatTelemetryTime(Date.now()),
+              creatorName: channel.title,
+              handle: channel.handle,
+              videoTitle: freshTop.title,
+              duration: 'Latest',
+              views: 'New Release',
+              isShort: freshTop.title.toLowerCase().includes('short') || freshTop.title.includes('#shorts'),
+              videoLink: freshTop.link
+            };
+            setAlerts(prev => [newAlertItem, ...prev].slice(0, 50));
+
+            // 3. Audio & Toast notification
+            addToast(`🚨 [LIVE UPLOAD] ${channel.title} (${channel.handle}) just published: "${freshTop.title}"!`, "success");
+            playAudio(880);
+
+            // 4. Log to Firebase activity stream
+            logUserActivity('competitor_intel', `New Upload Alert: ${channel.title}`, `Live feed detected newly published video: "${freshTop.title}".`);
+          }
+
+          return {
+            ...channel,
+            latestUpload: freshTop,
+            recentUploads: freshUploads,
+            lastSyncedAt: new Date().toISOString()
+          };
+        } catch (singleErr) {
+          console.warn(`[CompetitorIntel] Sync failed for channel ${channel.handle}:`, singleErr);
+          return channel;
+        }
+      }));
+
+      setMonitoredChannels(updatedChannels);
+      if (isManual) {
+        addToast(`Successfully synced ${updatedChannels.length} monitored creator feeds! ⚡`, "success");
+        playAudio(880);
+      }
+    } catch (err: any) {
+      console.error("[CompetitorIntel] Sync error:", err);
+      if (isManual) addToast("Sync encountered an issue with some channel feeds.", "warning");
+    } finally {
+      setIsSyncingChannels(false);
+    }
+  };
+
+  // Sync on initial mount
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      syncChannelUploads(monitoredChannels, false);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   // Simulation Form States
   const [simCreatorId, setSimCreatorId] = useState<string>('');
@@ -1267,9 +1600,299 @@ export const CompetitorIntel: React.FC = () => {
           className="px-4 py-2.5 bg-primary-gradient hover:opacity-95 text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-transform shadow-lg shadow-purple-500/10 hover:scale-[1.02] cursor-pointer"
         >
           <Plus size={16} />
-          <span>Track channel</span>
+          <span>Advanced Profile Config</span>
         </button>
       </div>
+
+      {/* ======================================================== */}
+      {/* LIVE CHANNEL TRACKER & RSS ALERT DISPATCHER HERO DECK    */}
+      {/* ======================================================== */}
+      <GlassCard glowColor="purple" className="p-5 md:p-6 border-white/10 space-y-6">
+        {/* Top Header & Sync Status */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="relative flex items-center justify-center p-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400">
+              <Radio size={20} className={isSyncingChannels ? "animate-spin" : "animate-pulse"} />
+              <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-extrabold text-white tracking-tight">Live Competitor Channel Tracker</h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                  Native Atom RSS
+                </span>
+              </div>
+              <p className="text-xs text-gray-400">
+                Track top creator channels, listen for real-time video uploads, and pipe hooks into Script Fetcher.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-end sm:self-auto">
+            <button
+              type="button"
+              onClick={() => syncChannelUploads(monitoredChannels, true)}
+              disabled={isSyncingChannels || monitoredChannels.length === 0}
+              className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-gray-200 hover:text-white flex items-center gap-2 transition-all disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw size={13} className={isSyncingChannels ? "animate-spin text-purple-400" : ""} />
+              <span>{isSyncingChannels ? "Syncing Feeds..." : "Sync Feeds"}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Input Bar with Preset Pills */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={quickHandleInput}
+                onChange={(e) => setQuickHandleInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddMonitoredChannel();
+                  }
+                }}
+                placeholder="Enter creator handle or link (e.g. @mkbhd, @aliabdaal, @mrbeast)..."
+                className="w-full bg-[#05030a] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-gray-500 outline-none focus:border-purple-400 transition-all font-mono"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => handleAddMonitoredChannel()}
+              disabled={isAddingMonitoredChannel || !quickHandleInput.trim()}
+              className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-purple-500/20 disabled:opacity-50 transition-all cursor-pointer shrink-0"
+            >
+              {isAddingMonitoredChannel ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" />
+                  <span>Resolving...</span>
+                </>
+              ) : (
+                <>
+                  <Plus size={14} />
+                  <span>Track Channel</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* Quick Preset Pills */}
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <span className="text-[10px] uppercase font-mono font-bold text-gray-400">Quick Track:</span>
+            {[
+              { label: "@mkbhd", name: "MKBHD" },
+              { label: "@aliabdaal", name: "Ali Abdaal" },
+              { label: "@mrbeast", name: "MrBeast" }
+            ].map((pill) => {
+              const isAlreadyMonitored = monitoredChannels.some(
+                c => c.handle.toLowerCase() === pill.label.toLowerCase()
+              );
+              return (
+                <button
+                  key={pill.label}
+                  type="button"
+                  onClick={() => {
+                    if (isAlreadyMonitored) {
+                      addToast(`${pill.label} is already being tracked!`, "info");
+                    } else {
+                      handleAddMonitoredChannel(pill.label);
+                    }
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isAlreadyMonitored
+                      ? "bg-purple-950/40 text-purple-300 border border-purple-500/30 opacity-75"
+                      : "bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 hover:border-purple-400/40"
+                  }`}
+                >
+                  <span>{pill.label}</span>
+                  {isAlreadyMonitored ? (
+                    <Check size={11} className="text-purple-400" />
+                  ) : (
+                    <Plus size={11} className="text-gray-400" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Live Alert Notification Badges Feed (Alert Dispatcher Feed at the Top of View) */}
+        <div className="space-y-2.5">
+          <div className="flex justify-between items-center text-xs">
+            <div className="flex items-center gap-2">
+              <Bell size={13} className="text-purple-400 animate-bounce" />
+              <span className="font-extrabold uppercase text-gray-300 font-mono tracking-wider text-[11px]">
+                Live Alert Notification Badges
+              </span>
+              <span className="px-2 py-0.2 rounded-full text-[9px] font-mono font-bold bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                {alerts.length} live {alerts.length === 1 ? 'alert' : 'alerts'}
+              </span>
+            </div>
+            {alerts.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAlerts([]);
+                  try { localStorage.removeItem("axe_hours_competitor_alerts"); } catch {}
+                  addToast("Alert notification feed cleared.", "info");
+                }}
+                className="text-[10px] text-gray-500 hover:text-gray-300 uppercase font-mono transition-colors cursor-pointer"
+              >
+                Clear Feed
+              </button>
+            )}
+          </div>
+
+          {alerts.length === 0 ? (
+            <div className="p-3.5 bg-black/30 border border-dashed border-white/10 rounded-xl flex items-center justify-between text-xs text-gray-400">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                <span>All monitored feeds active. Live upload alert badges will stream here instantly upon detection.</span>
+              </div>
+              <span className="text-[10px] font-mono text-gray-500">Auto-sync: Active</span>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 max-h-[220px] overflow-y-auto custom-scrollbar pr-1">
+              {alerts.slice(0, 8).map((alert) => (
+                <div
+                  key={alert.id}
+                  className="p-3 bg-[#0d091a] border border-pink-500/20 hover:border-pink-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all shadow-sm group"
+                >
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    <span className="mt-0.5 px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase font-mono tracking-wider bg-pink-500/20 text-pink-300 border border-pink-500/30 flex items-center gap-1 shrink-0">
+                      <span className="h-1.5 w-1.5 rounded-full bg-pink-400 animate-ping"></span>
+                      NEW UPLOAD ALERT
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-white truncate">{alert.creatorName}</span>
+                        <span className="text-[10px] font-mono text-gray-400">{alert.handle}</span>
+                        <span className="text-[9px] font-mono text-gray-500">• {alert.timestamp}</span>
+                      </div>
+                      <p className="text-xs text-gray-300 truncate mt-0.5 font-medium">
+                        "{alert.videoTitle}"
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleAnalyzeVideo(alert.videoLink || `https://www.youtube.com/results?search_query=${encodeURIComponent(alert.videoTitle)}`, alert.videoTitle)}
+                    className="px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600 text-purple-200 hover:text-white border border-purple-500/30 hover:border-purple-400 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 self-end sm:self-auto cursor-pointer"
+                  >
+                    <Sparkles size={12} className="text-purple-300 group-hover:text-white" />
+                    <span>Analyze Hook & Script</span>
+                    <ArrowRight size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Monitored Channels Cards Grid */}
+        <div className="space-y-3">
+          <div className="flex justify-between items-center text-xs">
+            <span className="font-extrabold uppercase text-gray-300 font-mono tracking-wider text-[11px] flex items-center gap-1.5">
+              <Users size={13} className="text-purple-400" />
+              Monitored Channels ({monitoredChannels.length})
+            </span>
+            <span className="text-[10px] font-mono text-gray-400">
+              Synced via YouTube Atom XML Feeds
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {monitoredChannels.map((channel) => {
+              const upload = channel.latestUpload;
+              const relativeTime = upload ? formatRelativePublishTime(upload.publishedDate) : 'Unknown';
+
+              return (
+                <div
+                  key={channel.channelId}
+                  className="p-4 bg-[#0a0614]/90 border border-white/10 hover:border-purple-500/30 rounded-2xl flex flex-col justify-between space-y-3.5 transition-all group hover:shadow-lg hover:shadow-purple-500/5"
+                >
+                  {/* Channel Header: Avatar, Name, Handle, Remove */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img
+                        src={channel.avatarUrl}
+                        alt={channel.title}
+                        className="w-10 h-10 rounded-full border border-purple-500/20 object-cover shrink-0 bg-purple-950/50"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-bold text-white truncate leading-tight group-hover:text-purple-300 transition-colors">
+                          {channel.title}
+                        </h3>
+                        <p className="text-xs text-gray-400 font-mono truncate">
+                          {channel.handle}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMonitoredChannel(channel.channelId, channel.title)}
+                      className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer shrink-0"
+                      title="Untrack channel"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+
+                  {/* Latest Upload Box */}
+                  <div className="p-3 bg-black/40 border border-white/5 rounded-xl space-y-2 min-w-0">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-gray-400">
+                      <span className="font-bold text-purple-300 uppercase tracking-wider flex items-center gap-1">
+                        <Clock size={10} /> Latest Upload
+                      </span>
+                      <span className="text-gray-400 bg-white/5 px-2 py-0.5 rounded-full font-semibold">
+                        {relativeTime}
+                      </span>
+                    </div>
+
+                    {upload ? (
+                      <p className="text-xs text-gray-200 line-clamp-2 font-medium leading-snug" title={upload.title}>
+                        {upload.title}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-500 italic">
+                        No recent upload detected in Atom feed.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Action Button: 'Analyze Hook & Script' */}
+                  <button
+                    type="button"
+                    disabled={!upload}
+                    onClick={() => {
+                      if (upload) {
+                        handleAnalyzeVideo(upload.link, upload.title);
+                      }
+                    }}
+                    className="w-full py-2.5 px-3 bg-primary-gradient hover:opacity-95 text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-md shadow-purple-500/10 hover:scale-[1.01] active:scale-[0.99] cursor-pointer disabled:opacity-50"
+                  >
+                    <Sparkles size={14} />
+                    <span>Analyze Hook & Script</span>
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </GlassCard>
 
       {/* Grid containing add form with expanded inputs */}
       {isAddingCompetitor && (
@@ -1815,8 +2438,17 @@ export const CompetitorIntel: React.FC = () => {
                           <span>•</span>
                           <span>Duration: <strong className="text-gray-400">{a.duration}</strong></span>
                         </div>
-                        <div className="flex items-center gap-1 text-[8px] text-emerald-400 font-mono font-bold uppercase tracking-wider">
-                          <Check size={8} className="text-emerald-400" /> Firebase Synced
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleAnalyzeVideo(a.videoLink || `https://www.youtube.com/results?search_query=${encodeURIComponent(a.videoTitle)}`, a.videoTitle)}
+                            className="px-2 py-0.5 bg-purple-600/30 hover:bg-purple-600 text-purple-200 hover:text-white rounded text-[8px] font-bold font-mono uppercase tracking-wider transition-colors flex items-center gap-1 cursor-pointer"
+                          >
+                            <Sparkles size={8} /> Analyze
+                          </button>
+                          <div className="flex items-center gap-1 text-[8px] text-emerald-400 font-mono font-bold uppercase tracking-wider">
+                            <Check size={8} className="text-emerald-400" /> Synced
+                          </div>
                         </div>
                       </div>
                     </div>
