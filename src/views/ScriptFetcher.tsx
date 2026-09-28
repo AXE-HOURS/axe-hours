@@ -634,10 +634,16 @@ export const ScriptFetcher: React.FC = () => {
 
       const data = await response.json();
 
-      const isUnavailable = 
-        data.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
+      let isUnavailable = 
+        data.status === 'VIDEO_UNAVAILABLE' ||
         data.transcriptErrorCode === 'VIDEO_UNAVAILABLE' || 
-        data.status === 'VIDEO_UNAVAILABLE';
+        data.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED';
+
+      // If video metadata (title, views) was found, the video is publicly live, not unavailable!
+      const hasTitle = Boolean(data.title && data.title !== 'Private or Restricted Video' && data.title !== 'Untitled Extraction');
+      if (hasTitle && data.transcriptErrorCode !== 'LOGIN_REQUIRED') {
+        isUnavailable = false;
+      }
 
       let hasTranscript = !isUnavailable && (data.hasTranscript !== undefined
         ? Boolean(data.hasTranscript)
@@ -647,7 +653,7 @@ export const ScriptFetcher: React.FC = () => {
       let hookText = data.hookText || 'N/A';
       let hookScore = Number(data.hookScore) || (isUnavailable ? 50 : 90);
       let pacingSpeed = data.pacingSpeed || 'N/A';
-      let transcriptErrorCode = isUnavailable ? 'VIDEO_UNAVAILABLE' : (data.transcriptErrorCode || (hasTranscript ? '' : 'NO_CAPTIONS_AVAILABLE'));
+      let transcriptErrorCode = isUnavailable ? 'VIDEO_UNAVAILABLE' : (data.transcriptErrorCode || (hasTranscript ? '' : 'DATACENTER_IP_BLOCKED'));
       let transcriptErrorDetails = isUnavailable 
         ? (data.transcriptErrorDetails || data.message || 'This video is private, removed, or region-restricted by YouTube.') 
         : (data.transcriptErrorDetails || '');
@@ -659,12 +665,16 @@ export const ScriptFetcher: React.FC = () => {
         addToast(transcriptErrorDetails || 'This video is private, removed, or region-restricted by YouTube.', 'warning');
       }
 
-      // Auto-Trigger on Server Failure (ONLY if NOT unavailable):
-      const shouldTriggerClientResolver = !isUnavailable && (!hasTranscript || 
-        data.transcriptErrorCode === 'HTTP_403_FORBIDDEN' || 
-        data.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || 
-        data.status === 'REQUIRE_CLIENT_FETCH' || 
-        Boolean(data.clientDelegationUrl));
+      // If hasTranscript === false (and the video has a title), always trigger resolveTranscriptClientSide(videoId):
+      const shouldTriggerClientResolver = (!hasTranscript && hasTitle) || (
+        !isUnavailable && (
+          data.transcriptErrorCode === 'DATACENTER_IP_BLOCKED' ||
+          data.transcriptErrorCode === 'HTTP_403_FORBIDDEN' || 
+          data.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || 
+          data.status === 'REQUIRE_CLIENT_FETCH' || 
+          Boolean(data.clientDelegationUrl)
+        )
+      );
 
       if (shouldTriggerClientResolver && targetVideoId) {
         setIsResolvingClientSide(true);
@@ -680,6 +690,7 @@ export const ScriptFetcher: React.FC = () => {
           );
           if (clientLines && clientLines.length > 0) {
             hasTranscript = true;
+            isUnavailable = false;
             fullTranscript = formatSubtitles(clientLines);
             const firstWords = clientLines.slice(0, 4).map(l => l.text).join(' ');
             if (firstWords.trim()) {

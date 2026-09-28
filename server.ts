@@ -1073,7 +1073,6 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           const playability = playerJson.playabilityStatus;
           if (
             playability?.status === 'LOGIN_REQUIRED' ||
-            playability?.status === 'UNPLAYABLE' ||
             playability?.reason?.toLowerCase().includes('private') ||
             playability?.reason?.toLowerCase().includes('deleted') ||
             playability?.reason?.toLowerCase().includes('removed')
@@ -1164,7 +1163,6 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           const playability = iosJson.playabilityStatus;
           if (
             playability?.status === 'LOGIN_REQUIRED' ||
-            playability?.status === 'UNPLAYABLE' ||
             playability?.reason?.toLowerCase().includes('private') ||
             playability?.reason?.toLowerCase().includes('deleted') ||
             playability?.reason?.toLowerCase().includes('removed')
@@ -1260,7 +1258,6 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           const playability = playerResponse.playabilityStatus;
           if (
             playability?.status === 'LOGIN_REQUIRED' ||
-            playability?.status === 'UNPLAYABLE' ||
             playability?.reason?.toLowerCase().includes('private')
           ) {
             return {
@@ -1492,37 +1489,35 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           scrapedData.status = subResult.status || null;
           scrapedData.videoId = videoId;
 
-          if (
-            subResult.errorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
-            subResult.errorCode === 'VIDEO_UNAVAILABLE' || 
-            subResult.status === 'VIDEO_UNAVAILABLE'
-          ) {
-            console.log(`[fetch-script] Video is private or unavailable for ID: ${videoId}`);
-            res.status(200).json({
-              title: scrapedData.title || "Private or Restricted Video",
-              author: scrapedData.author || "YouTube Creator",
-              platform: "youtube",
-              duration: scrapedData.duration || "N/A",
-              views: scrapedData.views || "0",
-              hasTranscript: false,
-              status: 'VIDEO_UNAVAILABLE',
-              transcriptErrorCode: 'VIDEO_UNAVAILABLE',
-              transcriptErrorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-              message: 'This video is private, removed, or region-restricted by YouTube.',
-              fullTranscript: '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript or upload an audio track.]',
-              hookText: 'N/A',
-              hookScore: 50,
-              pacingSpeed: 'N/A',
-              suggestedTags: scrapedData.tags || [],
-              metadataDesc: scrapedData.description || 'This video is private, removed, or region-restricted by YouTube.'
-            });
-            return;
-          }
-
           if (subResult.lines && subResult.lines.length > 0) {
             console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
             scrapedData.transcript = subResult.lines.map(line => line.text).join(" ");
             scrapedData.transcriptArray = subResult.lines;
+          } else {
+            // Video metadata (title, views) was found, so the video is publicly live.
+            // NEVER return status: 'VIDEO_UNAVAILABLE' when metadata exists.
+            // If caption tracks are 0 because of datacenter 403 blocks, return status: OK with DATACENTER_IP_BLOCKED.
+            console.log(`[fetch-script] Caption tracks 0 or datacenter IP blocked for video ${videoId} ("${scrapedData.title}"). Returning status: OK with DATACENTER_IP_BLOCKED.`);
+            res.status(200).json({
+              status: "OK",
+              hasTranscript: false,
+              transcriptErrorCode: "DATACENTER_IP_BLOCKED",
+              title: scrapedData.title,
+              viewCount: viewCount,
+              views: scrapedData.views,
+              author: scrapedData.author,
+              duration: scrapedData.duration,
+              platform: "youtube",
+              videoId: videoId,
+              clientDelegationUrl: subResult.clientDelegationUrl || null,
+              fullTranscript: "[Notice: Datacenter IP blocked. Client residential fetch required for captions.]",
+              hookText: "N/A",
+              hookScore: 90,
+              pacingSpeed: "N/A",
+              suggestedTags: scrapedData.tags || [],
+              metadataDesc: scrapedData.description || ""
+            });
+            return;
           }
         } catch (ytErr: any) {
           console.error("Failed to query YouTube Data API v3:", ytErr);

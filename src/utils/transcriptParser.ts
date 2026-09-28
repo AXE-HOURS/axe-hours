@@ -519,6 +519,52 @@ export async function resolveTranscriptClientSide(
   if (!videoId) return null;
 
   // -------------------------------------------------------------
+  // TIER 0: Prioritized Shorts Auto-Captions (kind=asr) & Direct TimedText
+  // -------------------------------------------------------------
+  const urls = [
+    `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`,
+    `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`
+  ];
+
+  for (const timedUrl of urls) {
+    const isAsr = timedUrl.includes('kind=asr');
+    onProgress?.(`Querying YouTube timedtext (${isAsr ? 'Shorts Auto-captions ASR' : 'Standard'})...`);
+    console.log(`[resolveTranscriptClientSide] Prioritized timedtext check: ${timedUrl}`);
+
+    const timedEndpoints = [
+      timedUrl,
+      `https://corsproxy.io/?url=${encodeURIComponent(timedUrl)}`
+    ];
+
+    for (const ep of timedEndpoints) {
+      try {
+        const res = await fetch(ep, { signal: AbortSignal.timeout(6000) });
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.trim().length > 0 && !text.includes('<error')) {
+            try {
+              const data = JSON.parse(text);
+              const lines = parseJsonSubtitles(data);
+              if (lines.length > 0) {
+                console.log(`[resolveTranscriptClientSide] Prioritized TimedText succeeded (${isAsr ? 'ASR' : 'Standard'}) via ${ep}: ${lines.length} lines`);
+                return lines;
+              }
+            } catch (_) {
+              const lines = parseTimedTextXml(text);
+              if (lines.length > 0) {
+                console.log(`[resolveTranscriptClientSide] Prioritized TimedText XML succeeded (${isAsr ? 'ASR' : 'Standard'}) via ${ep}: ${lines.length} lines`);
+                return lines;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[resolveTranscriptClientSide] Prioritized timedtext attempt failed (${ep}):`, err);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
   // TIER 1: Lemnoslife Transcript Engine
   // https://yt.lemnoslife.com/videos?part=transcript&id=${videoId}
   // -------------------------------------------------------------
