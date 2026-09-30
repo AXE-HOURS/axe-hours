@@ -38,7 +38,9 @@ import {
   formatSubtitles, 
   calculateHookScore, 
   resolveTranscriptClientSide,
-  SubtitleLine 
+  SubtitleLine,
+  getClientFriendlyErrorMessage,
+  getClientFriendlyDiagnosisCode
 } from '../utils/transcriptParser';
 
 export const ScriptFetcher: React.FC = () => {
@@ -262,10 +264,20 @@ export const ScriptFetcher: React.FC = () => {
         addToast(`Bypassed block! Recovered authentic transcript (${lines.length} lines) 🚀`, "success");
         logActivity('fetch_script', extractedData.title || 'Client Transcript Fallback', 'Recovered full transcript via client delegation.');
       } else {
-        addToast("Residential gateway exhausted Lemnoslife, Piped, and Subtitles API endpoints.", "error");
+        setExtractedData(prev => ({
+          ...prev,
+          transcriptErrorCode: 'NO_OFFICIAL_CAPTIONS',
+          transcriptErrorDetails: getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS')
+        }));
+        addToast(getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS'), "warning");
       }
     } catch (err: any) {
-      addToast(`Client fetch failed: ${err.message || 'Unknown error'}`, "error");
+      setExtractedData(prev => ({
+        ...prev,
+        transcriptErrorCode: 'NO_OFFICIAL_CAPTIONS',
+        transcriptErrorDetails: getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS')
+      }));
+      addToast(getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS'), "warning");
     } finally {
       setIsResolvingClientSide(false);
     }
@@ -602,15 +614,15 @@ export const ScriptFetcher: React.FC = () => {
             title: errData.title || 'Private or Restricted Video',
             author: errData.author || '',
             hasTranscript: false,
-            transcriptErrorCode: 'VIDEO_UNAVAILABLE',
-            transcriptErrorDetails: errData.transcriptErrorDetails || errData.message || 'This video is private, removed, or region-restricted by YouTube.',
+            transcriptErrorCode: 'VIDEO_PRIVATE_OR_REMOVED',
+            transcriptErrorDetails: getClientFriendlyErrorMessage('VIDEO_PRIVATE_OR_REMOVED'),
             status: 'VIDEO_UNAVAILABLE',
-            fullTranscript: '[Notice: This video is private, removed, or region-restricted by YouTube. Automated transcript scrapers cannot access this content. Please paste a manual transcript below or upload the audio file.]'
+            fullTranscript: '[Notice: This video is private, removed, or age-restricted on YouTube. Automated transcript scrapers cannot access this content. Please paste a manual transcript below or upload the audio file.]'
           }));
           setIsManualInputOpen(true);
           setIsLoading(false);
           setExtractionDone(true);
-          addToast(errData.transcriptErrorDetails || errData.message || 'This video is private, removed, or region-restricted by YouTube.', 'warning');
+          addToast(getClientFriendlyErrorMessage('VIDEO_PRIVATE_OR_REMOVED'), 'warning');
           return;
         }
 
@@ -653,16 +665,16 @@ export const ScriptFetcher: React.FC = () => {
       let hookText = data.hookText || 'N/A';
       let hookScore = Number(data.hookScore) || (isUnavailable ? 50 : 90);
       let pacingSpeed = data.pacingSpeed || 'N/A';
-      let transcriptErrorCode = isUnavailable ? 'VIDEO_UNAVAILABLE' : (data.transcriptErrorCode || (hasTranscript ? '' : 'DATACENTER_IP_BLOCKED'));
+      let transcriptErrorCode = isUnavailable ? 'VIDEO_PRIVATE_OR_REMOVED' : (data.transcriptErrorCode || (hasTranscript ? '' : 'DATACENTER_IP_BLOCKED'));
       let transcriptErrorDetails = isUnavailable 
-        ? (data.transcriptErrorDetails || data.message || 'This video is private, removed, or region-restricted by YouTube.') 
+        ? getClientFriendlyErrorMessage('VIDEO_PRIVATE_OR_REMOVED') 
         : (data.transcriptErrorDetails || '');
 
       const targetVideoId = data.videoId || extractYoutubeId(cleanedUrl);
 
       if (isUnavailable) {
         setIsManualInputOpen(true);
-        addToast(transcriptErrorDetails || 'This video is private, removed, or region-restricted by YouTube.', 'warning');
+        addToast(getClientFriendlyErrorMessage('VIDEO_PRIVATE_OR_REMOVED'), 'warning');
       }
 
       // If hasTranscript === false (and the video has a title), always trigger resolveTranscriptClientSide(videoId):
@@ -737,8 +749,8 @@ export const ScriptFetcher: React.FC = () => {
             }
 
             if (!hasTranscript) {
-              transcriptErrorCode = 'CLIENT_FETCH_FAILED';
-              transcriptErrorDetails = 'Lemnoslife, Piped V1, Subtitles API, and Watch Page proxies found no caption tracks.';
+              transcriptErrorCode = 'NO_OFFICIAL_CAPTIONS';
+              transcriptErrorDetails = getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS');
             }
           }
         } catch (clientErr) {
@@ -747,6 +759,9 @@ export const ScriptFetcher: React.FC = () => {
           setIsResolvingClientSide(false);
         }
       }
+
+      const finalErrorCode = hasTranscript ? '' : (transcriptErrorCode ? getClientFriendlyDiagnosisCode(transcriptErrorCode) : 'NO_OFFICIAL_CAPTIONS');
+      const finalErrorDetails = hasTranscript ? '' : (transcriptErrorDetails ? getClientFriendlyErrorMessage(transcriptErrorCode, transcriptErrorDetails) : getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS'));
 
       setExtractedData({
         title: data.title || 'Untitled Extraction',
@@ -762,8 +777,8 @@ export const ScriptFetcher: React.FC = () => {
         metadataDesc: data.metadataDesc || 'N/A',
         suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
         hasTranscript: hasTranscript,
-        transcriptErrorCode: transcriptErrorCode,
-        transcriptErrorDetails: transcriptErrorDetails,
+        transcriptErrorCode: finalErrorCode,
+        transcriptErrorDetails: finalErrorDetails,
         clientDelegationUrl: data.clientDelegationUrl || '',
         videoId: targetVideoId || '',
         status: hasTranscript ? 'SUCCESS' : (data.status || (isUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
@@ -774,14 +789,32 @@ export const ScriptFetcher: React.FC = () => {
       setIsLoading(false);
       setExtractionDone(true);
 
-      const hasValidLines = fullTranscript && !fullTranscript.startsWith('[Notice:') && !fullTranscript.startsWith('[Note:');
-      if (hasTranscript && hasValidLines && !isUnavailable) {
+      const hasValidLines = Boolean(
+        fullTranscript && 
+        !fullTranscript.startsWith('[Notice:') && 
+        !fullTranscript.startsWith('[Note:') &&
+        fullTranscript.trim() !== 'N/A' &&
+        fullTranscript.trim().length > 0
+      );
+
+      const hasRealDialogueCues = Boolean(
+        hasTranscript && 
+        hasValidLines && 
+        !isUnavailable && 
+        (
+          fullTranscript.includes('[') ||
+          fullTranscript.includes('\n') ||
+          fullTranscript.split(/\s+/).filter(Boolean).length >= 5
+        )
+      );
+
+      if (hasRealDialogueCues) {
         playAudio(987);
         addToast('Video elements successfully extracted & transcribed!', 'success');
       } else {
         setIsManualInputOpen(true);
         if (!isUnavailable) {
-          const detailMsg = transcriptErrorDetails || data.transcriptErrorDetails || data.message || 'No spoken dialogue track found. Manual editor opened.';
+          const detailMsg = getClientFriendlyErrorMessage(finalErrorCode, finalErrorDetails || data.transcriptErrorDetails || data.message);
           addToast(detailMsg, 'warning');
         }
       }
@@ -1138,136 +1171,113 @@ export const ScriptFetcher: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                    <p className={`text-xs leading-relaxed whitespace-pre-line ${extractedData.hasTranscript ? 'font-light text-white' : 'font-mono text-gray-400 italic bg-amber-500/5 p-3 rounded-lg border border-amber-500/15'}`}>
-                      {extractedData.fullTranscript}
-                    </p>
+                    {!extractedData.hasTranscript ? (
+                      <div className="p-5 bg-[#0e0a1a] border border-purple-500/30 rounded-2xl space-y-4 shadow-lg shadow-purple-950/20 animate-in fade-in duration-300">
+                        <div className="flex items-start gap-3.5">
+                          <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
+                            <AlertCircle size={20} className="text-purple-400" />
+                          </div>
+                          <div className="space-y-1">
+                            <h3 className="text-sm font-bold text-white tracking-tight">
+                              No Official Captions Found on YouTube
+                            </h3>
+                            <p className="text-xs text-gray-300 leading-relaxed font-sans">
+                              This video does not contain official creator subtitles or auto-generated captions on YouTube (common in music clips, teasers, or non-verbal media).
+                            </p>
+                          </div>
+                        </div>
 
-                    {!extractedData.hasTranscript && (extractedData.transcriptErrorCode || extractedData.transcriptErrorDetails) && (
+                        {/* Prominently Presented Action Buttons */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={handleRunAudioTranscription}
+                            disabled={isTranscribingAudio}
+                            className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99] disabled:opacity-50"
+                          >
+                            <Mic size={14} className={isTranscribingAudio ? "animate-pulse" : ""} />
+                            <span>{isTranscribingAudio ? "Transcribing Audio Track..." : "Run AI Audio Transcription (Instant Fallback)"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setIsManualInputOpen(true)}
+                            className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-200 hover:text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm active:scale-[0.99]"
+                          >
+                            <Edit3 size={14} className="text-emerald-400" />
+                            <span>Paste Raw Transcript Manually</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs leading-relaxed whitespace-pre-line font-light text-white">
+                        {extractedData.fullTranscript}
+                      </p>
+                    )}
+
+                    {!extractedData.hasTranscript && (
                       <div className="flex items-center flex-wrap gap-2 px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-[11px] font-mono">
                         <span className="text-gray-400 font-semibold flex items-center gap-1.5 shrink-0">
                           <Info size={12} className="text-amber-400" />
                           <span>Diagnosis:</span>
                         </span>
                         <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[10px]">
-                          {extractedData.transcriptErrorCode || 'NO_CAPTIONS_AVAILABLE'}
+                          {getClientFriendlyDiagnosisCode(extractedData.transcriptErrorCode)}
                         </span>
-                        {extractedData.transcriptErrorDetails && (
-                          <span className="text-gray-400 text-[10.5px]">
-                            {extractedData.transcriptErrorDetails}
-                          </span>
-                        )}
+                        <span className="text-gray-400 text-[10.5px]">
+                          {getClientFriendlyErrorMessage(extractedData.transcriptErrorCode)}
+                        </span>
                         {isResolvingClientSide && (
                           <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center gap-1.5 animate-pulse">
                             <RefreshCw size={10} className="animate-spin text-amber-400" />
-                            Datacenter throttled — Resolving transcript via residential gateway...
+                            Resolving transcript...
                           </span>
                         )}
                       </div>
                     )}
 
-                    {!extractedData.hasTranscript && (
-                      <div className="pt-3 border-t border-white/5 space-y-3">
-                        <div className="p-3.5 bg-purple-950/20 border border-purple-500/25 rounded-xl space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-purple-300 flex items-center gap-1.5 font-mono">
-                              <Mic size={14} className="text-purple-400" />
-                              Captions Unavailable / Blocked? Fallback Audio Speech Pipeline
-                            </span>
-                            <span className="text-[10px] text-gray-500 font-mono">1-Click Fallback</span>
-                          </div>
-                          <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
-                            {extractedData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || extractedData.transcriptErrorCode === 'VIDEO_UNAVAILABLE'
-                              ? 'This video is private, removed, or region-restricted on YouTube. Automated scrapers cannot access this stream directly. You can paste a manual transcript or upload an audio file below.'
-                              : 'When YouTube closed captions are disabled by the creator or restricted, you can reconstruct the spoken dialogue using our AI Speech Engine, retry public gateways, or run Whisper.'}
-                          </p>
-                          <div className="flex flex-wrap items-center gap-2 pt-1">
-                            {/* Single-Click AI Audio Transcription Button */}
-                            <button
-                              type="button"
-                              onClick={handleRunAudioTranscription}
-                              disabled={isTranscribingAudio}
-                              className="px-3.5 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold flex items-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-950/50"
-                            >
-                              <Mic size={13} className={isTranscribingAudio ? "animate-pulse" : ""} />
-                              <span>{isTranscribingAudio ? "Transcribing Audio Track..." : "Run AI Audio Transcription (Instant Fallback)"}</span>
-                            </button>
-
-                            {(extractedData.clientDelegationUrl || extractedData.transcriptErrorCode === 'REQUIRE_CLIENT_FETCH' || extractedData.transcriptErrorCode === 'TIMEDTEXT_BLOCKED' || extractedData.transcriptErrorCode === 'CLIENT_FETCH_FAILED' || extractedData.transcriptErrorCode === 'HTTP_403_FORBIDDEN') && (
-                              <button
-                                type="button"
-                                onClick={handleManualClientFallbackFetch}
-                                disabled={isResolvingClientSide}
-                                className="px-3 py-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
-                              >
-                                <RefreshCw size={13} className={`text-amber-400 ${isResolvingClientSide ? 'animate-spin' : ''}`} />
-                                <span>{isResolvingClientSide ? "Resolving via Gateways..." : "Retry Gateways (Lemnoslife / Piped / Fly)"}</span>
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={() => setIsWhisperModalOpen(true)}
-                              className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
-                            >
-                              <Mic size={13} className="text-purple-400" />
-                              <span>Whisper CLI Pipeline</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setIsManualInputOpen(!isManualInputOpen)}
-                              className="px-3 py-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-2 cursor-pointer transition-all shadow-sm"
-                            >
-                              <Edit3 size={13} className="text-emerald-400" />
-                              <span>{isManualInputOpen ? "Close Manual Editor" : "Paste Raw Transcript"}</span>
-                            </button>
-                          </div>
+                    {/* Collapsible Manual Transcript Input */}
+                    {isManualInputOpen && (
+                      <div className="p-3.5 bg-black/60 border border-emerald-500/25 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
+                            <Edit3 size={12} className="text-emerald-400" />
+                            Paste Spoken Dialogue / Captions
+                          </span>
+                          <span className="text-[10px] text-gray-500 font-mono">Unlocks Architect Transfer</span>
                         </div>
-
-                        {/* Collapsible Manual Transcript Input */}
-                        {isManualInputOpen && (
-                          <div className="p-3.5 bg-black/60 border border-emerald-500/25 rounded-xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-300">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-bold text-white uppercase tracking-wider font-mono flex items-center gap-1.5">
-                                <Edit3 size={12} className="text-emerald-400" />
-                                Paste Spoken Dialogue / Captions
-                              </span>
-                              <span className="text-[10px] text-gray-500 font-mono">Unlocks Architect Transfer</span>
-                            </div>
-                            <textarea
-                              rows={5}
-                              value={manualInputText}
-                              onChange={(e) => setManualInputText(e.target.value)}
-                              placeholder="Paste raw spoken transcript, captions, or notes here... (e.g. '0:00 In this video I tested the new smartphone...')"
-                              className="w-full bg-[#020203] border border-white/10 focus:border-emerald-500/40 rounded-lg p-3 text-xs text-white placeholder-gray-600 outline-none font-sans leading-relaxed resize-y"
-                            />
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsManualInputOpen(false);
-                                  setManualInputText('');
-                                }}
-                                className="px-3 py-1.5 text-xs text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleApplyManualTranscript()}
-                                disabled={!manualInputText.trim()}
-                                className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                                  manualInputText.trim()
-                                    ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20'
-                                    : 'bg-white/5 text-gray-600 cursor-not-allowed'
-                                }`}
-                              >
-                                <Check size={13} />
-                                <span>Apply Transcript</span>
-                              </button>
-                            </div>
-                          </div>
-                        )}
+                        <textarea
+                          rows={5}
+                          value={manualInputText}
+                          onChange={(e) => setManualInputText(e.target.value)}
+                          placeholder="Paste raw spoken transcript, captions, or notes here... (e.g. '0:00 In this video I tested the new smartphone...')"
+                          className="w-full bg-[#020203] border border-white/10 focus:border-emerald-500/40 rounded-lg p-3 text-xs text-white placeholder-gray-600 outline-none font-sans leading-relaxed resize-y"
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsManualInputOpen(false);
+                              setManualInputText('');
+                            }}
+                            className="px-3 py-1.5 text-xs text-gray-400 hover:text-white rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleApplyManualTranscript()}
+                            disabled={!manualInputText.trim()}
+                            className={`px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                              manualInputText.trim()
+                                ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-lg shadow-emerald-500/20'
+                                : 'bg-white/5 text-gray-600 cursor-not-allowed'
+                            }`}
+                          >
+                            <Check size={13} />
+                            <span>Apply Transcript</span>
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

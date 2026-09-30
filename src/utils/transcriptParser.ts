@@ -823,4 +823,52 @@ export async function resolveTranscriptClientSide(
   return null;
 }
 
+/**
+ * Professional client-friendly error mappings to eliminate developer jargon from the UI.
+ */
+export const CLIENT_FRIENDLY_ERROR_MAP: Record<string, string> = {
+  NO_OFFICIAL_CAPTIONS: "No official YouTube captions available for this media.",
+  VIDEO_PRIVATE_OR_REMOVED: "Video is private, removed, or age-restricted on YouTube.",
+  RATE_LIMITED_BY_YOUTUBE: "YouTube is temporarily throttling public access. Use manual paste or fallback.",
+  DATACENTER_IP_BLOCKED: "YouTube is temporarily throttling public access. Use manual paste or fallback.",
+  HTTP_403_FORBIDDEN: "YouTube is temporarily throttling public access. Use manual paste or fallback.",
+  CLIENT_FETCH_FAILED: "No official YouTube captions available for this media.",
+  NO_CAPTIONS_AVAILABLE: "No official YouTube captions available for this media.",
+  TIMEDTEXT_BLOCKED: "YouTube is temporarily throttling public access. Use manual paste or fallback.",
+  IP_THROTTLED_429: "YouTube is temporarily throttling public access. Use manual paste or fallback.",
+  VIDEO_UNAVAILABLE: "Video is private, removed, or age-restricted on YouTube."
+};
+
+export function getClientFriendlyErrorMessage(errorCode?: string | null, fallbackMessage?: string): string {
+  if (!errorCode) return fallbackMessage || CLIENT_FRIENDLY_ERROR_MAP.NO_OFFICIAL_CAPTIONS;
+  if (CLIENT_FRIENDLY_ERROR_MAP[errorCode]) {
+    return CLIENT_FRIENDLY_ERROR_MAP[errorCode];
+  }
+  if (errorCode.includes('429') || errorCode.includes('THROTTLE') || errorCode.includes('RATE_LIMIT')) {
+    return CLIENT_FRIENDLY_ERROR_MAP.RATE_LIMITED_BY_YOUTUBE;
+  }
+  if (errorCode.includes('PRIVATE') || errorCode.includes('REMOVED') || errorCode.includes('UNAVAILABLE') || errorCode.includes('LOGIN')) {
+    return CLIENT_FRIENDLY_ERROR_MAP.VIDEO_PRIVATE_OR_REMOVED;
+  }
+  return CLIENT_FRIENDLY_ERROR_MAP.NO_OFFICIAL_CAPTIONS;
+}
+
+export function getClientFriendlyDiagnosisCode(rawCode?: string | null): string {
+  if (!rawCode) return 'NO_OFFICIAL_CAPTIONS';
+  if (rawCode === 'VIDEO_PRIVATE_OR_REMOVED' || rawCode === 'VIDEO_UNAVAILABLE') {
+    return 'VIDEO_PRIVATE_OR_REMOVED';
+  }
+  if (
+    rawCode === 'RATE_LIMITED_BY_YOUTUBE' || 
+    rawCode === 'IP_THROTTLED_429' || 
+    rawCode === 'HTTP_403_FORBIDDEN' || 
+    rawCode === 'DATACENTER_IP_BLOCKED' ||
+    rawCode === 'TIMEDTEXT_BLOCKED'
+  ) {
+    return 'RATE_LIMITED_BY_YOUTUBE';
+  }
+  return 'NO_OFFICIAL_CAPTIONS';
+}
+
+
 
