@@ -872,3 +872,24 @@ export function getClientFriendlyDiagnosisCode(rawCode?: string | null): string 
 
 
 
+/**
+ * Strips timestamp headers, brackets, music/noise cues, and notice tags from raw transcripts
+ * producing clean spoken dialogue formatted for teleprompters.
+ */
+export function cleanTranscriptForPrompter(rawText: string): string {
+  if (!rawText) return '';
+  return rawText
+    // Remove lines starting with [Notice: ... or [Note: ...
+    .replace(/^\[(?:Notice|Note):[^\]]*\]\s*$/gim, '')
+    // Remove timestamp prefixes like [00:01:23], [01:23], 00:01:23, 01:23 -, 0:05:, etc.
+    .replace(/^(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*[-–—:]?\s*)/gim, '')
+    // Remove inline timestamp brackets e.g. [01:23]
+    .replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]/g, '')
+    // Remove sound cues: [Music], [Applause], [Laughter], [Cheering], etc.
+    .replace(/\[(?:Music|Applause|Laughter|Cheering|Audio|Inaudible|Silence|Background Noise)\]/gi, '')
+    // Clean up empty lines / multiple whitespace lines into clean paragraph spacing
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join('\n\n');
+}

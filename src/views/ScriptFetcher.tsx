@@ -41,6 +41,8 @@ import {
   SubtitleLine,
   getClientFriendlyErrorMessage,
   getClientFriendlyDiagnosisCode
+  getClientFriendlyDiagnosisCode,
+  cleanTranscriptForPrompter
 } from '../utils/transcriptParser';
 
 export const ScriptFetcher: React.FC = () => {
@@ -849,20 +851,60 @@ export const ScriptFetcher: React.FC = () => {
 
   const downloadTextFile = () => {
     const content = [
+    if (!extractedData.fullTranscript || extractedData.fullTranscript === 'N/A') {
+      addToast('No script data available to download.', 'warning');
+      return;
+    }
+
+    const videoTitle = extractedData.title || 'Untitled Video';
+    const platform = extractedData.platform 
+      ? (extractedData.platform.charAt(0).toUpperCase() + extractedData.platform.slice(1))
+      : 'YouTube';
+    const duration = extractedData.duration || 'N/A';
+    const viewCount = extractedData.views || 'N/A';
+    const hookGrade = extractedData.hookScore || 0;
+    const currentTimestamp = new Date().toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+    const isolatedHookText = extractedData.hookText || 'N/A';
+    
+    // Extract numeric WPM or fallback
+    const wpmMatch = extractedData.pacingSpeed?.match(/\d+/);
+    const pacingWpm = wpmMatch ? `${wpmMatch[0]} WPM` : (extractedData.pacingSpeed || '135 WPM');
+
+    const totalWords = extractedData.fullTranscript.split(/\s+/).filter(Boolean).length;
+    const fullTranscriptWithTimestamps = extractedData.fullTranscript;
+
+    const packContent = [
       "=================================================================",
       `       AXE HOURS INTEL - EXTRACTED SCRIPT ARCHITECT PACKAGE     `,
+      "       AXE HOURS INTEL - SCRIPT ARCHITECT PACKAGE",
       "=================================================================",
       `Target URL: ${videoUrl}`,
       `Extracted Platform: ${extractedData.platform.toUpperCase()}`,
       `Audience Metrics: ${extractedData.views} (${extractedData.duration})`,
       `Hook Clickability Score: ${extractedData.hookScore}/100`,
       `Extraction Pacing: ${extractedData.pacingSpeed}`,
+      `Title: ${videoTitle}`,
+      `Platform: ${platform} | Duration: ${duration} | Views: ${viewCount}`,
+      `Hook Quality Grade: ${hookGrade}/100`,
+      `Exported At: ${currentTimestamp}`,
       "",
       "--- CORE WIREFRAME HOOK SECTION ---",
       extractedData.hookText,
+      "--- ISOLATED HOOK SECTION ---",
+      isolatedHookText,
       "",
       "--- FULL TRANSCRIPT & STRUCTURAL ANATOMY ---",
       extractedData.fullTranscript,
+      "--- PACING & RETENTION CADENCE ---",
+      `Words Per Minute: ${pacingWpm}`,
+      `Total Spoken Word Count: ${totalWords}`,
       "",
       "--- HIGH-CTR THUMBNAIL BLUEPRINT SPECIFICATION ---",
       extractedData.thumbnailSuggestion,
@@ -870,6 +912,8 @@ export const ScriptFetcher: React.FC = () => {
       "--- SEO METADATA PACKAGE ---",
       extractedData.metadataDesc,
       `Tags: ${extractedData.suggestedTags.join(', ')}`,
+      "--- FULL VERBATIM SCRIPT ---",
+      fullTranscriptWithTimestamps,
       "================================================================="
     ].join('\n');
 
@@ -880,8 +924,64 @@ export const ScriptFetcher: React.FC = () => {
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+    const sanitizedTitle = videoTitle
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 50) || 'Extracted-Script';
+
+    const blob = new Blob([packContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${sanitizedTitle}-AxeHours-ScriptPack.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
     playAudio(880);
     addToast('Media package downloaded locally!', 'success');
+    addToast('TXT Blueprint Pack downloaded!', 'success');
+  };
+
+  const onOpenTeleprompter = () => {
+    if (!extractedData.fullTranscript || extractedData.fullTranscript === 'N/A' || !extractedData.hasTranscript) {
+      addToast("Cannot open teleprompter: No authentic spoken dialogue transcript is available.", "warning");
+      return;
+    }
+
+    const cleanedScript = cleanTranscriptForPrompter(extractedData.fullTranscript);
+    const scriptTitle = extractedData.title || 'Extracted Video Script';
+    
+    // Extract WPM if present
+    const wpmMatch = extractedData.pacingSpeed?.match(/\d+/);
+    const detectedWpm = wpmMatch ? parseInt(wpmMatch[0], 10) : 135;
+
+    // Hand off to sessionStorage and localStorage
+    sessionStorage.setItem('pending_teleprompter_script', cleanedScript);
+    sessionStorage.setItem('pending_teleprompter_title', scriptTitle);
+    sessionStorage.setItem('pending_teleprompter_wpm', String(detectedWpm));
+    localStorage.setItem('axe_hours_teleprompter_script', cleanedScript);
+    localStorage.setItem('axe_hours_teleprompter_title', scriptTitle);
+
+    // Dispatch custom event for active teleprompter listeners
+    window.dispatchEvent(new CustomEvent('load-teleprompter-script', {
+      detail: {
+        script: cleanedScript,
+        title: scriptTitle,
+        wpm: detectedWpm
+      }
+    }));
+
+    // Dispatch view-change event to navigate to the teleprompter view
+    window.dispatchEvent(new CustomEvent("change-active-view", {
+      detail: { view: "teleprompter" }
+    }));
+
+    playAudio(880);
+    addToast('Transcript loaded into Teleprompter Studio! 🎙️', 'success');
+    logUserActivity('open_teleprompter', `Loaded into Teleprompter: "${scriptTitle}"`, `Piped cleaned dialogue of ${cleanedScript.length} characters into Teleprompter Studio.`);
   };
 
   const onTransferToArchitect = () => {
@@ -1071,6 +1171,21 @@ export const ScriptFetcher: React.FC = () => {
                       <span>Transfer to Architect</span>
                     </button>
                     <button
+                      id="script-fetcher-teleprompter-btn"
+                      onClick={onOpenTeleprompter}
+                      disabled={!extractedData.hasTranscript}
+                      className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md ${
+                        extractedData.hasTranscript
+                          ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/25 cursor-pointer font-bold'
+                          : 'bg-white/10 text-gray-500 cursor-not-allowed opacity-50'
+                      }`}
+                      title={extractedData.hasTranscript ? "Open cleaned transcript in Teleprompter Studio" : "Teleprompter unavailable: No authentic spoken dialogue was found for this video"}
+                    >
+                      <Video size={12} />
+                      <span>Open Teleprompter</span>
+                    </button>
+                    <button
+                      id="script-fetcher-download-btn"
                       onClick={downloadTextFile}
                       className="px-3 py-2 bg-purple-500 hover:bg-purple-400 text-black rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
                     >
@@ -1161,6 +1276,19 @@ export const ScriptFetcher: React.FC = () => {
                           title={extractedData.hasTranscript ? "Transfer spoken transcript to AI Video Architect" : "Transfer unavailable: No authentic spoken dialogue was found for this video"}
                         >
                           <Wand2 size={11} /> Transfer to Architect
+                        </button>
+                        <span className="text-gray-700 select-none">|</span>
+                        <button 
+                          onClick={onOpenTeleprompter}
+                          disabled={!extractedData.hasTranscript}
+                          className={`text-xs flex items-center gap-1 select-none font-mono font-bold ${
+                            extractedData.hasTranscript 
+                              ? 'text-emerald-400 hover:text-emerald-300 cursor-pointer' 
+                              : 'text-gray-600 cursor-not-allowed opacity-50'
+                          }`}
+                          title={extractedData.hasTranscript ? "Open cleaned transcript in Teleprompter Studio" : "Teleprompter unavailable"}
+                        >
+                          <Video size={11} /> Open Teleprompter
                         </button>
                         <span className="text-gray-700 select-none">|</span>
                         <button 

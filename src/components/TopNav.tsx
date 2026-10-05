@@ -217,6 +217,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     { id: 'saved', label: 'Saved Ideas', icon: Bookmark },
     { id: 'viral', label: 'Viral Hooks', icon: Zap },
     { id: 'script-fetcher', label: 'Script Fetcher', icon: Download },
+    { id: 'teleprompter', label: 'Teleprompter Studio', icon: Video },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'activity-log', label: 'Activity Trail', icon: History },
     { id: 'settings', label: 'Settings', icon: Settings },

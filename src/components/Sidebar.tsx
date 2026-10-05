@@ -1,5 +1,6 @@
 import React from 'react';
 import { LayoutDashboard, Lightbulb, Bookmark, Zap, BarChart3, Settings, Crown, Plus, LogOut, User, Download, History } from 'lucide-react';
+import { LayoutDashboard, Lightbulb, Bookmark, Zap, BarChart3, Settings, Crown, Plus, LogOut, User, Download, History, Video } from 'lucide-react';
 
 interface GenerationItem {
   id: number;
@@ -42,6 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'saved', label: 'Saved Ideas', icon: Bookmark },
     { id: 'viral', label: 'Viral Hooks', icon: Zap },
     { id: 'script-fetcher', label: 'Script Fetcher', icon: Download },
+    { id: 'teleprompter', label: 'Teleprompter Studio', icon: Video },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'activity-log', label: 'Activity Trail', icon: History },
     { id: 'settings', label: 'Settings', icon: Settings },
