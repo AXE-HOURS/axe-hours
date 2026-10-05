@@ -40,7 +40,6 @@ import {
   resolveTranscriptClientSide,
   SubtitleLine,
   getClientFriendlyErrorMessage,
-  getClientFriendlyDiagnosisCode
   getClientFriendlyDiagnosisCode,
   cleanTranscriptForPrompter
 } from '../utils/transcriptParser';
@@ -850,7 +849,6 @@ export const ScriptFetcher: React.FC = () => {
   };
 
   const downloadTextFile = () => {
-    const content = [
     if (!extractedData.fullTranscript || extractedData.fullTranscript === 'N/A') {
       addToast('No script data available to download.', 'warning');
       return;
@@ -879,51 +877,27 @@ export const ScriptFetcher: React.FC = () => {
 
     const totalWords = extractedData.fullTranscript.split(/\s+/).filter(Boolean).length;
     const fullTranscriptWithTimestamps = extractedData.fullTranscript;
-
     const packContent = [
       "=================================================================",
-      `       AXE HOURS INTEL - EXTRACTED SCRIPT ARCHITECT PACKAGE     `,
       "       AXE HOURS INTEL - SCRIPT ARCHITECT PACKAGE",
       "=================================================================",
-      `Target URL: ${videoUrl}`,
-      `Extracted Platform: ${extractedData.platform.toUpperCase()}`,
-      `Audience Metrics: ${extractedData.views} (${extractedData.duration})`,
-      `Hook Clickability Score: ${extractedData.hookScore}/100`,
-      `Extraction Pacing: ${extractedData.pacingSpeed}`,
       `Title: ${videoTitle}`,
       `Platform: ${platform} | Duration: ${duration} | Views: ${viewCount}`,
       `Hook Quality Grade: ${hookGrade}/100`,
       `Exported At: ${currentTimestamp}`,
       "",
-      "--- CORE WIREFRAME HOOK SECTION ---",
-      extractedData.hookText,
       "--- ISOLATED HOOK SECTION ---",
       isolatedHookText,
       "",
-      "--- FULL TRANSCRIPT & STRUCTURAL ANATOMY ---",
-      extractedData.fullTranscript,
       "--- PACING & RETENTION CADENCE ---",
       `Words Per Minute: ${pacingWpm}`,
       `Total Spoken Word Count: ${totalWords}`,
       "",
-      "--- HIGH-CTR THUMBNAIL BLUEPRINT SPECIFICATION ---",
-      extractedData.thumbnailSuggestion,
-      "",
-      "--- SEO METADATA PACKAGE ---",
-      extractedData.metadataDesc,
-      `Tags: ${extractedData.suggestedTags.join(', ')}`,
       "--- FULL VERBATIM SCRIPT ---",
       fullTranscriptWithTimestamps,
       "================================================================="
     ].join('\n');
 
-    const element = document.createElement("a");
-    const file = new Blob([content], {type: 'text/plain'});
-    element.href = URL.createObjectURL(file);
-    element.download = "extracted-media-blueprint.txt";
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
     const sanitizedTitle = videoTitle
       .replace(/[^a-zA-Z0-9_-]/g, '_')
       .replace(/_+/g, '_')
@@ -941,7 +915,6 @@ export const ScriptFetcher: React.FC = () => {
     URL.revokeObjectURL(url);
 
     playAudio(880);
-    addToast('Media package downloaded locally!', 'success');
     addToast('TXT Blueprint Pack downloaded!', 'success');
   };
 

@@ -1,5 +1,4 @@
 import React from 'react';
-import { LayoutDashboard, Lightbulb, Bookmark, Zap, BarChart3, Settings, Crown, Plus, LogOut, User, Download, History } from 'lucide-react';
 import { LayoutDashboard, Lightbulb, Bookmark, Zap, BarChart3, Settings, Crown, Plus, LogOut, User, Download, History, Video } from 'lucide-react';
 
 interface GenerationItem {
