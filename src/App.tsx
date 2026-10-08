@@ -22,7 +22,7 @@ const AIGenerator = lazy(() => import('./views/AIGenerator').then(m => ({ defaul
 const Analytics = lazy(() => import('./views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
 const CompetitorIntel = lazy(() => import('./views/CompetitorIntel').then(m => ({ default: m.CompetitorIntel })));
 const ScriptFetcher = lazy(() => import('./views/ScriptFetcher').then(m => ({ default: m.ScriptFetcher })));
-const TeleprompterView = lazy(() => import('./views/TeleprompterView').then(m => ({ default: m.TeleprompterView })));
+const TeleprompterView = lazy(() => import('./views/TeleprompterView').then(m => ({ default: m.default || m.TeleprompterView })));
 
 interface UserData {
   email: string;
