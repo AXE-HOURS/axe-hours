@@ -15,10 +15,12 @@ import {
   FileText,
   Eye,
   Check,
-  X
+  X,
+  Sparkles
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue } from '../utils/audio';
+import { cleanTranscriptForPrompter } from '../utils/transcriptParser';
 
 export interface TeleprompterViewProps {
   initialScript?: string;
@@ -48,7 +50,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
   };
 
   // --- SCRIPT STATE WITH DEFENSIVE GUARDS ---
-  const [scriptText, setScriptText] = useState<string>(() => {
+  const [rawScriptText, setRawScriptText] = useState<string>(() => {
     if (initialScript && initialScript.trim()) return initialScript.trim();
     const locScript = getLocationStateScript();
     if (locScript && locScript.trim()) return locScript.trim();
@@ -59,15 +61,26 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
     return FALLBACK_SCRIPT;
   });
 
+  // 'Spoken Only' toggle: Active by default (strips non-spoken cues, headers, and bracketed notes)
+  const [isSpokenOnly, setIsSpokenOnly] = useState<boolean>(true);
+
+  // Auto-generate clean speech text from raw script
+  const cleanScriptText = React.useMemo(() => {
+    if (!rawScriptText || rawScriptText === FALLBACK_SCRIPT) return FALLBACK_SCRIPT;
+    const cleaned = cleanTranscriptForPrompter(rawScriptText);
+    return cleaned.trim() || rawScriptText;
+  }, [rawScriptText]);
+
+  // Active script text being presented based on the toggle
+  const activeScriptText = isSpokenOnly ? cleanScriptText : rawScriptText;
+  const safeScriptText = (activeScriptText && activeScriptText.trim()) || FALLBACK_SCRIPT;
+
   const [scriptTitle, setScriptTitle] = useState<string>(() => {
     if (initialTitle && initialTitle.trim()) return initialTitle.trim();
     const sessionTitle = typeof window !== 'undefined' ? sessionStorage.getItem('pending_teleprompter_title') : null;
     if (sessionTitle && sessionTitle.trim()) return sessionTitle.trim();
     return 'Studio Prompter Script';
   });
-
-  // Safe non-empty script text for rendering
-  const safeScriptText = (scriptText && scriptText.trim()) || FALLBACK_SCRIPT;
 
   // --- PROMPTER CONTROLS STATE ---
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -114,8 +127,8 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
   useEffect(() => {
     const handleLoadEvent = (e: CustomEvent) => {
       if (e.detail?.script && typeof e.detail.script === 'string') {
-        const nextScript = e.detail.script.trim() || FALLBACK_SCRIPT;
-        setScriptText(nextScript);
+        const nextRawScript = e.detail.script.trim() || FALLBACK_SCRIPT;
+        setRawScriptText(nextRawScript);
         if (e.detail.title) setScriptTitle(e.detail.title);
         if (e.detail.wpm) setWpm(Number(e.detail.wpm) || 135);
         setIsPlaying(false);
@@ -349,17 +362,25 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
       addToast('Cannot save empty script.', 'warning');
       return;
     }
-    setScriptText(trimmed);
+    setRawScriptText(trimmed);
     localStorage.setItem('axe_hours_teleprompter_script', trimmed);
     setIsEditModalOpen(false);
     handleResetToTop();
     addToast('Script updated and synced! 📝', 'success');
   };
 
+  // --- STRIP DIRECTORIAL CUES ---
+  const handleStripDirectorialCues = () => {
+    const cleaned = cleanTranscriptForPrompter(draftScriptText);
+    setDraftScriptText(cleaned);
+    playAudioCue(587.33);
+    addToast('Directorial cues stripped ✨', 'info');
+  };
+
   // --- OPEN EDIT MODAL ---
   const handleOpenEditModal = () => {
     setIsPlaying(false);
-    setDraftScriptText(safeScriptText);
+    setDraftScriptText(rawScriptText);
     setIsEditModalOpen(true);
   };
 
@@ -410,6 +431,33 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
             <Settings size={12} />
             <span>{wpm} WPM</span>
           </div>
+
+          {/* Spoken Only Toggle Chip */}
+          <button
+            type="button"
+            onClick={() => {
+              setIsSpokenOnly(prev => {
+                const next = !prev;
+                playAudioCue(next ? 659.25 : 440);
+                addToast(
+                  next 
+                    ? 'Spoken dialogue only (directorial cues stripped)' 
+                    : 'Verbatim original script mode (directorial cues visible)', 
+                  'info'
+                );
+                return next;
+              });
+            }}
+            className={`px-2.5 py-1 rounded-full border transition-all flex items-center gap-1.5 cursor-pointer font-bold select-none text-[11px] ${
+              isSpokenOnly 
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400 shadow-sm shadow-emerald-500/20' 
+                : 'bg-white/5 hover:bg-white/10 border-white/10 text-gray-400 hover:text-white'
+            }`}
+            title={isSpokenOnly ? "Showing Spoken Dialogue Only (Click for Verbatim)" : "Showing Verbatim Original (Click for Spoken Dialogue Only)"}
+          >
+            <Sparkles size={12} className={isSpokenOnly ? "text-emerald-400" : "text-gray-400"} />
+            <span>Spoken Only</span>
+          </button>
 
           {/* Edit Script Button */}
           <button
@@ -647,22 +695,34 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
               <span>Est. {Math.round((draftScriptText.split(/\s+/).filter(Boolean).length / wpm) * 60)}s @ {wpm} WPM</span>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-2 border-t border-white/5">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/5">
               <button
                 type="button"
-                onClick={() => setIsEditModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs text-gray-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer font-bold"
+                onClick={handleStripDirectorialCues}
+                className="px-3.5 py-2 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm active:scale-95"
+                title="Automatically strip bracketed directions, timestamps, speaker headers, and noise cues"
               >
-                Cancel
+                <Sparkles size={14} className="text-purple-400" />
+                <span>Strip Directorial Cues</span>
               </button>
-              <button
-                type="button"
-                onClick={handleApplyEditedScript}
-                className="px-5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-purple-500/20"
-              >
-                <Check size={14} />
-                <span>Apply to Prompter</span>
-              </button>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs text-gray-400 hover:text-white hover:bg-white/5 transition-all cursor-pointer font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApplyEditedScript}
+                  className="px-5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-black text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-purple-500/20 active:scale-95"
+                >
+                  <Check size={14} />
+                  <span>Apply to Prompter</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

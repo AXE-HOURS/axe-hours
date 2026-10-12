@@ -873,23 +873,37 @@ export function getClientFriendlyDiagnosisCode(rawCode?: string | null): string 
 
 
 /**
- * Strips timestamp headers, brackets, music/noise cues, and notice tags from raw transcripts
- * producing clean spoken dialogue formatted for teleprompters.
+ * Strips non-spoken directorial text, bracketed production notes, parenthetical cues,
+ * speaker headers, leading timestamps, and markdown tags to produce clean spoken dialogue
+ * optimized for teleprompter performance.
  */
 export function cleanTranscriptForPrompter(rawText: string): string {
   if (!rawText) return '';
+
   return rawText
-    // Remove lines starting with [Notice: ... or [Note: ...
-    .replace(/^\[(?:Notice|Note):[^\]]*\]\s*$/gim, '')
-    // Remove timestamp prefixes like [00:01:23], [01:23], 00:01:23, 01:23 -, 0:05:, etc.
-    .replace(/^(?:\[?\d{1,2}:\d{2}(?::\d{2})?\]?\s*[-–—:]?\s*)/gim, '')
-    // Remove inline timestamp brackets e.g. [01:23]
-    .replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]/g, '')
-    // Remove sound cues: [Music], [Applause], [Laughter], [Cheering], etc.
-    .replace(/\[(?:Music|Applause|Laughter|Cheering|Audio|Inaudible|Silence|Background Noise)\]/gi, '')
-    // Clean up empty lines / multiple whitespace lines into clean paragraph spacing
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
-    .join('\n\n');
+    // 1. Remove bracketed timestamps and production notes: [0:00 - 0:15], [0:45], [B-Roll: ...], etc.
+    .replace(/\[\s*\d{1,2}:\d{2}(?:\s*-\s*\d{1,2}:\d{2})?\s*\]/gi, '')
+    .replace(/\[[^\]]*(?:b-roll|cut|sfx|music|zoom|sound|visual|camera|overlay|graphic)[^\]]*\]/gi, '')
+    .replace(/\[[^\]]*\]/g, '') // remove any remaining bracketed directives
+
+    // 2. Remove parenthetical action/camera directions: (Lean in...), (smile), (pause), (hand gesture)
+    .replace(/\([^)]*(?:gesture|pause|smile|laugh|lean|camera|look|action|breath|beat|wink|point)[^)]*\)/gi, '')
+    .replace(/\((?:pause|beat|silence)\)/gi, '')
+
+    // 3. Remove section labels & speaker headers
+    .replace(/^(?:the\s+)?(?:hook|the tip|the problem|the solution|call to action|cta|outro|intro|step \d+|scene \d+|narrator|host|speaker|voiceover|vo):?\s*/gim, '')
+    .replace(/(?:^|\n)(?:The Call to Action|The Hook|The Tip|The Solution|Call to Action)\s*(?=\n|[A-Z])/gi, '\n')
+
+    // 4. Remove leading subtitle timestamps like "0:00 - " or "00:14 -"
+    .replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–:]\s*/gm, '')
+
+    // 5. Clean up markdown bold/italic tags and stray bullets
+    .replace(/[*_#~`]/g, '')
+    .replace(/^\s*[-•]\s+/gm, '')
+
+    // 6. Normalize spacing and multiple line breaks
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n\s*\n+/g, '\n\n')
+    .trim();
 }
+
