@@ -239,6 +239,8 @@ Niche Target: ${nicheDescriptor}
 Tone/Voice Tone: ${voiceDescriptor} (Sub-tone Preset: ${appliedTone})
 Video Duration Format: ${formatDuration}
 Visual Style/Aesthetic Vibe: ${styleVibe}
+
+CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
 ${
   referenceHook && typeof referenceHook === "string" && referenceHook.trim()
     ? `\n[CRITICAL REFERENCE HOOK GROUNDING & PSYCHOLOGICAL REMIX]:
@@ -268,9 +270,9 @@ Break down the script scene-by-scene using this EXACT structure for EVERY beat:
 [VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
 [TEXT OVERLAY: The exact typographic text to display on screen (e.g., "The 80-Hour Trap")]
 [AUDIO CUE: Specific sound effect or music transition (e.g., "Heavy sub-bass drop")]
-VOICEOVER: "The actual spoken dialogue goes here."
+[0:00 - 0:05] [Slight head tilt] The actual spoken dialogue goes here as a pure sentence without headers or quotes.
 
-Repeat this 4-line block for EVERY single scene and major beat. Do NOT use timecodes or old timecode markers. Output only Visual Blueprint format.
+Repeat this block for EVERY single scene and major beat. Output only Visual Blueprint format with all directorial extras inside brackets.
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: Composition, split screens, and focal depth map.
@@ -284,8 +286,10 @@ Keep your response punchy, clear, modern, and highly creative. Avoid low-quality
     : ""
 }
 
-*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***
+*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT & BRACKET STANDARDIZATION ***
 You are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.
+
+CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
 
 For every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.
 
@@ -294,7 +298,7 @@ Strictly format your output using this exact structure for every scene:
 [VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
 [TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]
 [AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]
-VOICEOVER: "The actual spoken dialogue goes here."
+[0:00 - 0:05] [Slight head tilt] The actual spoken dialogue goes here as a pure sentence without headers or quotes.
 
 Ensure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.
 `;

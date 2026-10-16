@@ -146,6 +146,49 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
     };
   }, []);
 
+  // Synchronize incoming initialScript prop updates
+  useEffect(() => {
+    if (initialScript && initialScript.trim()) {
+      setRawScriptText(initialScript.trim());
+      setIsPlaying(false);
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+        scrollAccumulatorRef.current = 0;
+      }
+      setElapsedSeconds(0);
+    }
+  }, [initialScript]);
+
+  useEffect(() => {
+    if (initialTitle && initialTitle.trim()) {
+      setScriptTitle(initialTitle.trim());
+    }
+  }, [initialTitle]);
+
+  // Synchronize pending staged scripts from sessionStorage on focus
+  useEffect(() => {
+    const syncSessionStorage = () => {
+      try {
+        const sessionScript = typeof window !== 'undefined' ? sessionStorage.getItem('pending_teleprompter_script') : null;
+        if (sessionScript && sessionScript.trim() && sessionScript.trim() !== rawScriptText) {
+          setRawScriptText(sessionScript.trim());
+          const sessionTitle = sessionStorage.getItem('pending_teleprompter_title');
+          if (sessionTitle) setScriptTitle(sessionTitle);
+          const sessionWpm = sessionStorage.getItem('pending_teleprompter_wpm');
+          if (sessionWpm) setWpm(Number(sessionWpm) || 135);
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    syncSessionStorage();
+    window.addEventListener('focus', syncSessionStorage);
+    return () => {
+      window.removeEventListener('focus', syncSessionStorage);
+    };
+  }, [rawScriptText]);
+
   // --- AUTOSCROLL ENGINE (requestAnimationFrame) ---
   useEffect(() => {
     if (!isPlaying) {

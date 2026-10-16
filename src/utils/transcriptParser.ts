@@ -881,28 +881,16 @@ export function cleanTranscriptForPrompter(rawText: string): string {
   if (!rawText) return '';
 
   return rawText
-    // 1. Remove bracketed timestamps and production notes: [0:00 - 0:15], [0:45], [B-Roll: ...], etc.
-    .replace(/\[\s*\d{1,2}:\d{2}(?:\s*-\s*\d{1,2}:\d{2})?\s*\]/gi, '')
-    .replace(/\[[^\]]*(?:b-roll|cut|sfx|music|zoom|sound|visual|camera|overlay|graphic)[^\]]*\]/gi, '')
-    .replace(/\[[^\]]*\]/g, '') // remove any remaining bracketed directives
-
-    // 2. Remove parenthetical action/camera directions: (Lean in...), (smile), (pause), (hand gesture)
-    .replace(/\([^)]*(?:gesture|pause|smile|laugh|lean|camera|look|action|breath|beat|wink|point)[^)]*\)/gi, '')
-    .replace(/\((?:pause|beat|silence)\)/gi, '')
-
-    // 3. Remove section labels & speaker headers
-    .replace(/^(?:the\s+)?(?:hook|the tip|the problem|the solution|call to action|cta|outro|intro|step \d+|scene \d+|narrator|host|speaker|voiceover|vo):?\s*/gim, '')
-    .replace(/(?:^|\n)(?:The Call to Action|The Hook|The Tip|The Solution|Call to Action)\s*(?=\n|[A-Z])/gi, '\n')
-
-    // 4. Remove leading subtitle timestamps like "0:00 - " or "00:14 -"
-    .replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–:]\s*/gm, '')
-
-    // 5. Clean up markdown bold/italic tags and stray bullets
+    // 1. Remove all bracketed and parenthetical extras
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    // 2. Remove subtitle timestamps if pasted from YouTube (e.g., "0:14 - ")
+    .replace(/^\s*\d{1,2}:\d{2}(?::\d{2})?\s*[-–:]\s*/gm, ' ')
+    // 3. Remove markdown markers
     .replace(/[*_#~`]/g, '')
-    .replace(/^\s*[-•]\s+/gm, '')
-
-    // 6. Normalize spacing and multiple line breaks
+    // 4. Normalize spacing & punctuation
     .replace(/[ \t]+/g, ' ')
+    .replace(/\s+([.,!?;:])/g, '$1')
     .replace(/\n\s*\n\s*\n+/g, '\n\n')
     .trim();
 }

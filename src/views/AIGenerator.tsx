@@ -1653,6 +1653,7 @@ Voice Tone Rules: ${brandVoice} (Sub-tone Preset: ${hookTone})
 Format: ${duration}
 Aesthetic Vibe: ${visualStyle}
 ${importedContext?.openingHook ? `Reference Hook Grounding: "${importedContext.openingHook}". Directly adapt its psychological triggers and pacing.\n` : ""}
+CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
 Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [SCENE-BY-SCENE VISUAL BLUEPRINT], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
             stream: false
           })
@@ -1795,6 +1796,7 @@ Voice Tone Rules: ${brandVoice} (Sub-tone Preset: ${hookTone})
 Format: ${duration}
 Aesthetic Vibe: ${visualStyle}
 
+CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
 Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [SCENE-BY-SCENE VISUAL BLUEPRINT], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
             stream: false
           })
@@ -1870,23 +1872,22 @@ Our target hook instantly presents a massive pain-point contrast: Simple rule vs
 [VISUAL: Extreme close-up of chalk drawing a simple formula on a black canvas.]
 [TEXT OVERLAY: The Hook]
 [AUDIO CUE: Sharp chalk snap]
-VOICEOVER: "The immediate hook dialogue."
+[0:00 - 0:05] [Hook] This math problem is so ridiculously simple, any primary school student can understand it. Yet, the world's most brilliant minds have spent almost a century trying to prove it.
 
 [VISUAL: Visual representation of the numbers 4, 2, and 1 circling infinitely.]
 [TEXT OVERLAY: The Challenge]
 [AUDIO CUE: Mysterious build-up]
-VOICEOVER: "The challenge context."
+[0:05 - 0:15] [The Challenge] Take any positive integer. If it's even, divide it by two. If it's odd, triple it and add one.
 
 [VISUAL: Detailing computer tests up to 2^68, and showing Paul Erdős's famous quote.]
 [TEXT OVERLAY: The Development]
 [AUDIO CUE: Fast-paced digital ticking]
-VOICEOVER: "The development details."
+[0:15 - 0:45] [The Problem] No matter what number you pick, mathematicians believe you always end up trapped in the four, two, one loop, but nobody has ever been able to prove it.
 
 [VISUAL: Screen showing a custom diagram overlay requesting comments about personal tests.]
 [TEXT OVERLAY: Comment Below]
 [AUDIO CUE: Climax drop]
-VOICEOVER: "The final call to action."
-
+[0:45 - 1:00] [Call to Action] Test your own starting number in the comments and let's see how many steps it takes you to collapse into the loop.
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: High contrast dark layout, chalk formulas scattered around.
@@ -1905,10 +1906,10 @@ Option 3: "If you're still boiling your green vegetables standardly, you need to
 Our hook relies on culinary disruption. We challenge conventional seasoning and boiling habits, creating immediate curiosity that commands watchtime past the 3-second mark.
 
 [SCENE-BY-SCENE VISUAL BLUEPRINT]
-- 0:00 - 0:03 [HOOK]: Extreme close-up of a hot skillet sizzling with olive oil and fresh garlic.
-- 0:03 - 0:15 [CONTRAST]: Split visual comparing gray soggy broccoli with vibrant, crisp ice-shocked greens.
-- 0:15 - 0:45 [METHOD]: Presenting the exact water starch ratio on screen with clear bold overlay badges.
-- 0:45 - 1:00 [CTA]: Close-up of the dish being tossed beautifully with steam rising. Caption: "Comment 'RECIPE' for the secrets."
+[0:00 - 0:03] [HOOK] [VISUAL: Extreme close-up of a hot skillet sizzling with olive oil and fresh garlic.] Stop dumping table salt on your food when it tastes flat.
+[0:03 - 0:15] [CONTRAST] [VISUAL: Split visual comparing gray soggy broccoli with vibrant, crisp ice-shocked greens.] Here is why top Michelin star chefs use citrus acid ratios instead.
+[0:15 - 0:45] [METHOD] [VISUAL: Presenting the exact water starch ratio on screen with clear bold overlay badges.] Save your pasta water and emulsion reduce it to create rich velvety sauce.
+[0:45 - 1:00] [CTA] [VISUAL: Close-up of the dish being tossed beautifully with steam rising.] Comment RECIPE below to get the full chef formulation guide.
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: High saturate food shot in the center; left side reflects standard failure.
@@ -1927,10 +1928,10 @@ Option 3: "If you're still investing standardly in broad index funds, step back 
 The hook targets systemic financial anxiety. By framing traditional saving as an active loss, we trigger strong psychological tension and promise a high-payoff automated shortcut.
 
 [SCENE-BY-SCENE VISUAL BLUEPRINT]
-- 0:00 - 0:03 [HOOK]: Sleek, high-contrast dark diagram tracking inflation vectors with neon gold accents.
-- 0:03 - 0:15 [FRICTION]: Screen showing traditional bank interest statements collapsing into pixel dust.
-- 0:15 - 0:45 [PAYOFF]: Staggered bullet-points outlining automated AI or digital property acquisitions.
-- 0:45 - 1:00 [CTA]: Displaying a clean website mockup illustrating direct cash distributions. Caption: "Comment 'MUTINY' to escape."
+[0:00 - 0:03] [HOOK] [VISUAL: Sleek, high-contrast dark diagram tracking inflation vectors with neon gold accents.] Standard high-yield savings accounts are secretly eating your purchasing power.
+[0:03 - 0:15] [FRICTION] [VISUAL: Screen showing traditional bank interest statements collapsing into pixel dust.] While inflation outpaces your returns, your cash sits dormant.
+[0:15 - 0:45] [PAYOFF] [VISUAL: Staggered bullet-points outlining automated AI or digital property acquisitions.] Top modern builders deploy automated micro royalty cashflow systems instead.
+[0:45 - 1:00] [CTA] [VISUAL: Displaying a clean website mockup illustrating direct cash distributions.] Comment MUTINY below to inspect the full automated architecture.
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: Extreme zoom-in on bank interest screens with overlay red crosses.
@@ -1949,10 +1950,10 @@ Option 3: "If you're still staying in standard travel hostels, you need to see t
 Our hook uses geographic arbitrage. We contrast cheap costs with luxury living standards, opening a curiosity loop that gets viewers excited for the practical breakdown.
 
 [SCENE-BY-SCENE VISUAL BLUEPRINT]
-- 0:00 - 0:03 [HOOK]: Overwhelmingly gorgeous drone zoom of crystal blue waves crashing on a black volcanic sand beach.
-- 0:03 - 0:15 [PROBLEM]: Frustrated tourist dragging massive suitcases in a crowded airport line with warning overlays.
-- 0:15 - 0:45 [BLUEPRINT]: Quick cuts demonstrating packing layouts or digital nomad workspace views.
-- 0:45 - 1:00 [CTA]: Aerial sunset shot of a gorgeous tropical shared workspace. Caption: "Comment 'PARADISE' for the map coordinates."
+[0:00 - 0:03] [HOOK] [VISUAL: Overwhelmingly gorgeous drone zoom of crystal blue waves crashing on a black volcanic sand beach.] Stop packing massive suitcases for long international trips.
+[0:03 - 0:15] [PROBLEM] [VISUAL: Frustrated tourist dragging massive suitcases in a crowded airport line with warning overlays.] This minimalist twenty-liter backpack blueprint lets you explore for three months with zero baggage fees.
+[0:15 - 0:45] [BLUEPRINT] [VISUAL: Quick cuts demonstrating packing layouts or digital nomad workspace views.] Pack four compression cubes, modular clothing, and ultra-light tech gear.
+[0:45 - 1:00] [CTA] [VISUAL: Aerial sunset shot of a gorgeous tropical shared workspace.] Comment PARADISE below to get the full international packing layout.
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: Split layout. Left: $800 modern villa. Right: Crowded grey office cubicle.
@@ -1971,10 +1972,10 @@ Option 3: "If you are still performing standard overhead presses, you are slowly
 The hook targets wasted gym effort. We challenge traditional workout lore with scientific biohacking, forcing viewers to pay attention to fix their mistakes.
 
 [SCENE-BY-SCENE VISUAL BLUEPRINT]
-- 0:00 - 0:03 [HOOK]: Extreme close-up of a dumbbell being lowered in slow motion with glowing muscular overlays.
-- 0:03 - 0:15 [SCIENCE]: Quick dynamic skeletal movement overlay showing shoulder joint pressure values.
-- 0:15 - 0:45 [BLUEPRINT]: Practical exercise demonstration showing exact elbow positioning.
-- 0:45 - 1:00 [CTA]: Presenter demonstrating proper posture. Caption: "Comment 'TRAIN' for the free clinical split sheet."
+[0:00 - 0:03] [HOOK] [VISUAL: Extreme close-up of a dumbbell being lowered in slow motion with glowing muscular overlays.] Why ninety-five percent of gym goers get zero results despite training five days a week.
+[0:03 - 0:15] [SCIENCE] [VISUAL: Quick dynamic skeletal movement overlay showing shoulder joint pressure values.] It is not your nutrition, it is completely uncontrolled eccentric momentum.
+[0:15 - 0:45] [BLUEPRINT] [VISUAL: Practical exercise demonstration showing exact elbow positioning.] Slow down each negative rep to three full seconds to maximize mechanical tension.
+[0:45 - 1:00] [CTA] [VISUAL: Presenter demonstrating proper posture.] Comment TRAIN below to download the clinically backed hypertrophy training split.
 
 [THUMBNAIL STRATEGIST ASSIGNED PLAN]
 - Core Layout Strategy: Left side outlines joint damage in red; right side shows correct alignment in emerald green.
