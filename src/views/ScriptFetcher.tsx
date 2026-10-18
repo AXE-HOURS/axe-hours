@@ -1160,17 +1160,21 @@ ${extractedData.fullTranscript || 'N/A'}`;
             <div className="space-y-6">
               {/* Core Info Banner with metrics */}
               <GlassCard glowColor="purple" className="border-purple-500/10 space-y-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                  <div>
-                    <span className="text-[10px] text-purple-300 font-mono uppercase font-black tracking-widest">Fetched Analytics Report</span>
-                    <h2 className="text-lg font-black text-white leading-tight mt-1">{extractedData.title}</h2>
+                <div className="flex flex-col gap-3 mb-5">
+                  <div className="w-full">
+                    <span className="text-[10px] text-purple-300 font-mono uppercase font-black tracking-widest block whitespace-nowrap">
+                      Fetched Analytics Report
+                    </span>
+                    <h2 className="text-lg md:text-xl font-bold text-white leading-snug break-words mt-1">
+                      {extractedData.title}
+                    </h2>
                   </div>
-                  <div className="flex flex-wrap gap-2 select-none shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 select-none">
                     <button
                       id="script-fetcher-transfer-btn"
                       onClick={onTransferToArchitect}
                       disabled={!extractedData.hasTranscript}
-                      className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md whitespace-nowrap ${
                         extractedData.hasTranscript
                           ? 'bg-[#9d50bb] hover:bg-[#b06ab3] text-white shadow-purple-500/25 cursor-pointer'
                           : 'bg-white/10 text-gray-500 cursor-not-allowed opacity-50'
@@ -1184,7 +1188,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                       id="script-fetcher-teleprompter-btn"
                       onClick={onOpenTeleprompter}
                       disabled={!extractedData.hasTranscript}
-                      className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md whitespace-nowrap ${
                         extractedData.hasTranscript
                           ? 'bg-emerald-500 hover:bg-emerald-400 text-black shadow-emerald-500/25 cursor-pointer font-bold'
                           : 'bg-white/10 text-gray-500 cursor-not-allowed opacity-50'
@@ -1198,7 +1202,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                       id="script-fetcher-save-vault-btn"
                       onClick={handleSaveToVault}
                       disabled={!extractedData.hasTranscript}
-                      className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md whitespace-nowrap ${
                         extractedData.hasTranscript
                           ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 shadow-amber-500/10 cursor-pointer'
                           : 'bg-white/10 text-gray-500 cursor-not-allowed opacity-50'
@@ -1211,7 +1215,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                     <button
                       id="script-fetcher-download-btn"
                       onClick={downloadTextFile}
-                      className="px-3 py-2 bg-purple-500 hover:bg-purple-400 text-black rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+                      className="px-3 py-1.5 bg-purple-500 hover:bg-purple-400 text-black rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md cursor-pointer whitespace-nowrap"
                     >
                       <Download size={12} />
                       <span>Download TXT Pack</span>
