@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { GlassCard } from '../components/GlassCard';
-import { Bookmark, Copy, Trash2, Check, Wand2, Scissors } from 'lucide-react';
+import { Bookmark, Copy, Trash2, Check, Wand2, Scissors, Video, Sparkles } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { useFirebase } from '../context/FirebaseContext';
 
 interface SavedIdeaItem {
   id: number;
@@ -49,6 +50,7 @@ const shortenText = (text: string): string => {
 
 export const SavedIdeas: React.FC<SavedIdeasProps> = ({ savedIdeas = [], removeIdea, updateIdea, onLoadIntoGenerator }) => {
   const { addToast } = useToast();
+  const { saveIdeaDB } = useFirebase();
 
   const triggerToast = (msg: string, type: 'success' | 'error' | 'info' | 'warning' = 'success') => {
     addToast(msg, type);
@@ -69,6 +71,35 @@ export const SavedIdeas: React.FC<SavedIdeasProps> = ({ savedIdeas = [], removeI
       await updateIdea(id, shortened);
     } else {
       triggerToast("Updating ideas is not configured in this database environment.", "error");
+    }
+  };
+
+  const handleInjectStarterSample = async () => {
+    const sampleIdea = {
+      title: '5 AI Coding Workflows That Save 20 Hours a Week [High-Conversion Blueprint]',
+      content: `[Hook]
+[0:00 - 0:08]
+If you are still writing boilerplate code manually in 2025, you are losing at least 15 hours every single week.
+
+[The Core Problem]
+[0:08 - 0:25]
+Most developers use AI like a glorified autocomplete tool. But top 1% engineering teams use it as an autonomous execution pipeline.
+
+[The 3-Step System]
+[0:25 - 0:55]
+Step 1: Context Grounding. Feed structural schemas before writing any prompts.
+Step 2: Micro-Agent delegation. Have one model write tests while another executes code.
+Step 3: Verification loop. Never deploy without continuous linting and automated preview checks.
+
+[Call to Action]
+[0:55 - 1:00]
+Save this blueprint and comment "WORKFLOW" to get my free full automation checklist.`
+    };
+    try {
+      await saveIdeaDB(sampleIdea);
+      triggerToast('Starter blueprint added to your Vault! 🚀', 'success');
+    } catch {
+      triggerToast('Could not load sample blueprint.', 'error');
     }
   };
 
@@ -101,10 +132,29 @@ export const SavedIdeas: React.FC<SavedIdeasProps> = ({ savedIdeas = [], removeI
       </div>
 
       {savedIdeas.length === 0 ? (
-        <GlassCard id="saved-ideas-empty-card" className="flex items-center justify-center border-dashed border-2 border-white/10 bg-transparent min-h-[400px]">
-          <div id="saved-ideas-empty-content" className="text-center text-gray-500 max-w-sm">
-            <p className="text-lg font-bold text-white">Saved workspace is empty</p>
-            <p className="text-xs text-on-surface-variant mt-2">Generate brilliant ideas and click the 'Favorite Idea' badge to store them in your workspace shelf.</p>
+        <GlassCard id="saved-ideas-empty-card" className="flex flex-col items-center justify-center border-dashed border-2 border-white/10 bg-transparent min-h-[400px] p-8 text-center">
+          <div className="h-16 w-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary mb-4">
+            <Bookmark size={30} />
+          </div>
+          <p className="text-lg font-bold text-white">Saved workspace is empty</p>
+          <p className="text-xs text-on-surface-variant mt-2 max-w-md leading-relaxed">
+            Store high-converting video blueprints, extracted viral scripts, and hook iterations here for instant execution and teleprompter recording.
+          </p>
+          <div className="flex flex-wrap gap-3 mt-6 justify-center">
+            <button
+              onClick={handleInjectStarterSample}
+              className="px-4 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg shadow-primary/20 transition-all"
+            >
+              <Sparkles size={14} />
+              <span>Load Starter Blueprint</span>
+            </button>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'generator' } }))}
+              className="px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all"
+            >
+              <Wand2 size={14} />
+              <span>Launch AI Video Architect</span>
+            </button>
           </div>
         </GlassCard>
       ) : (
@@ -133,6 +183,24 @@ export const SavedIdeas: React.FC<SavedIdeasProps> = ({ savedIdeas = [], removeI
                       <Wand2 size={14} />
                     </button>
                   )}
+                  <button 
+                    id={`saved-idea-prompter-${idea.id}`}
+                    onClick={() => {
+                      sessionStorage.setItem('pending_teleprompter_script', idea.content);
+                      sessionStorage.setItem('pending_teleprompter_title', idea.title);
+                      window.dispatchEvent(new CustomEvent('load-teleprompter-script', {
+                        detail: { script: idea.content, title: idea.title, wpm: 135 }
+                      }));
+                      window.dispatchEvent(new CustomEvent('change-active-view', {
+                        detail: { view: 'teleprompter' }
+                      }));
+                      triggerToast("Loaded into Teleprompter Studio! 🎬", "success");
+                    }}
+                    className="p-2 bg-emerald-500/10 hover:bg-emerald-500/20 rounded-lg text-emerald-400 hover:text-white cursor-pointer transition-colors"
+                    title="Open in Teleprompter Studio"
+                  >
+                    <Video size={14} />
+                  </button>
                   <button 
                     id={`saved-idea-shorten-${idea.id}`}
                     onClick={() => handleShorten(idea.id, idea.content)} 

@@ -17,12 +17,50 @@ import { useToast } from './context/ToastContext';
 import { Wand2 } from 'lucide-react';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
-const AIGenerator = lazy(() => import('./views/AIGenerator').then(m => ({ default: m.AIGenerator })));
-const Analytics = lazy(() => import('./views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
-const CompetitorIntel = lazy(() => import('./views/CompetitorIntel').then(m => ({ default: m.CompetitorIntel })));
-const ScriptFetcher = lazy(() => import('./views/ScriptFetcher').then(m => ({ default: m.ScriptFetcher })));
-const TeleprompterView = lazy(() => import('./views/TeleprompterView').then(m => ({ default: m.default || m.TeleprompterView })));
+/**
+ * Stale Deployment Auto-Recovery Wrapper:
+ * When a new deployment on Render invalidates previous Vite chunk hashes,
+ * a dynamic import() will throw "Failed to fetch dynamically imported module".
+ * This wrapper catches that error, triggers a single graceful reload,
+ * and falls back to ErrorBoundary only if it fails repeatedly.
+ */
+function lazyWithRetry<T extends React.ComponentType<any>>(
+  componentImport: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    const pageHasAlreadyBeenForceRefreshed = JSON.parse(
+      window.sessionStorage.getItem('axe_chunk_retry_refreshed') || 'false'
+    );
+
+    try {
+      const component = await componentImport();
+      window.sessionStorage.setItem('axe_chunk_retry_refreshed', 'false');
+      return component;
+    } catch (error: any) {
+      console.warn("Dynamic chunk import failed. Evaluating deployment refresh...", error);
+      const isChunkError = 
+        error?.message?.includes('Failed to fetch dynamically imported module') ||
+        error?.message?.includes('Importing a module script failed') ||
+        error?.name === 'ChunkLoadError' ||
+        String(error).includes('dynamically imported module');
+
+      if (!pageHasAlreadyBeenForceRefreshed && isChunkError) {
+        window.sessionStorage.setItem('axe_chunk_retry_refreshed', 'true');
+        window.location.reload();
+        return new Promise<{ default: T }>(() => {});
+      }
+
+      throw error;
+    }
+  });
+}
+
+const Dashboard = lazyWithRetry(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })));
+const AIGenerator = lazyWithRetry(() => import('./views/AIGenerator').then(m => ({ default: m.AIGenerator })));
+const Analytics = lazyWithRetry(() => import('./views/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
+const CompetitorIntel = lazyWithRetry(() => import('./views/CompetitorIntel').then(m => ({ default: m.CompetitorIntel })));
+const ScriptFetcher = lazyWithRetry(() => import('./views/ScriptFetcher').then(m => ({ default: m.ScriptFetcher })));
+const TeleprompterView = lazyWithRetry(() => import('./views/TeleprompterView').then(m => ({ default: m.default || m.TeleprompterView })));
 
 interface UserData {
   email: string;
@@ -97,7 +135,8 @@ export default function App() {
     const handleViewChange = (e: Event) => {
       const customEvent = e as CustomEvent;
       if (customEvent.detail && customEvent.detail.view) {
-        setCurrentView(customEvent.detail.view);
+        const target = customEvent.detail.view === 'generate-ideas' ? 'generator' : customEvent.detail.view;
+        setCurrentView(target);
       }
     };
     const handleOpenUpgrade = () => setIsUpgradeModalOpen(true);
@@ -233,7 +272,7 @@ export default function App() {
   }
 
   return (
-    <div id="axe-hours-main-app-shell" className="relative min-h-screen bg-black text-white font-sans overflow-hidden">
+    <div id="axe-hours-main-app-shell" className="relative min-h-screen bg-black text-white font-sans overflow-y-auto">
       {/* Ambient Atmospheric Orbs */}
       <div id="ambient-bg-orb-left" className="fixed -top-48 -left-48 w-[600px] h-[600px] bg-primary/20 blur-[150px] rounded-full pointer-events-none" />
       <div id="ambient-bg-orb-right" className="fixed -bottom-48 -right-48 w-[600px] h-[600px] bg-secondary/20 blur-[150px] rounded-full pointer-events-none" />
@@ -249,7 +288,7 @@ export default function App() {
           onOpenUpgrade={() => setIsUpgradeModalOpen(true)}
         />
         
-        <div id="axe-hours-viewport" className="flex-1 flex flex-col md:ml-64 min-h-screen">
+        <div id="axe-hours-viewport" className="flex-1 flex flex-col min-w-0 min-h-screen">
           <TopNav 
             showNotifications={showNotifications} 
             setShowNotifications={setShowNotifications} 

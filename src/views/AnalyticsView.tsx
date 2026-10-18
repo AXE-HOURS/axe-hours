@@ -1076,8 +1076,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
                   </div>
                   <div>
                     <div className="text-3xl font-black text-white tracking-tight font-mono">
-                      {myChannel.statistics.subscriberCount && Number(myChannel.statistics.subscriberCount) > 0
-                        ? (Number(myChannel.statistics.viewCount) / Number(myChannel.statistics.subscriberCount)).toFixed(1) + 'x'
+                      {myChannel.statistics?.subscriberCount && Number(myChannel.statistics.subscriberCount) > 0 && !isNaN(Number(myChannel.statistics.viewCount))
+                        ? (Number(myChannel.statistics.viewCount) / Math.max(1, Number(myChannel.statistics.subscriberCount))).toFixed(1) + 'x'
                         : '1.0x'}
                     </div>
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/5 text-xs text-gray-400">

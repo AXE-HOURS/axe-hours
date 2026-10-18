@@ -25,7 +25,8 @@ import {
   Mic,
   Check,
   X,
-  AlertCircle
+  AlertCircle,
+  Bookmark
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
@@ -46,7 +47,7 @@ import {
 
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
-  const { logUserActivity, logActivity, user } = useFirebase();
+  const { logUserActivity, logActivity, user, saveIdeaDB } = useFirebase();
   const { calibrationHook, setCalibrationHook } = useCalibrationBridge();
   const uid = user?.uid || "guest";
   const [videoUrl, setVideoUrl] = useState<string>(() => sessionStorage.getItem('pending_script_fetcher_url') || '');
@@ -997,6 +998,42 @@ export const ScriptFetcher: React.FC = () => {
     logUserActivity('transfer_to_architect', `Transferred extracted blueprint from: "${extractedData.title || 'Untitled'}"`, `Piped structural blueprint of ${extractedData.fullTranscript.length} characters and reference hook into AI Video Architect.`);
   };
 
+  const handleSaveToVault = async () => {
+    if (!extractedData.fullTranscript || extractedData.fullTranscript === 'N/A' || !extractedData.hasTranscript) {
+      addToast('Cannot save to Vault: No authentic spoken dialogue transcript is available.', 'warning');
+      return;
+    }
+
+    try {
+      const formattedContent = `### Platform: ${extractedData.platform.toUpperCase()} | Duration: ${extractedData.duration || 'N/A'} | Views: ${extractedData.views || 'N/A'}
+**Hook Score:** ${extractedData.hookScore}/100
+**Pacing:** ${extractedData.pacingSpeed || 'N/A'}
+
+#### Isolated Hook:
+${extractedData.hookText || 'N/A'}
+
+#### Full Transcript:
+${extractedData.fullTranscript || 'N/A'}`;
+
+      await saveIdeaDB({
+        title: `${extractedData.title || 'Extracted Script'} [Intel Pack]`,
+        content: formattedContent
+      });
+
+      await logUserActivity(
+        'save_idea',
+        `Saved Script Intel to Vault: "${extractedData.title || 'Extracted Video'}"`,
+        `Saved extracted transcript and metrics for "${extractedData.title || 'Video Script'}" to Vault`
+      );
+
+      playAudio(659.25);
+      addToast('Blueprint saved to Vault! Access it anytime in Saved Ideas.', 'success');
+    } catch (err) {
+      console.error('Failed to save to vault:', err);
+      addToast('Could not save to Vault. Please try again.', 'error');
+    }
+  };
+
   return (
     <div id="script-fetcher-workspace" className="space-y-8 animate-in fade-in duration-500 relative z-10 w-full max-w-7xl mx-auto">
       {/* Header element */}
@@ -1156,6 +1193,20 @@ export const ScriptFetcher: React.FC = () => {
                     >
                       <Video size={12} />
                       <span>Open Teleprompter</span>
+                    </button>
+                    <button
+                      id="script-fetcher-save-vault-btn"
+                      onClick={handleSaveToVault}
+                      disabled={!extractedData.hasTranscript}
+                      className={`px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md ${
+                        extractedData.hasTranscript
+                          ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 shadow-amber-500/10 cursor-pointer'
+                          : 'bg-white/10 text-gray-500 cursor-not-allowed opacity-50'
+                      }`}
+                      title={extractedData.hasTranscript ? "Save extracted script blueprint to your Vault" : "Vault save unavailable: No authentic spoken dialogue"}
+                    >
+                      <Bookmark size={12} />
+                      <span>Save to Vault</span>
                     </button>
                     <button
                       id="script-fetcher-download-btn"

@@ -49,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside id="sidebar-container" className="fixed left-0 top-0 h-full w-64 bg-[#0a0614]/80 backdrop-blur-3xl border-r border-[#ffffff0a] flex flex-col z-50 hidden md:flex">
+    <aside id="sidebar-container" className="h-screen sticky top-0 w-64 bg-[#0a0614]/80 backdrop-blur-3xl border-r border-[#ffffff0a] flex flex-col z-50 hidden md:flex shrink-0 overflow-y-auto scrollbar-thin custom-scrollbar">
       {/* Cyber Grid element on background */}
       <div className="absolute inset-0 bg-[linear-gradient(to_bottom,rgba(157,80,187,0.02)_1px,transparent_1px)] bg-[size:100%_4px] pointer-events-none" />
 

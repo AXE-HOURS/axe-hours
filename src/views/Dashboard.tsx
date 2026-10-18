@@ -21,8 +21,7 @@ import {
   TrendingUp,
   Download,
   Share2,
-  Check,
-  RefreshCw
+  Check
 } from 'lucide-react';
 import { generateThumbnailSpecs } from '../utils/thumbnailPromptGenerator';
 import { playAudioCue as playAudio } from '../utils/audio';
@@ -65,7 +64,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ recentGenerations = [], on
   ];
 
   const { user, googleAccessToken, loginWithGoogle } = useFirebase();
-  const [isSyncingGoogle, setIsSyncingGoogle] = useState(false);
   const [dashboardSearchQuery, setDashboardSearchQuery] = useState("");
 
   // Helper: Calculate next weekday occurrence
@@ -91,95 +89,52 @@ export const Dashboard: React.FC<DashboardProps> = ({ recentGenerations = [], on
     return targetDate.toISOString();
   };
 
-  // Helper: Create single event on Google Calendar
-  const syncPostToGoogleCalendar = async (post: any) => {
-    const token = googleAccessToken;
-    if (!token) return;
-
-    const eventDateTime = getNextWeekdayDateTime(post.day, post.time);
-    const endDateTime = new Date(new Date(eventDateTime).getTime() + 30 * 60 * 1000).toISOString(); // 30 mins later
-
-    const body = {
-      summary: `Publish @${post.platform}: ${post.title}`,
-      description: `Scheduled publishing via Axe Hours Workspace.\nPlatform: ${post.platform}\nTime: ${post.time}\nStatus: ${post.status}`,
-      start: {
-        dateTime: eventDateTime,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-      },
-      end: {
-        dateTime: endDateTime,
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-      }
-    };
-
-    const response = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Google Calendar sync failed: ${errText}`);
-    }
+  // Helper: Format date into compact UTC required by Google Calendar Web Intent: YYYYMMDDTHHmmssZ
+  const formatGoogleCalendarUtc = (dateInput: string | Date): string => {
+    const d = new Date(dateInput);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const year = d.getUTCFullYear();
+    const month = pad(d.getUTCMonth() + 1);
+    const day = pad(d.getUTCDate());
+    const hours = pad(d.getUTCHours());
+    const mins = pad(d.getUTCMinutes());
+    const secs = pad(d.getUTCSeconds());
+    return `${year}${month}${day}T${hours}${mins}${secs}Z`;
   };
 
-  // Trigger full sync
-  const syncToGoogleCalendar = async () => {
+  // Helper: Build Google Calendar Web Intent URL
+  const buildGoogleCalendarIntentUrl = (post: any): string => {
+    const eventDateTime = getNextWeekdayDateTime(post.day, post.time);
+    const endDateTime = new Date(new Date(eventDateTime).getTime() + 30 * 60 * 1000).toISOString();
+    const dates = `${formatGoogleCalendarUtc(eventDateTime)}/${formatGoogleCalendarUtc(endDateTime)}`;
+    const title = encodeURIComponent(`Publish @${post.platform}: ${post.title}`);
+    const details = encodeURIComponent(
+      `Scheduled peak publishing slot via Axe Hours Workspace.\nPlatform: ${post.platform}\nTime: ${post.time}\nStatus: ${post.status}\nAxe Hours Workspace: https://axe-hours.app`
+    );
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dates}`;
+  };
+
+  // Zero-failure Google Calendar sync via direct Web Intent
+  const syncToGoogleCalendar = () => {
     if (scheduledPosts.length === 0) {
       showToast("No scheduled posts to sync! ⚠️", "warning");
       return;
     }
 
-    if (!user) {
-      showToast("Please sign in with Google to sync with your calendar.", "info");
-      try {
-        await loginWithGoogle();
-      } catch (err) {
-        console.error("Auth failed:", err);
-        showToast("Authentication failed.", "error");
-        return;
-      }
-    }
+    const primaryPost = scheduledPosts[0];
+    const intentUrl = buildGoogleCalendarIntentUrl(primaryPost);
+    window.open(intentUrl, '_blank', 'noopener,noreferrer');
 
-    if (!googleAccessToken) {
-      showToast("Authorizing Google Calendar access...", "info");
-      try {
-        await loginWithGoogle();
-      } catch (err) {
-        console.error("Re-auth failed:", err);
-        showToast("Google Calendar authorization failed.", "error");
-        return;
-      }
-    }
+    playAudioCue(880);
+    showToast("Calendar slots prepared! Opening in Google Calendar...");
+  };
 
-    setIsSyncingGoogle(true);
-    let successCount = 0;
-
-    const confirmed = window.confirm(
-      `Synchronize ${scheduledPosts.length} scheduled publishing slots directly into your primary Google Calendar? This will write new events.`
-    );
-    if (!confirmed) {
-      setIsSyncingGoogle(false);
-      return;
-    }
-
-    try {
-      for (const post of scheduledPosts) {
-        await syncPostToGoogleCalendar(post);
-        successCount++;
-      }
-      playAudioCue(880);
-      showToast(`Successfully synced ${successCount} slots to Google Calendar! 📅`);
-    } catch (error: any) {
-      console.error("Google Calendar Sync error:", error);
-      showToast("Some slots failed to sync. Make sure your Google account has permission.", "error");
-    } finally {
-      setIsSyncingGoogle(false);
-    }
+  // Helper: Open single event on Google Calendar
+  const syncPostToGoogleCalendar = (post: any) => {
+    const intentUrl = buildGoogleCalendarIntentUrl(post);
+    window.open(intentUrl, '_blank', 'noopener,noreferrer');
+    playAudioCue(880);
+    showToast("Calendar slots prepared! Opening in Google Calendar...");
   };
 
   // Trigger Outlook/ICS export
@@ -492,7 +447,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
         </p>
       </div>
 
-      <div id="dashboard-stats-grid" className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div id="dashboard-stats-grid" className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
         {stats.map((stat, i) => (
           <GlassCard 
             key={i} 
@@ -862,6 +817,15 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
                         </button>
 
                         <button
+                          type="button"
+                          onClick={() => syncPostToGoogleCalendar(post)}
+                          className="p-1.5 rounded-md hover:bg-purple-500/10 text-gray-500 hover:text-purple-300 transition-all opacity-0 group-hover:opacity-100 cursor-pointer"
+                          title="Open slot in Google Calendar"
+                        >
+                          <Calendar size={12} />
+                        </button>
+
+                        <button
                           onClick={() => handleRemovePost(post.id)}
                           className="p-1.5 rounded-md hover:bg-red-500/10 text-gray-500 hover:text-red-400 transition-all opacity-0 group-hover:opacity-100 cursor-pointer"
                           title="Delete plan"
@@ -896,24 +860,19 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
                 {/* Google Calendar Direct Sync button */}
                 <button
                   onClick={syncToGoogleCalendar}
-                  disabled={isSyncingGoogle}
-                  className="flex items-center justify-center gap-1.5 py-2 px-3 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 hover:border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg transition-all cursor-pointer disabled:opacity-50"
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 hover:border-purple-500/30 text-purple-300 text-xs font-semibold rounded-lg transition-all cursor-pointer"
                 >
-                  {isSyncingGoogle ? (
-                    <RefreshCw size={13} className="animate-spin" />
-                  ) : (
-                    <Calendar size={13} className="text-purple-400" />
-                  )}
+                  <Calendar size={13} className="text-purple-400" />
                   <span>Sync Google Calendar</span>
                 </button>
 
-                {/* Microsoft Outlook .ics Export button */}
+                {/* One-click Export .ICS Calendar File fallback */}
                 <button
                   onClick={exportOutlookICS}
                   className="flex items-center justify-center gap-1.5 py-2 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 hover:border-indigo-500/30 text-indigo-300 text-xs font-semibold rounded-lg transition-all cursor-pointer"
                 >
                   <Download size={13} className="text-indigo-400" />
-                  <span>Export Outlook / ICS</span>
+                  <span>Export .ICS Calendar File</span>
                 </button>
               </div>
             </div>

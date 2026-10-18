@@ -22,6 +22,13 @@ interface Message {
   };
 }
 
+export const sanitizeAssistantMarkdown = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/\*\*\*+/g, '**')
+    .replace(/^\s*\*\s*\*\*/gm, '• **');
+};
+
 export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentView, setCurrentView }) => {
   const { user } = useFirebase();
   const [isOpen, setIsOpen] = useState(false);
@@ -256,9 +263,15 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
         // Trigger matching state loaders in AIGenerator Component
         window.dispatchEvent(new CustomEvent('load-generator-settings', { detail: loadActionData }));
         setCurrentView('generator');
+        window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'generator' } }));
         activeAction = { view: 'generator', desc: "AI Generator Workspace (Loaded settings via Co-pilot)" };
         botResponseText = `⚡ Action Triggered: Loaded Creator Settings into [AI Generator]!\n\n${botResponseText}`;
       } else if (activeAction) {
+        const target = activeAction.view === 'generate-ideas' ? 'generator' : activeAction.view;
+        if (target) {
+          setCurrentView(target);
+          window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: target } }));
+        }
         botResponseText = `⚡ Action Triggered: Navigated to [${activeAction.desc}]!\n\n${botResponseText}`;
       }
 
@@ -291,11 +304,17 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
       if (loadActionData) {
         window.dispatchEvent(new CustomEvent('load-generator-settings', { detail: loadActionData }));
         setCurrentView('generator');
+        window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'generator' } }));
         activeAction = { view: 'generator', desc: "AI Generator Workspace" };
         botResponseText = `⚡ Action Triggered: Loaded Creator Settings into [AI Generator]!\n\n${botResponseText}`;
       } else {
         botResponseText = "I encountered an error replying to that query. Let's redirect you immediately!";
         if (activeAction) {
+          const target = activeAction.view === 'generate-ideas' ? 'generator' : activeAction.view;
+          if (target) {
+            setCurrentView(target);
+            window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: target } }));
+          }
           botResponseText = `⚡ Loaded Page: ${activeAction.desc}.\n\nLet's get down to business! Let me know if you need specific advice.`;
         }
       }
@@ -325,7 +344,9 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
       
       setIsOpen(true);
       if (view) {
-        setCurrentView(view);
+        const target = view === 'generate-ideas' ? 'generator' : view;
+        setCurrentView(target);
+        window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: target } }));
       }
       if (query) {
         // Run with a very small delay to ensure the chat window is fully open and active
@@ -439,14 +460,24 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
                         : 'bg-white/5 border border-white/5 text-gray-200 rounded-tl-none whitespace-pre-wrap'
                     }`}
                   >
-                    {m.text}
+                    {sanitizeAssistantMarkdown(m.text)}
                     
-                    {/* Action Success Badge indicator inside chat message */}
+                    {/* Action Success Badge / Direct Navigation Button */}
                     {m.actionPayload && (
-                      <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center gap-1.5 text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const target = m.actionPayload?.view === 'generate-ideas' ? 'generator' : m.actionPayload?.view;
+                          if (target) {
+                            setCurrentView(target);
+                            window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: target } }));
+                          }
+                        }}
+                        className="mt-2.5 pt-2 border-t border-white/5 flex items-center gap-1.5 text-[10px] text-emerald-400 font-mono font-bold uppercase tracking-wider hover:underline cursor-pointer"
+                      >
                         <Zap size={10} className="text-emerald-400 animate-pulse" />
-                        Loaded Module Successfully
-                      </div>
+                        Loaded Module Successfully &rarr; View
+                      </button>
                     )}
                   </div>
                 </div>

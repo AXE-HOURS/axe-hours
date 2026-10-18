@@ -1427,7 +1427,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         }
 
         try {
-          const ytResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`);
+          const ytResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`, {
+            signal: AbortSignal.timeout(8000)
+          });
           if (!ytResponse.ok) {
             const errorText = await ytResponse.text();
             console.error(`YouTube Data API returned non-200 status: ${ytResponse.status}`, errorText);
@@ -1536,7 +1538,9 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
         if (platform === "tiktok") {
           try {
             const oembedUrl = `https://www.tiktok.com/oembed?url=${encodeURIComponent(videoUrl)}`;
-            const oembedResponse = await fetch(oembedUrl);
+            const oembedResponse = await fetch(oembedUrl, {
+              signal: AbortSignal.timeout(8000)
+            });
             if (oembedResponse.ok) {
               const oembedData = await oembedResponse.json() as any;
               realTitle = oembedData.title || "";
@@ -2538,7 +2542,9 @@ OUTPUT REQUIREMENTS:
           if (channelId) {
             apiUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet&id=${channelId}&key=${ytApiKey}`;
           }
-          const ytRes = await fetch(apiUrl);
+          const ytRes = await fetch(apiUrl, {
+            signal: AbortSignal.timeout(8000)
+          });
           if (ytRes.ok) {
             const data = await ytRes.json() as any;
             if (data.items && data.items.length > 0) {
@@ -2769,7 +2775,9 @@ RULES:
         return res.status(200).json({ status: "skipped", message: "No identifiers supplied for live ingestion." });
       }
 
-      const response = await fetch(queryUrl);
+      const response = await fetch(queryUrl, {
+        signal: AbortSignal.timeout(8000)
+      });
       if (!response.ok) {
         throw new Error(`YouTube API returned status code ${response.status}`);
       }

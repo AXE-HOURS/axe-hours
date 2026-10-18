@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { 
   History, Calendar, Trash2, Search, Sliders, RefreshCw, 
-  Lightbulb, Bookmark, Zap, TrendingUp, Download, User, Info, Check, ShieldAlert
+  Lightbulb, Bookmark, Zap, TrendingUp, Download, User, Info, Check, ShieldAlert,
+  Video, Wand2, ArrowRight
 } from 'lucide-react';
 import { useFirebase, UserActivityItem } from '../context/FirebaseContext';
 import { useToast } from '../context/ToastContext';
@@ -213,14 +214,81 @@ export const ActivityLog: React.FC = () => {
       </div>
 
       {totalCount === 0 ? (
-        <GlassCard id="empty-activities-card" className="p-12 text-center max-w-lg mx-auto">
-          <div className="w-16 h-16 mx-auto mb-4 bg-white/5 border border-white/10 rounded-full flex items-center justify-center text-primary-50">
-            <History size={24} className="opacity-80 animate-spin [animation-duration:12s]" />
+        <GlassCard id="empty-activities-card" className="p-8 sm:p-12 text-center max-w-2xl mx-auto">
+          <div className="w-16 h-16 mx-auto mb-4 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-center text-primary">
+            <History size={28} />
           </div>
-          <h2 className="text-lg font-bold text-white">Your audit logs are empty.</h2>
-          <p className="text-on-surface-variant text-xs mt-2 max-w-sm mx-auto leading-relaxed">
-            As you synthesize video blueprints, lock hook templates, or research competitor metrics across the suite, AXE HOURS will elegantly index entries here.
+          <h2 className="text-xl font-bold text-white">Your Workspace Audit Trail is Empty</h2>
+          <p className="text-on-surface-variant text-xs mt-2 max-w-md mx-auto leading-relaxed">
+            As you synthesize video blueprints, lock high-retention hooks, extract transcripts, or monitor competitor radars, AXE HOURS automatically records your audit telemetry.
           </p>
+
+          <div className="mt-8 text-left">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-gray-400 font-bold block mb-3 text-center sm:text-left">
+              Recommended First Actions to Start Telemetry
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'generator' } }))}
+                className="p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-primary/40 transition-all text-left flex items-start justify-between group cursor-pointer"
+              >
+                <div>
+                  <div className="flex items-center gap-2 text-white font-bold text-xs mb-1">
+                    <Wand2 size={14} className="text-primary group-hover:rotate-12 transition-transform" />
+                    <span>AI Video Architect</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 font-light">Generate complete retention-optimized script blueprints.</p>
+                </div>
+                <ArrowRight size={14} className="text-gray-500 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0 mt-0.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'script-fetcher' } }))}
+                className="p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-emerald-500/40 transition-all text-left flex items-start justify-between group cursor-pointer"
+              >
+                <div>
+                  <div className="flex items-center gap-2 text-white font-bold text-xs mb-1">
+                    <Download size={14} className="text-emerald-400 group-hover:scale-110 transition-transform" />
+                    <span>Script Fetcher</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 font-light">Extract authentic transcripts, pacing & hooks from any URL.</p>
+                </div>
+                <ArrowRight size={14} className="text-gray-500 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0 mt-0.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'competitors' } }))}
+                className="p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-500/40 transition-all text-left flex items-start justify-between group cursor-pointer"
+              >
+                <div>
+                  <div className="flex items-center gap-2 text-white font-bold text-xs mb-1">
+                    <TrendingUp size={14} className="text-cyan-400 group-hover:scale-110 transition-transform" />
+                    <span>Competitor Radar</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 font-light">Inspect breakout videos, upload cadence & view velocity.</p>
+                </div>
+                <ArrowRight size={14} className="text-gray-500 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0 mt-0.5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'teleprompter' } }))}
+                className="p-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-pink-500/40 transition-all text-left flex items-start justify-between group cursor-pointer"
+              >
+                <div>
+                  <div className="flex items-center gap-2 text-white font-bold text-xs mb-1">
+                    <Video size={14} className="text-pink-400 group-hover:scale-110 transition-transform" />
+                    <span>Teleprompter Studio</span>
+                  </div>
+                  <p className="text-[11px] text-gray-400 font-light">Rehearse dialogue with autoscroll, mirror mode & WPM speed.</p>
+                </div>
+                <ArrowRight size={14} className="text-gray-500 group-hover:text-white group-hover:translate-x-0.5 transition-all shrink-0 mt-0.5" />
+              </button>
+            </div>
+          </div>
         </GlassCard>
       ) : (
         <div id="active-activities-interface" className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">

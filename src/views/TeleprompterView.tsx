@@ -105,6 +105,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
   const lastTimeRef = useRef<number>(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const wakeLockRef = useRef<any>(null);
 
   // --- WORD COUNT & DURATION CALCULATION ---
   const wordCount = React.useMemo(() => {
@@ -268,6 +269,59 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
     };
   }, [isPlaying]);
 
+  // --- SCREEN WAKE LOCK (Keep screen awake during prompter playback) ---
+  useEffect(() => {
+    let isMounted = true;
+
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator && (navigator as any).wakeLock?.request) {
+          if (!wakeLockRef.current) {
+            wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+            wakeLockRef.current.addEventListener('release', () => {
+              if (isMounted) {
+                wakeLockRef.current = null;
+              }
+            });
+          }
+        }
+      } catch {
+        // WakeLock may fail due to low battery or tab backgrounding
+      }
+    };
+
+    const releaseWakeLock = async () => {
+      try {
+        if (wakeLockRef.current) {
+          await wakeLockRef.current.release();
+          wakeLockRef.current = null;
+        }
+      } catch {
+        // ignore release errors
+      }
+    };
+
+    if (isPlaying) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isPlaying) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      isMounted = false;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      releaseWakeLock();
+    };
+  }, [isPlaying]);
+
   // --- TOGGLE PLAY / PAUSE ---
   const handleTogglePlay = useCallback(() => {
     setIsPlaying(prev => {
@@ -333,7 +387,8 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
   // --- KEYBOARD SHORTCUTS ---
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't capture when typing in inputs/modals
+      // Don't capture when edit modal is open or when typing in inputs/modals
+      if (isEditModalOpen) return;
       const target = e.target as HTMLElement;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
         return;
@@ -364,7 +419,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [handleTogglePlay, handleResetToTop, handleToggleMirror, handleToggleFullscreen]);
+  }, [isEditModalOpen, handleTogglePlay, handleResetToTop, handleToggleMirror, handleToggleFullscreen]);
 
   // --- CONTROLS AUTOHIDE / DIMMING WHEN SCROLLING ---
   const handleMouseMove = () => {
