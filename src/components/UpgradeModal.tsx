@@ -45,9 +45,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
 
   const proFeatures = [
     'Unlimited AI scripts, extractions & blueprints',
-    'Teleprompter Studio with clean speech delivery',
+    'Full Teleprompter Studio (Mirror + WakeLock)',
     '15+ Neuro-linguistic viral hook formulas',
-    'Full YouTube dialogue decoder & audio fallback',
+    'AI Audio Transcription Fallback',
     'Real-time competitor tracking & velocity radar',
     'Cloud-synchronized script & hook vault',
     'Priority high-throughput server processing'
@@ -55,11 +55,11 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
 
   const agencyFeatures = [
     'Everything in Creator Pro',
-    'Unlimited Competitor Intel audits & radar scans',
-    'Priority audio speech transcription fallback pipeline',
-    'Multi-creator collaboration pods & team workspaces',
-    'Bulk batch script generation & exports',
-    'Dedicated support desk & priority engineering SLA'
+    'Unlimited Competitor RSS Radar Channels',
+    'Batch .TXT & .SRT Studio Export Packs',
+    'AI Audio Transcription Fallback',
+    'Full Teleprompter Studio (Mirror + WakeLock)',
+    'Priority high-throughput server processing'
   ];
 
   return (
@@ -75,8 +75,8 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 Upgrade Creator Bandwidth
-                <span className="text-[10px] font-mono uppercase bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-2 py-0.5 rounded-full font-bold">
-                  Instant Activation
+                <span className="text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
+                  Free During Beta
                 </span>
               </h2>
               <p className="text-xs text-gray-400 mt-0.5">
@@ -155,7 +155,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
                 <div className="flex justify-between items-start">
                   <div>
                     <span className="text-[10px] font-mono font-bold text-amber-300 uppercase tracking-widest">Agency Elite</span>
-                    <h3 className="text-xl font-black text-white mt-0.5">Multi-Seat Studio</h3>
+                    <h3 className="text-xl font-black text-white mt-0.5">Power Studio</h3>
                   </div>
                   <div className="text-right">
                     <span className="text-2xl font-black text-white">$79</span>
@@ -200,7 +200,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
           {/* Statutory Renewal Disclosure Text */}
           <div className="p-3 bg-purple-500/5 border border-purple-500/15 rounded-xl text-center">
             <p className="text-[11px] text-purple-200/90 leading-relaxed font-sans font-medium">
-              Recurring billing. Cancel anytime from your Profile Settings. By clicking Subscribe, you agree that your plan will automatically renew monthly until canceled.
+              Early Access Preview • Free During Beta. Experience full Pro and Agency creator features with zero billing commitments.
             </p>
           </div>
 
@@ -208,7 +208,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
             <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
               <Shield size={14} className="text-emerald-400" />
-              <span>Instant Plan Activation • Cancel Anytime</span>
+              <span>Early Access Preview • Free During Beta</span>
             </div>
 
             <button
@@ -219,10 +219,10 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
               className="w-full sm:w-auto px-7 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white font-bold text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isProcessing ? (
-                <span>Securing Subscription...</span>
+                <span>Unlocking Access...</span>
               ) : (
                 <>
-                  <span>Subscribe to {selectedTier === 'pro' ? 'Pro ($19/mo)' : 'Agency ($79/mo)'}</span>
+                  <span>Unlock Beta Access — Free</span>
                   <ArrowRight size={15} />
                 </>
               )}

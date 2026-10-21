@@ -855,6 +855,12 @@ export const CompetitorIntel: React.FC = () => {
             "success"
           );
           playAudio(880);
+          window.dispatchEvent(new CustomEvent('axe-new-notification', {
+            detail: {
+              title: `Radar: ${c.name}`,
+              desc: `New ${isShort ? 'Short' : 'video'}: "${v.title.slice(0, 45)}${v.title.length > 45 ? '...' : ''}" (${v.views} views)`
+            }
+          }));
 
           // Pipe alert straight into user's Firebase activity stream
           logUserActivity(

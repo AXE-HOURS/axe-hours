@@ -54,3 +54,4 @@ export async function getAuthOrGuestToken(): Promise<string> {
 
   return '';
 }
+

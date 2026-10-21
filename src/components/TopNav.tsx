@@ -27,6 +27,14 @@ interface UserData {
   uid?: string;
 }
 
+interface AppNotification {
+  id: string;
+  title: string;
+  desc: string;
+  time?: string;
+  read?: boolean;
+}
+
 interface TopNavProps {
   showNotifications: boolean;
   setShowNotifications: (show: boolean) => void;
@@ -69,6 +77,39 @@ export const TopNav: React.FC<TopNavProps> = ({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<GenerationItem[]>([]);
+
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem("axe_hours_notifications");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    const handleNewNotif = (e: Event) => {
+      const customEvent = e as CustomEvent<{ title: string; desc: string }>;
+      if (customEvent.detail) {
+        const newNotif: AppNotification = {
+          id: Math.random().toString(36).substring(2, 9),
+          title: customEvent.detail.title,
+          desc: customEvent.detail.desc,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          read: false
+        };
+        setNotifications(prev => {
+          const updated = [newNotif, ...prev].slice(0, 20);
+          try {
+            localStorage.setItem("axe_hours_notifications", JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
+    };
+    window.addEventListener("axe-new-notification", handleNewNotif);
+    return () => window.removeEventListener("axe-new-notification", handleNewNotif);
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -336,6 +377,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
         <button 
           id="topnav-bell-btn"
+          aria-label="Notifications"
           onClick={(e) => {
             e.stopPropagation();
             setShowNotifications(!showNotifications);
@@ -343,7 +385,9 @@ export const TopNav: React.FC<TopNavProps> = ({
           className="relative text-on-surface-variant hover:text-primary transition-colors hover:scale-105 cursor-pointer p-1"
         >
           <Bell size={20} />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full shadow-[0_0_8px_rgba(157,80,187,0.8)]"></span>
+          {notifications.some(n => !n.read) && (
+            <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full shadow-[0_0_8px_rgba(157,80,187,0.8)]"></span>
+          )}
         </button>
         
         <div className="h-6 w-px bg-white/10 hidden xs:block"></div>
@@ -366,14 +410,53 @@ export const TopNav: React.FC<TopNavProps> = ({
 
       {showNotifications && (
         <div id="topnav-notifications-dropdown" className="absolute right-4 md:right-8 top-16 w-72 xs:w-80 bg-[#0a0a0c] border border-white/20 rounded-ax shadow-[0_20px_50px_rgba(0,0,0,0.95),0_0_35px_rgba(157,80,187,0.22)] p-4 animate-in fade-in slide-in-from-top-2 text-white z-50 select-text">
-          <h3 id="notifications-title" className="font-bold mb-3 text-xs uppercase tracking-wider text-primary">Notifications</h3>
-          <div className="space-y-3">
-            <div id="notif-card-1" className="p-3 bg-white/5 border border-white/5 rounded-ax text-xs hover:border-primary/30 transition-colors cursor-pointer leading-relaxed">
-              <p className="text-primary font-bold">New Hook Matrix ready!</p>
-              <p className="opacity-70 mt-1">AI Video Architect constructed 5 target-niche hook suggestions.</p>
-            </div>
-            <p id="notif-empty-hint" className="text-center text-[10px] text-on-surface-variant py-2 font-light">No more notifications</p>
+          <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+            <h3 id="notifications-title" className="font-bold text-xs uppercase tracking-wider text-primary">Notifications</h3>
+            {notifications.length > 0 && (
+              <button 
+                onClick={() => {
+                  setNotifications([]);
+                  try {
+                    localStorage.removeItem("axe_hours_notifications");
+                  } catch {}
+                }}
+                className="text-[10px] text-gray-400 hover:text-white transition-colors cursor-pointer"
+              >
+                Clear all
+              </button>
+            )}
           </div>
+          {notifications.length === 0 ? (
+            <div id="notif-empty-state" className="py-6 text-center text-on-surface-variant text-xs">
+              <Bell size={22} className="mx-auto mb-2 opacity-30 text-gray-400" />
+              <p className="font-semibold text-gray-300">No notifications yet</p>
+              <p className="text-[11px] opacity-70 mt-1">Alerts for generated scripts and competitor uploads will appear here.</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {notifications.map((notif) => (
+                <div 
+                  key={notif.id}
+                  onClick={() => {
+                    const updated = notifications.map(n => n.id === notif.id ? { ...n, read: true } : n);
+                    setNotifications(updated);
+                    try {
+                      localStorage.setItem("axe_hours_notifications", JSON.stringify(updated));
+                    } catch {}
+                  }}
+                  className={`p-3 rounded-ax text-xs hover:border-primary/40 transition-colors cursor-pointer leading-relaxed border ${
+                    notif.read ? 'bg-white/5 border-white/5 opacity-70' : 'bg-purple-500/10 border-purple-500/30'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <p className="text-primary font-bold truncate">{notif.title}</p>
+                    {notif.time && <span className="text-[9px] text-gray-400 shrink-0 font-mono">{notif.time}</span>}
+                  </div>
+                  <p className="opacity-80 mt-1 break-words">{notif.desc}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

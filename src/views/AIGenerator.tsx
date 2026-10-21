@@ -1718,6 +1718,9 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
       if (activeKey) {
         headers["x-custom-gemini-key"] = activeKey;
       }
+      if (dbUser?.tier) {
+        headers["x-user-tier"] = dbUser.tier;
+      }
 
       const response = await fetch("/api/generate-stream", {
         signal: controller.signal,
@@ -1733,6 +1736,7 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
           customInstructions,
           referenceHook: importedContext?.openingHook || null,
           sourceTitle: importedContext?.title || null,
+          tier: dbUser?.tier || "free",
           uid
         })
       });
@@ -1789,6 +1793,12 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         parseScriptStructure(generatedText);
         logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Gemini Cloud.`);
         showToast("Viral script blueprint generated and structured! 🚀", "success");
+        window.dispatchEvent(new CustomEvent('axe-new-notification', {
+          detail: {
+            title: 'New Script Blueprint',
+            desc: `Generated script: "${(prompt || 'Untitled Generation').slice(0, 45)}${(prompt || '').length > 45 ? '...' : ''}"`
+          }
+        }));
       }
     } catch (error: any) {
       clearTimeout(timeoutId);

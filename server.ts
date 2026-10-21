@@ -46,29 +46,65 @@ function verifyGuestToken(token: string, clientIp: string): { valid: boolean; er
   }
 }
 
-// Daily AI Call Tracking for unauthenticated guest IPs: max 3 per calendar day
-interface DailyUsage {
+// Daily Free-Tier Quota Tracking (3 extractions, 5 AI scripts per day)
+interface UserDailyQuota {
   date: string; // YYYY-MM-DD
-  count: number;
+  extractions: number;
+  generations: number;
 }
-const guestDailyUsageMap = new Map<string, DailyUsage>();
+const userDailyQuotaMap = new Map<string, UserDailyQuota>();
 
 function getTodayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function checkAndIncrementGuestDailyUsage(ip: string): { allowed: boolean; remaining: number } {
-  const today = getTodayString();
-  const current = guestDailyUsageMap.get(ip);
-  if (!current || current.date !== today) {
-    guestDailyUsageMap.set(ip, { date: today, count: 1 });
-    return { allowed: true, remaining: 2 };
-  }
-  if (current.count >= 3) {
-    return { allowed: false, remaining: 0 };
-  }
-  current.count += 1;
-  return { allowed: true, remaining: 3 - current.count };
+function enforceFreeTierQuota(type: "extraction" | "generation") {
+  return (req: any, res: any, next: any) => {
+    // 1. Custom key bypasses quota completely
+    if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
+      return next();
+    }
+
+    // 2. Pro and Agency tiers have unlimited quota
+    const userTier = req.headers["x-user-tier"] || (req.body && req.body.tier) || req.user?.tier;
+    if (userTier === "pro" || userTier === "agency") {
+      return next();
+    }
+
+    const today = getTodayString();
+    const clientIp = (req.ip || req.socket?.remoteAddress || "unknown_ip").toString();
+    const quotaKey = (req.userId && req.userId !== "guest" && req.userId !== "custom_key_user")
+      ? req.userId
+      : `guest_${clientIp}`;
+
+    let quota = userDailyQuotaMap.get(quotaKey);
+    if (!quota || quota.date !== today) {
+      quota = { date: today, extractions: 0, generations: 0 };
+      userDailyQuotaMap.set(quotaKey, quota);
+    }
+
+    if (type === "extraction") {
+      if (quota.extractions >= 3) {
+        return res.status(429).json({
+          ok: false,
+          code: "QUOTA_EXCEEDED",
+          error: "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+        });
+      }
+      quota.extractions += 1;
+    } else if (type === "generation") {
+      if (quota.generations >= 5) {
+        return res.status(429).json({
+          ok: false,
+          code: "QUOTA_EXCEEDED",
+          error: "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+        });
+      }
+      quota.generations += 1;
+    }
+
+    next();
+  };
 }
 
 function parseFirebaseJwt(token: string): { uid: string; email?: string } | null {
@@ -180,15 +216,8 @@ function verifyAiAccess(req: any, res: any, next: any) {
   // Check if it's a signed guest token
   const guestResult = verifyGuestToken(token, clientIp);
   if (guestResult.valid) {
-    const usage = checkAndIncrementGuestDailyUsage(clientIp);
-    if (!usage.allowed) {
-      return res.status(429).json({
-        ok: false,
-        error: "Guest demo limit reached (3 AI requests per day). Please sign in or provide a custom Gemini API key."
-      });
-    }
     req.userId = `guest_${clientIp}`;
-    req.user = { uid: req.userId, role: "guest" };
+    req.user = { uid: req.userId, role: "guest", tier: "free" };
     return next();
   }
 
@@ -559,7 +588,7 @@ Return exactly this JSON schema:
   });
 
   // Secure Gemini API Proxy with SSE Streaming support
-  app.post("/api/generate-stream", verifyAiAccess, async (req: any, res) => {
+  app.post("/api/generate-stream", verifyAiAccess, enforceFreeTierQuota("generation"), async (req: any, res) => {
     const { prompt, brandVoice, targetNiche, style, duration, hookTone, customInstructions, referenceHook, sourceTitle } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
@@ -1748,7 +1777,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
   const fetchYouTubeCaptions = fetchYoutubeSubtitles;
 
   // Secure Script Fetcher and Analyzer with Google Search grounding
-  app.post("/api/fetch-script", verifyAiAccess, async (req: any, res) => {
+  app.post("/api/fetch-script", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const { videoUrl, isLive } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
@@ -2658,7 +2687,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
   }
 
   // AI Audio Transcription / Speech-to-Text Fallback Pipeline
-  app.post("/api/transcribe-audio", verifyAiAccess, async (req: any, res) => {
+  app.post("/api/transcribe-audio", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const { videoUrl, title, author } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;

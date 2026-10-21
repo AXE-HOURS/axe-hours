@@ -364,7 +364,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
         {/* Holographic Hovering Badge */}
         <div id="landing-badge" className="hovering-token inline-flex items-center gap-2 px-4.5 py-1.5 rounded-full bg-purple-500/15 border border-purple-500/35 backdrop-blur-xl mb-6 text-[11px] md:text-xs text-purple-200 font-black tracking-widest uppercase shadow-[0_0_20px_rgba(168,85,247,0.3)] select-none">
           <Sparkles size={13} className="text-pink-400 animate-spin-slow shrink-0" />
-          <span>CYBER-GLASS PRO EDITION</span>
+          <span>CREATOR STUDIO EDITION</span>
         </div>
 
         {/* Pulsing Neon Magenta Title */}
@@ -399,14 +399,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
         </div>
       </section>
 
-      {/* PHASE 3: PRODUCTION PIPELINE MATRIX (CONNECTED 3D FLOW DIAGRAM) */}
+      {/* PHASE 3: CREATOR PRODUCTION WORKFLOW (CONNECTED 3D FLOW DIAGRAM) */}
       <section id="showcase" className="relative z-10 max-w-6xl mx-auto px-6 py-14">
         <div className="text-center mb-10 select-none">
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs font-black uppercase tracking-widest mb-3">
             <Cpu size={12} className="animate-pulse" /> Core Processing Loop
           </div>
           <h2 id="showcase-title" className="text-3xl md:text-4xl font-black tracking-tight text-white uppercase">
-            Production Pipeline Matrix
+            Creator Production Workflow
           </h2>
           <p id="showcase-desc" className="text-gray-300 max-w-lg mx-auto text-sm md:text-base mt-2 font-normal leading-relaxed">
             An interconnected sequence designed to optimize every facet of your content lifecycle. Select a node to decrypt its stream parameters.
@@ -448,7 +448,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                       <div className="flex items-center justify-between mb-0.5">
                         <span className="text-[11px] font-mono tracking-widest text-purple-300 uppercase font-black">{node.tagline}</span>
                         {isActive && (
-                          <span className="text-[9px] bg-black/60 text-emerald-300 font-mono px-1.5 py-0.5 rounded uppercase font-bold animate-pulse tracking-widest border border-emerald-500/40">Active Decrypt</span>
+                          <span className="text-[9px] bg-black/60 text-emerald-300 font-mono px-1.5 py-0.5 rounded uppercase font-bold animate-pulse tracking-widest border border-emerald-500/40">Transcript Extraction</span>
                         )}
                       </div>
                       <h3 className={`text-sm md:text-base font-black tracking-tight ${isActive ? 'text-white' : 'text-gray-200'}`}>
@@ -696,7 +696,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             <ShieldCheck size={12} /> Simple, Transparent Pricing
           </div>
           <h2 className="text-3xl md:text-4xl font-black text-white uppercase tracking-tight">Creator Plans & Pricing</h2>
-          <p className="text-xs md:text-sm text-gray-300 mt-2 font-normal">Choose the plan that fits your video production workflow. Instant activation, cancel anytime.</p>
+          <p className="text-xs md:text-sm text-gray-300 mt-2 font-normal">Choose the plan that fits your video production workflow. Early Access Preview • Free During Beta.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto items-stretch">
@@ -788,20 +788,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                   <div className="p-1 bg-purple-500/25 border border-purple-500/50 rounded-lg text-purple-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Full Teleprompter Studio with clean speech</span>
+                  <span>Full Teleprompter Studio (Mirror + WakeLock)</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-xs text-purple-100">
                   <div className="p-1 bg-purple-500/25 border border-purple-500/50 rounded-lg text-purple-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Cloud synchronization across devices</span>
+                  <span>AI Audio Transcription Fallback</span>
                 </li>
               </ul>
             </div>
 
             <div className="mt-4 pt-2 border-t border-purple-500/20 text-center">
               <p className="text-[10px] text-purple-200/90 leading-relaxed font-sans">
-                Recurring billing. Cancel anytime.
+                Early Access Preview • Free During Beta
               </p>
             </div>
 
@@ -810,7 +810,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
               onClick={() => openModal('signup')} 
               className="w-full py-3.5 mt-2 text-xs font-black uppercase tracking-widest cursor-pointer shadow-[0_0_25px_rgba(168,85,247,0.5)] border border-purple-400 rounded-xl"
             >
-              Get Creator Pro
+              Unlock Beta Access — Free
             </PrimaryButton>
           </div>
 
@@ -818,9 +818,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
           <div id="price-card-agency" className="bg-black/60 border border-white/15 rounded-2xl p-6 flex flex-col justify-between relative backdrop-blur-md transition-all hover:border-amber-500/40 select-none">
             <div className="space-y-4">
               <div>
-                <span className="text-[11px] font-mono font-bold text-amber-400 uppercase tracking-widest">Multi-Seat</span>
+                <span className="text-[11px] font-mono font-bold text-amber-400 uppercase tracking-widest">Power Studio</span>
                 <h3 className="text-xl font-black text-white tracking-tight uppercase mt-1">Agency Elite</h3>
-                <p className="text-xs text-gray-300 font-normal mt-1">For teams, production studios & agencies.</p>
+                <p className="text-xs text-gray-300 font-normal mt-1">For high-output creators, production workflows & agencies.</p>
               </div>
 
               <div className="py-3 border-y border-white/10">
@@ -840,19 +840,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                   <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Unlimited Competitor Intel audits</span>
+                  <span>Unlimited Competitor RSS Radar Channels</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-xs text-gray-200">
                   <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Priority audio fallback pipeline</span>
+                  <span>Batch .TXT & .SRT Studio Export Packs</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-xs text-gray-200">
                   <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Team collaboration & priority SLA</span>
+                  <span>AI Audio Transcription Fallback</span>
+                </li>
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
+                  <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
+                    <Check size={12} />
+                  </div>
+                  <span>Full Teleprompter Studio (Mirror + WakeLock)</span>
                 </li>
               </ul>
             </div>
@@ -862,7 +868,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
               onClick={() => openModal('signup')} 
               className="w-full py-3 mt-6 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-black font-bold uppercase tracking-widest text-xs cursor-pointer transition-colors shadow-md rounded-xl"
             >
-              Get Agency Elite
+              Unlock Beta Access — Free
             </button>
           </div>
         </div>

@@ -48,7 +48,7 @@ import {
 
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
-  const { logUserActivity, logActivity, user, saveIdeaDB } = useFirebase();
+  const { logUserActivity, logActivity, user, dbUser, saveIdeaDB } = useFirebase();
   const { calibrationHook, setCalibrationHook } = useCalibrationBridge();
   const uid = user?.uid || "guest";
   const [videoUrl, setVideoUrl] = useState<string>(() => sessionStorage.getItem('pending_script_fetcher_url') || '');
@@ -315,6 +315,9 @@ export const ScriptFetcher: React.FC = () => {
       if (savedKey) {
         headers["x-custom-gemini-key"] = savedKey;
       }
+      if (dbUser?.tier) {
+        headers["x-user-tier"] = dbUser.tier;
+      }
 
       const res = await fetch("/api/transcribe-audio", {
         method: "POST",
@@ -323,6 +326,7 @@ export const ScriptFetcher: React.FC = () => {
           videoUrl: targetUrl,
           title: extractedData.title,
           author: extractedData.author,
+          tier: dbUser?.tier || "free",
           uid
         })
       });
@@ -614,12 +618,16 @@ export const ScriptFetcher: React.FC = () => {
       if (savedKey) {
         headers["x-custom-gemini-key"] = savedKey;
       }
+      if (dbUser?.tier) {
+        headers["x-user-tier"] = dbUser.tier;
+      }
 
       const response = await fetch("/api/fetch-script", {
         method: "POST",
         headers,
         body: JSON.stringify({
           videoUrl: cleanedUrl,
+          tier: dbUser?.tier || "free",
           uid
         })
       });
@@ -628,6 +636,12 @@ export const ScriptFetcher: React.FC = () => {
 
       if (!response.ok) {
         const errData = await response.json();
+        if (errData.code === 'QUOTA_EXCEEDED') {
+          setIsLoading(false);
+          setProgressText('');
+          addToast(errData.error || 'Daily free limit reached.', 'warning');
+          return;
+        }
         if (
           errData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
           errData.transcriptErrorCode === 'VIDEO_UNAVAILABLE' || 
@@ -755,6 +769,9 @@ export const ScriptFetcher: React.FC = () => {
               if (savedKey) {
                 audioHeaders["x-custom-gemini-key"] = savedKey;
               }
+              if (dbUser?.tier) {
+                audioHeaders["x-user-tier"] = dbUser.tier;
+              }
 
               const audioRes = await fetch("/api/transcribe-audio", {
                 method: "POST",
@@ -763,6 +780,7 @@ export const ScriptFetcher: React.FC = () => {
                   videoUrl: cleanedUrl,
                   title: data.title,
                   author: data.author,
+                  tier: dbUser?.tier || "free",
                   uid
                 })
               });

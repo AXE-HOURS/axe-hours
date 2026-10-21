@@ -166,7 +166,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: i
                   5. Contact & Privacy Inquiries
                 </h3>
                 <p className="text-gray-400">
-                  For privacy questions, data export requests, or security disclosures, reach out to the AXE Hours AI Data Protection Team at <a href="mailto:legal@axe-hours.com" className="text-purple-400 hover:underline">legal@axe-hours.com</a> (or <a href="mailto:support@axe-hours.com" className="text-purple-400 hover:underline">support@axe-hours.com</a>).
+                  For privacy questions, data export requests, or security disclosures, reach out to the AXE Hours AI Data Protection Team at <a href="mailto:axehours.official@gmail.com" className="text-purple-400 hover:underline">axehours.official@gmail.com</a>.
                 </p>
               </section>
 
@@ -245,7 +245,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: i
                   6. Contact & Legal Inquiries
                 </h3>
                 <p className="text-gray-400">
-                  For legal inquiries or terms clarification, contact <a href="mailto:legal@axe-hours.com" className="text-purple-400 hover:underline">legal@axe-hours.com</a>.
+                  For legal inquiries or terms clarification, contact <a href="mailto:axehours.official@gmail.com" className="text-purple-400 hover:underline">axehours.official@gmail.com</a>.
                 </p>
               </section>
 
@@ -275,8 +275,8 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: i
                 <div className="bg-black/60 p-3 rounded-lg font-mono text-xs text-purple-300 space-y-1 border border-white/5">
                   <p><strong className="text-gray-300">Designated Agent:</strong> Copyright Legal Department</p>
                   <p><strong className="text-gray-300">Organization:</strong> AXE Hours AI</p>
-                  <p><strong className="text-gray-300">Primary DMCA Email:</strong> <a href="mailto:legal@axe-hours.com" className="underline text-purple-400">legal@axe-hours.com</a></p>
-                  <p><strong className="text-gray-300">Support Desk:</strong> <a href="mailto:support@axe-hours.com" className="underline text-purple-400">support@axe-hours.com</a></p>
+                  <p><strong className="text-gray-300">Primary DMCA Email:</strong> <a href="mailto:axehours.official@gmail.com" className="underline text-purple-400">axehours.official@gmail.com</a></p>
+                  <p><strong className="text-gray-300">Support Desk:</strong> <a href="mailto:axehours.official@gmail.com" className="underline text-purple-400">axehours.official@gmail.com</a></p>
                 </div>
               </section>
 
@@ -304,7 +304,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: i
                   2. Counter-Notification Procedure (17 U.S.C. § 512(g)(3))
                 </h3>
                 <p className="text-gray-400 leading-relaxed">
-                  If material that you posted or stored on AXE Hours AI has been removed or disabled as a result of a DMCA notice, and you believe the removal was a mistake or misidentification, you may send a written Counter-Notification to our Designated Agent at <a href="mailto:legal@axe-hours.com" className="text-purple-400 hover:underline">legal@axe-hours.com</a>.
+                  If material that you posted or stored on AXE Hours AI has been removed or disabled as a result of a DMCA notice, and you believe the removal was a mistake or misidentification, you may send a written Counter-Notification to our Designated Agent at <a href="mailto:axehours.official@gmail.com" className="text-purple-400 hover:underline">axehours.official@gmail.com</a>.
                 </p>
                 <p className="text-gray-400 leading-relaxed">
                   Upon receipt of a valid Counter-Notification, we will forward a copy to the original complaining party. If the copyright owner does not file a court action within 10-14 business days, we may restore the removed material pursuant to the DMCA safe harbor rules.
