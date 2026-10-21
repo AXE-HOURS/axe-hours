@@ -155,9 +155,26 @@ service cloud.firestore {
 
     // 6. Collection Match Blocks
     
-    // Users Collection with strict User Document Isolation
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    // Server Usage Quotas (Server-managed only, clients cannot tamper, reset or overwrite quotas)
+    match /server_usage_quotas/{quotaId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Clients cannot directly write or reset server daily quotas
+    }
+
+    // Users Collection with strict User Document Isolation and Tier Protection
+    match /users/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if false;
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
+      // Users can only update their own profile; cannot arbitrarily escalate role or set unauthorized tier
+      allow update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming())
+        && (!incoming().keys().contains('role') || incoming().role == existing().role || incoming().role in ['Creator'])
+        && (!incoming().keys().contains('tier') || incoming().tier in ['free', 'pro']);
+      allow delete: if false;
+
+      match /{subcollection=**} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     // Competitors Collection

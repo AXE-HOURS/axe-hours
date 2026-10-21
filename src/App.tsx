@@ -199,7 +199,7 @@ export default function App() {
     bio: firebaseUser.email === "atharvsharma1259@gmail.com" ? 'Lead AI Architect & System Administrator for Axe Hours.' : 'Content Creator & Hook Architect',
     role: firebaseUser.email === "atharvsharma1259@gmail.com" ? 'Administrator' : 'Creator',
     uid: firebaseUser.uid,
-    tier: firebaseUser.email === "atharvsharma1259@gmail.com" ? 'agency' : 'pro',
+    tier: firebaseUser.email === "atharvsharma1259@gmail.com" ? 'agency' : 'free',
     customInstructions: ""
   } : localUser);
 

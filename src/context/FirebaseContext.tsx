@@ -234,7 +234,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               avatar: firebaseUser.photoURL || '',
               bio: isDeveloper ? 'Lead AI Architect & System Administrator for Axe Hours.' : 'Content Creator & Hook Architect',
               role: isDeveloper ? 'Administrator' : 'Creator',
-              tier: isDeveloper ? 'agency' : 'pro', // Generous auto-upgrading to premium Pro/Agency tiers!
+              tier: isDeveloper ? 'agency' : 'free', // Default new accounts to 'free' Starter tier
               customInstructions: "",
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString()
@@ -421,7 +421,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${uid}`,
       bio: `Creator session initialized via ${providerName}.`,
       role: 'Creator',
-      tier: 'pro',
+      tier: 'free',
       customInstructions: "",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

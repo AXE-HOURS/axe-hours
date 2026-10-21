@@ -142,7 +142,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="w-full flex items-center gap-3 px-4 py-3 text-gray-300 hover:text-white hover:bg-white/10 rounded-xl transition-all cursor-pointer"
           >
             <Crown size={20} className="text-yellow-400" />
-            <span>Upgrade to Pro</span>
+            <span>Unlock Beta Access — Free</span>
           </button>
         )}
         

@@ -25,6 +25,7 @@ interface UserData {
   handle?: string;
   avatar?: string;
   uid?: string;
+  tier?: string;
 }
 
 interface AppNotification {
@@ -400,7 +401,9 @@ export const TopNav: React.FC<TopNavProps> = ({
         >
           <div className="text-right hidden sm:block">
             <p id="topnav-user-name" className="text-xs font-bold leading-none text-white">{user?.name || 'Creator'}</p>
-            <p id="topnav-user-tier" className="text-[9px] text-primary font-bold tracking-widest uppercase mt-0.5">Pro Plan</p>
+            <p id="topnav-user-tier" className="text-[9px] text-primary font-bold tracking-widest uppercase mt-0.5">
+              {user?.tier === 'agency' ? 'Agency Elite' : user?.tier === 'pro' ? 'Beta Pro' : 'Free Plan'}
+            </p>
           </div>
           <div id="topnav-avatar-container" className="w-8 h-8 rounded-full bg-white/10 border border-white/20 overflow-hidden shrink-0">
             <img id="topnav-avatar-img" src={user?.avatar || avatar} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />

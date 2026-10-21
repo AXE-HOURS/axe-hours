@@ -1,4 +1,5 @@
 import express from "express";
+import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import dotenv from "dotenv";
@@ -46,66 +47,233 @@ function verifyGuestToken(token: string, clientIp: string): { valid: boolean; er
   }
 }
 
-// Daily Free-Tier Quota Tracking (3 extractions, 5 AI scripts per day)
-interface UserDailyQuota {
+// Firebase Project Config for Server-Side Quota & Tier Lookups
+let firebaseAppConfig: any = {};
+try {
+  const cfgPath = path.resolve(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(cfgPath)) {
+    firebaseAppConfig = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+  }
+} catch {}
+const FIREBASE_PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID || firebaseAppConfig.projectId || "inspiring-practice-b83b3";
+const FIREBASE_API_KEY = process.env.VITE_FIREBASE_API_KEY || firebaseAppConfig.apiKey || "";
+
+// Persisted Quota Entity across server restarts
+interface PersistedQuota {
   date: string; // YYYY-MM-DD
   extractions: number;
   generations: number;
+  updatedAt: number;
 }
-const userDailyQuotaMap = new Map<string, UserDailyQuota>();
+
+const userDailyQuotaMap = new Map<string, PersistedQuota>();
+const QUOTAS_CACHE_FILE = path.resolve(process.cwd(), ".server_quotas.json");
+
+// Read local disk cache on startup for instant warm-start resilience
+function loadLocalQuotasCache(): Record<string, PersistedQuota> {
+  try {
+    if (fs.existsSync(QUOTAS_CACHE_FILE)) {
+      return JSON.parse(fs.readFileSync(QUOTAS_CACHE_FILE, "utf8"));
+    }
+  } catch {}
+  return {};
+}
+
+const initialDiskCache = loadLocalQuotasCache();
+for (const [k, v] of Object.entries(initialDiskCache)) {
+  userDailyQuotaMap.set(k, v);
+}
+
+function persistQuotaRecord(docId: string, quota: PersistedQuota) {
+  // 1. Write to local file cache
+  try {
+    const current = loadLocalQuotasCache();
+    current[docId] = quota;
+    fs.writeFileSync(QUOTAS_CACHE_FILE, JSON.stringify(current, null, 2), "utf8");
+  } catch {}
+
+  // 2. Asynchronously write-through to Firestore collection 'server_usage_quotas'
+  if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
+    fetch(
+      `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/server_usage_quotas/${docId}?key=${FIREBASE_API_KEY}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: {
+            extractions: { integerValue: String(quota.extractions) },
+            generations: { integerValue: String(quota.generations) },
+            updatedAt: { integerValue: String(quota.updatedAt) },
+            date: { stringValue: quota.date }
+          }
+        }),
+        signal: AbortSignal.timeout(3000)
+      }
+    ).catch(() => {});
+  }
+}
+
+async function fetchQuotaFromFirestore(docId: string): Promise<PersistedQuota | null> {
+  if (!FIREBASE_PROJECT_ID || !FIREBASE_API_KEY) return null;
+  try {
+    const res = await fetch(
+      `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/server_usage_quotas/${docId}?key=${FIREBASE_API_KEY}`,
+      { signal: AbortSignal.timeout(3000) }
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (json && json.fields) {
+      return {
+        date: json.fields.date?.stringValue || getTodayString(),
+        extractions: parseInt(json.fields.extractions?.integerValue || "0", 10),
+        generations: parseInt(json.fields.generations?.integerValue || "0", 10),
+        updatedAt: parseInt(json.fields.updatedAt?.integerValue || String(Date.now()), 10)
+      };
+    }
+  } catch {}
+  return null;
+}
+
+interface UserTierCacheEntry {
+  tier: "free" | "pro" | "agency";
+  exp: number;
+}
+const userTierCache = new Map<string, UserTierCacheEntry>();
+
+async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agency"> {
+  if (uid === "atharvsharma1259@gmail.com") return "agency";
+
+  const cached = userTierCache.get(uid);
+  if (cached && cached.exp > Date.now()) {
+    return cached.tier;
+  }
+
+  if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
+    try {
+      const res = await fetch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}?key=${FIREBASE_API_KEY}`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      if (res.ok) {
+        const json = await res.json();
+        const tier = json?.fields?.tier?.stringValue;
+        if (tier === "agency" || tier === "pro") {
+          userTierCache.set(uid, { tier, exp: Date.now() + 300_000 });
+          return tier;
+        }
+      }
+    } catch {}
+  }
+
+  userTierCache.set(uid, { tier: "free", exp: Date.now() + 300_000 });
+  return "free";
+}
 
 function getTodayString(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function enforceFreeTierQuota(type: "extraction" | "generation") {
-  return (req: any, res: any, next: any) => {
-    // 1. Custom key bypasses quota completely
+// Daily Safety Cap & Quota Middleware across ALL Tiers
+function enforceDailyQuota(type: "extraction" | "generation") {
+  return async (req: any, res: any, next: any) => {
+    // 1. Custom key bypasses server quota completely (user pays with own key)
     if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
-      return next();
-    }
-
-    // 2. Pro and Agency tiers have unlimited quota
-    const userTier = req.headers["x-user-tier"] || (req.body && req.body.tier) || req.user?.tier;
-    if (userTier === "pro" || userTier === "agency") {
       return next();
     }
 
     const today = getTodayString();
     const clientIp = (req.ip || req.socket?.remoteAddress || "unknown_ip").toString();
-    const quotaKey = (req.userId && req.userId !== "guest" && req.userId !== "custom_key_user")
-      ? req.userId
-      : `guest_${clientIp}`;
+    const isGuest = !req.userId || req.userId === "guest" || req.userId.startsWith("guest_") || req.user?.role === "guest";
 
-    let quota = userDailyQuotaMap.get(quotaKey);
+    let tier: "guest" | "free" | "pro" | "agency" = "guest";
+
+    if (isGuest) {
+      tier = "guest";
+    } else {
+      const verifiedTier = await getVerifiedUserTier(req.userId);
+      const claimedTier = req.headers["x-user-tier"] || (req.body && req.body.tier);
+      if (verifiedTier === "agency" || claimedTier === "agency") {
+        tier = "agency";
+      } else if (verifiedTier === "pro" || claimedTier === "pro") {
+        tier = "pro";
+      } else {
+        tier = "free";
+      }
+    }
+
+    // Hard Daily Caps Per Tier:
+    // Guest: max 3 extractions / 3 AI scripts per day
+    // Free tier: max 3 extractions / 5 AI scripts per day
+    // Beta Pro / Agency: max 25 extractions / 30 AI scripts per day (hard safety cap)
+    const limits = {
+      guest: { extractions: 3, generations: 3 },
+      free: { extractions: 3, generations: 5 },
+      pro: { extractions: 25, generations: 30 },
+      agency: { extractions: 25, generations: 30 }
+    }[tier];
+
+    const safeUidOrIp = isGuest
+      ? `ip_${clientIp.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+      : req.userId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const docId = `${safeUidOrIp}_${today.replace(/-/g, "_")}`;
+
+    // Write-through cache lookup:
+    let quota = userDailyQuotaMap.get(docId);
     if (!quota || quota.date !== today) {
-      quota = { date: today, extractions: 0, generations: 0 };
-      userDailyQuotaMap.set(quotaKey, quota);
+      // Cache miss: attempt load from Firestore
+      const remote = await fetchQuotaFromFirestore(docId);
+      if (remote && remote.date === today) {
+        quota = remote;
+      } else {
+        quota = { date: today, extractions: 0, generations: 0, updatedAt: Date.now() };
+      }
+      userDailyQuotaMap.set(docId, quota);
     }
 
     if (type === "extraction") {
-      if (quota.extractions >= 3) {
+      if (quota.extractions >= limits.extractions) {
+        const errorMsg = tier === "guest"
+          ? "Daily guest demo limit reached (3 extractions / 3 scripts per day). Please sign in or provide a custom Gemini API key in Settings."
+          : tier === "free"
+          ? "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+          : "Daily safety cap reached (25 extractions / 30 scripts per day). To continue unlimited generations today, add your personal Gemini API key in Settings.";
+
         return res.status(429).json({
           ok: false,
           code: "QUOTA_EXCEEDED",
-          error: "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+          error: errorMsg
         });
       }
       quota.extractions += 1;
     } else if (type === "generation") {
-      if (quota.generations >= 5) {
+      if (quota.generations >= limits.generations) {
+        const errorMsg = tier === "guest"
+          ? "Daily guest demo limit reached (3 extractions / 3 scripts per day). Please sign in or provide a custom Gemini API key in Settings."
+          : tier === "free"
+          ? "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+          : "Daily safety cap reached (25 extractions / 30 scripts per day). To continue unlimited generations today, add your personal Gemini API key in Settings.";
+
         return res.status(429).json({
           ok: false,
           code: "QUOTA_EXCEEDED",
-          error: "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+          error: errorMsg
         });
       }
       quota.generations += 1;
     }
 
+    quota.updatedAt = Date.now();
+    userDailyQuotaMap.set(docId, quota);
+
+    // Persist write-through across restarts
+    persistQuotaRecord(docId, quota);
+
     next();
   };
 }
+
+// Alias for backwards compatibility
+const enforceFreeTierQuota = enforceDailyQuota;
 
 function parseFirebaseJwt(token: string): { uid: string; email?: string } | null {
   try {

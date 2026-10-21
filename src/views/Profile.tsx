@@ -64,6 +64,8 @@ interface GroupItem {
   membersCount: number;
   tier: 'Standard' | 'Pro' | 'Enterprise';
   isMember: boolean;
+  isExample?: boolean;
+  creatorId?: string;
   members?: GroupMember[];
 }
 
@@ -88,7 +90,8 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
       tag: 'PROMPTING', 
       membersCount: 42, 
       tier: 'Pro', 
-      isMember: true 
+      isMember: true,
+      isExample: true
     },
     { 
       id: '2', 
@@ -97,7 +100,8 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
       tag: 'DEVELOPMENT', 
       membersCount: 128, 
       tier: 'Standard', 
-      isMember: false 
+      isMember: false,
+      isExample: true
     },
     { 
       id: '3', 
@@ -106,7 +110,8 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
       tag: 'ANALYTICS', 
       membersCount: 19, 
       tier: 'Enterprise', 
-      isMember: false 
+      isMember: false,
+      isExample: true
     }
   ];
 
@@ -146,6 +151,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
           description: data.description,
           tag: data.tag,
           tier: data.tier,
+          isExample: data.creatorId === "system" || ["1", "2", "3"].includes(data.id) || !!data.isExample,
           membersCount: 0, // calculated from membersMap
           isMember: false // calculated based on membersMap
         } as GroupItem);
@@ -686,6 +692,14 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
               </span>
             </div>
 
+            {/* Sample Creator Tribes Notice */}
+            <div className="p-3.5 bg-purple-500/10 border border-purple-500/25 rounded-xl flex items-center justify-between text-xs text-purple-200">
+              <div className="flex items-center gap-2.5">
+                <Users size={16} className="text-purple-400 shrink-0" />
+                <span><strong className="text-white">Sample Creator Tribes (Preview):</strong> These example groups demonstrate decentralized collaboration pods before public community onboarding.</span>
+              </div>
+            </div>
+
             <div className="space-y-4">
               {displayedGroups.map((grp) => {
                 return (
@@ -702,6 +716,11 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                           <h4 className="text-base font-extrabold text-white tracking-tight leading-tight select-text">
                             {grp.name}
                           </h4>
+                          {grp.isExample && (
+                            <span className="bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[8px] font-mono font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                              EXAMPLE GROUP
+                            </span>
+                          )}
                           <span className="bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[8px] font-mono font-bold px-2 py-0.5 rounded uppercase">
                             {grp.tag}
                           </span>
