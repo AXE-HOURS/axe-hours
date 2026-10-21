@@ -7,7 +7,6 @@ import {
   AlertTriangle, Zap, ArrowDown, X, RefreshCw, Folder, Download,
   Scale, ArrowLeftRight
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import { generateThumbnailSpecs } from '../utils/thumbnailPromptGenerator';
 import { playAudioCue as playAudio } from '../utils/audio';
 import { useToast } from '../context/ToastContext';
@@ -1580,14 +1579,22 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
     const activeKey = engine === 'gemini' ? savedKey : null;
 
     try {
+      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token || "demo-guest-session"}`
+      };
+      if (activeKey) {
+        headers["x-custom-gemini-key"] = activeKey;
+      }
+
       const response = await fetch("/api/enhance-prompt", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           userPrompt: prompt,
           presetName: activePreset.name,
           presetPrompt: activePreset.anchor,
-          customKey: activeKey,
           referenceHook: importedContext?.openingHook || null,
           uid
         })
@@ -1698,10 +1705,19 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
     }, 45000);
 
     try {
+      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token || "demo-guest-session"}`
+      };
+      if (activeKey) {
+        headers["x-custom-gemini-key"] = activeKey;
+      }
+
       const response = await fetch("/api/generate-stream", {
         signal: controller.signal,
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           prompt,
           brandVoice,
@@ -1709,7 +1725,6 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
           targetNiche,
           style: visualStyle,
           duration,
-          customKey: activeKey,
           customInstructions,
           referenceHook: importedContext?.openingHook || null,
           sourceTitle: importedContext?.title || null,
@@ -1718,7 +1733,8 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
       });
 
       if (!response.ok) {
-        throw new Error("HTTP error " + response.status);
+        const errJson = await response.json().catch(() => null);
+        throw new Error(errJson?.error || ("HTTP error " + response.status));
       }
 
       const reader = response.body?.getReader();
@@ -2331,6 +2347,18 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
           ))}
         </div>
       </div>
+
+      {engine === 'ollama' && typeof window !== 'undefined' && window.location.protocol === 'https:' && (
+        <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-start gap-3 text-xs text-amber-200 animate-in fade-in select-none">
+          <AlertTriangle className="text-amber-400 shrink-0 mt-0.5" size={16} />
+          <div className="flex-1 space-y-1">
+            <p className="font-bold text-amber-300">Localhost Connection Notice on HTTPS</p>
+            <p className="text-[11px] leading-relaxed text-gray-300">
+              Web browsers block direct <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-200">http://localhost:11434</code> requests from HTTPS pages (Mixed Content policy) unless your local Ollama daemon is configured with <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-amber-200">OLLAMA_ORIGINS="*"</code>. If localhost cannot be reached, switch to <strong>Gemini Cloud</strong> engine above for instant generation.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div id="ai-generator-top-grid" className="grid grid-cols-1 lg:grid-cols-12 gap-8 select-text">
         
@@ -3875,8 +3903,9 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
                         </button>
                         
                         <button
-                          onClick={() => {
+                          onClick={async () => {
                             try {
+                              const { jsPDF } = await import('jspdf');
                               const doc = new jsPDF({
                                 orientation: 'portrait',
                                 unit: 'mm',

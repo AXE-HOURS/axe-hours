@@ -219,20 +219,26 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
     try {
       const uid = user?.uid || "guest";
       const savedKey = getSecureGeminiKey(uid);
+      const token = user ? await user.getIdToken().catch(() => null) : null;
       const historyData = messages.slice(-10).map(m => ({
         sender: m.sender,
         text: m.text
       }));
 
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token || "demo-guest-session"}`
+      };
+      if (savedKey) {
+        headers["x-custom-gemini-key"] = savedKey;
+      }
+
       const res = await fetch("/api/support-chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify({
           message: textToSend,
           history: historyData,
-          customKey: savedKey,
           uid
         })
       });

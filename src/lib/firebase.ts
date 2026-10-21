@@ -3,12 +3,19 @@ import { getAuth, GoogleAuthProvider, OAuthProvider, GithubAuthProvider, signInW
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
+const envSenderId = import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID;
+const validSenderId = (envSenderId && !envSenderId.startsWith("G-")) 
+  ? envSenderId 
+  : (firebaseConfig.messagingSenderId && !firebaseConfig.messagingSenderId.startsWith("G-") 
+      ? firebaseConfig.messagingSenderId 
+      : "934633234640");
+
 const productionFirebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || firebaseConfig.apiKey,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfig.authDomain,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || firebaseConfig.projectId,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfig.messagingSenderId,
+  messagingSenderId: validSenderId,
   appId: import.meta.env.VITE_FIREBASE_APP_ID || firebaseConfig.appId,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || firebaseConfig.measurementId
 };

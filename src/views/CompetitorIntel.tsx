@@ -1167,13 +1167,21 @@ export const CompetitorIntel: React.FC = () => {
         
         const uid = user?.uid || "guest";
         const savedKey = getSecureGeminiKey(uid);
+        const token = user ? await user.getIdToken().catch(() => null) : null;
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token || "demo-guest-session"}`
+        };
+        if (savedKey) {
+          headers["x-custom-gemini-key"] = savedKey;
+        }
+
         const apiResponse = await fetch("/api/analyze-competitor", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             handle: newCompetitorHandle,
             name: newCompetitorName,
-            customKey: savedKey,
             uid
           })
         });

@@ -303,14 +303,23 @@ export const ScriptFetcher: React.FC = () => {
     playAudio(523);
     try {
       const savedKey = getSecureGeminiKey(uid);
+      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token || "demo-guest-session"}`
+      };
+      if (savedKey) {
+        headers["x-custom-gemini-key"] = savedKey;
+      }
+
       const res = await fetch("/api/transcribe-audio", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           videoUrl: targetUrl,
-          customKey: savedKey,
           title: extractedData.title,
-          author: extractedData.author
+          author: extractedData.author,
+          uid
         })
       });
 
@@ -591,13 +600,20 @@ export const ScriptFetcher: React.FC = () => {
 
     try {
       const savedKey = getSecureGeminiKey(uid);
+      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token || "demo-guest-session"}`
+      };
+      if (savedKey) {
+        headers["x-custom-gemini-key"] = savedKey;
+      }
 
       const response = await fetch("/api/fetch-script", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           videoUrl: cleanedUrl,
-          customKey: savedKey,
           uid
         })
       });
@@ -723,14 +739,23 @@ export const ScriptFetcher: React.FC = () => {
             // Auto-Fallback to Audio Transcription: If all caption services fail or captions disabled, trigger AI audio transcription
             setProgressText('Captions restricted — Auto-triggering AI Audio Transcription Pipeline...');
             try {
+              const audioToken = user ? await user.getIdToken().catch(() => null) : null;
+              const audioHeaders: Record<string, string> = {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${audioToken || "demo-guest-session"}`
+              };
+              if (savedKey) {
+                audioHeaders["x-custom-gemini-key"] = savedKey;
+              }
+
               const audioRes = await fetch("/api/transcribe-audio", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: audioHeaders,
                 body: JSON.stringify({
                   videoUrl: cleanedUrl,
-                  customKey: savedKey,
                   title: data.title,
-                  author: data.author
+                  author: data.author,
+                  uid
                 })
               });
               if (audioRes.ok) {

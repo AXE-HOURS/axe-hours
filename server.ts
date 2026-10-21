@@ -9,28 +9,256 @@ import { gunzipSync, inflateSync } from "node:zlib";
 dotenv.config();
 
 const isProd = process.env.NODE_ENV === "production";
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-// Create a rate limiting middleware called `masterKeyLimiter` that allows a maximum of 10 requests per window of 15 minutes per IP address.
-const masterKeyLimiter = rateLimit({
+// Rate limiting middleware: max 20 AI generation/extraction requests per 15-minute window per IP/user
+const apiPostLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
-  message: { error: "Too many requests using the shared master key. Please try again in 15 minutes or add your custom Gemini API key." },
+  max: 20,
+  statusCode: 429,
+  message: { ok: false, error: "Rate limit exceeded. Please wait a few minutes." },
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
   skip: (req: any) => {
-    // If a user brings their own API key, bypass the rate limit constraint entirely
-    return !!(req.body && req.body.customKey);
+    // If a user brings their own API key, bypass the shared master key rate limit
+    return !!(req.customApiKey || (req.headers && req.headers["x-custom-gemini-key"]));
+  },
+  keyGenerator: (req: any) => {
+    return req.userId && req.userId !== "guest" ? `user_${req.userId}` : (req.ip || "unknown_ip");
+  },
+  handler: (req, res) => {
+    res.status(429).json({ ok: false, error: "Rate limit exceeded. Please wait a few minutes." });
   }
 });
+
+// Strict rate limiting for unauthenticated guest / demo sessions: max 3 requests per 15-minute window
+const guestAiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  statusCode: 429,
+  message: { ok: false, error: "Guest demo limit reached (3 requests per 15m). Sign in or provide a Gemini API key to continue." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+  handler: (req, res) => {
+    res.status(429).json({ ok: false, error: "Guest demo limit reached (3 requests per 15m). Sign in or provide a Gemini API key to continue." });
+  }
+});
+
+// Alias for backward compatibility
+const masterKeyLimiter = apiPostLimiter;
+
+// Extract custom Gemini API key from request headers or body and sanitize req.body
+function extractCustomKey(req: any, res: any, next: any) {
+  const headerKey = req.headers["x-custom-gemini-key"];
+  if (typeof headerKey === "string" && headerKey.trim()) {
+    req.customApiKey = headerKey.trim();
+  } else if (req.body && req.body.customKey && typeof req.body.customKey === "string" && req.body.customKey.trim()) {
+    req.customApiKey = req.body.customKey.trim();
+  }
+  // Sanitize: never keep customKey in req.body to prevent logging/leaks
+  if (req.body && "customKey" in req.body) {
+    delete req.body.customKey;
+  }
+  next();
+}
 
 // Middleware to support both authenticated users and unauthenticated guests across all endpoints
 function checkAuthFallback(req: any, res: any, next: any) {
   const { uid } = req.body || {};
-  // Allow unauthenticated guests and authenticated users seamlessly.
-  // Master key rate limiting is already strictly enforced by masterKeyLimiter per IP address.
   req.userId = (uid && typeof uid === "string" && uid.trim() !== "") ? uid.trim() : "guest";
   next();
+}
+
+// Middleware for AI endpoints: require either Authorization Bearer token or custom Gemini key
+function verifyAiAccess(req: any, res: any, next: any) {
+  const authHeader = req.headers["authorization"] || "";
+  const hasCustomKey = !!(req.customApiKey || (req.headers && req.headers["x-custom-gemini-key"]));
+
+  if (hasCustomKey) {
+    return next();
+  }
+
+  if (!authHeader || typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      ok: false,
+      error: "Authentication required. Please sign in or provide your Gemini API key in Settings."
+    });
+  }
+
+  const token = authHeader.slice(7).trim();
+  if (!token) {
+    return res.status(401).json({
+      ok: false,
+      error: "Invalid authorization token."
+    });
+  }
+
+  // If demo guest session or guest user, apply strict 3-request limit
+  if (token === "demo-guest-session" || req.userId === "guest") {
+    return guestAiLimiter(req, res, next);
+  }
+
+  next();
+}
+
+const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+
+function isRetryableGeminiError(error: any): boolean {
+  if (!error) return false;
+  const status = error.status || error.statusCode || error.code;
+  const msg = String(error.message || error).toLowerCase();
+  return (
+    status === 503 ||
+    status === 429 ||
+    status === 500 ||
+    status === 404 ||
+    msg.includes("503") ||
+    msg.includes("429") ||
+    msg.includes("overloaded") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("quota") ||
+    msg.includes("rate limit") ||
+    msg.includes("unavailable") ||
+    msg.includes("high traffic") ||
+    msg.includes("not found")
+  );
+}
+
+function cleanGeminiErrorMessage(error: any): string {
+  if (!error) return "An unexpected error occurred while communicating with the AI service.";
+  const msg = String(error.message || error);
+  const status = error.status || error.statusCode || error.code;
+
+  if (
+    status === 503 ||
+    status === 429 ||
+    msg.includes("503") ||
+    msg.includes("429") ||
+    msg.includes("RESOURCE_EXHAUSTED") ||
+    msg.includes("quota") ||
+    msg.includes("overloaded") ||
+    msg.includes("high traffic")
+  ) {
+    return "The AI model is temporarily experiencing high traffic. Please retry in a moment.";
+  }
+
+  if (msg.includes("API_KEY_INVALID") || msg.includes("API key not valid") || (status === 400 && msg.includes("key"))) {
+    return "Invalid Gemini API key provided. Please verify your API key in Settings.";
+  }
+
+  if (msg.includes("{") && msg.includes("}")) {
+    try {
+      const match = msg.match(/\{[\s\S]*\}/);
+      if (match) {
+        const parsed = JSON.parse(match[0]);
+        if (parsed.error && parsed.error.message) {
+          return parsed.error.message;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const clean = msg
+    .replace(/^Error:\s*/i, "")
+    .replace(/\[GoogleGenAI.*?\]/gi, "")
+    .replace(/\\"/g, '"')
+    .trim();
+
+  return clean.length > 0 && clean.length < 250
+    ? clean
+    : "The AI model is temporarily experiencing high traffic. Please retry in a moment.";
+}
+
+async function generateContentWithCascade(
+  ai: GoogleGenAI,
+  params: {
+    contents: any;
+    config?: any;
+    preferredModel?: string;
+  }
+) {
+  const models = [
+    ...(params.preferredModel && !FALLBACK_MODELS.includes(params.preferredModel) ? [params.preferredModel] : []),
+    ...FALLBACK_MODELS
+  ];
+
+  let lastError: any = null;
+
+  for (let mIdx = 0; mIdx < models.length; mIdx++) {
+    const model = models[mIdx];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          config: params.config,
+        });
+        return res;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Gemini Cascade] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
+        if (!isRetryableGeminiError(err)) {
+          throw err;
+        }
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    }
+    if (mIdx < models.length - 1) {
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+
+  throw lastError;
+}
+
+async function generateContentStreamWithCascade(
+  ai: GoogleGenAI,
+  params: {
+    contents: any;
+    config?: any;
+    preferredModel?: string;
+  }
+) {
+  const models = [
+    ...(params.preferredModel && !FALLBACK_MODELS.includes(params.preferredModel) ? [params.preferredModel] : []),
+    ...FALLBACK_MODELS
+  ];
+
+  let lastError: any = null;
+
+  for (let mIdx = 0; mIdx < models.length; mIdx++) {
+    const model = models[mIdx];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const stream = await ai.models.generateContentStream({
+          model,
+          contents: params.contents,
+          config: params.config,
+        });
+        return stream;
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`[Gemini Stream Cascade] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
+        if (!isRetryableGeminiError(err)) {
+          throw err;
+        }
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    }
+    if (mIdx < models.length - 1) {
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+
+  throw lastError;
 }
 
 function cleanAndParseJson(text: string) {
@@ -52,7 +280,17 @@ async function startServer() {
   // Trust proxy headers for express-rate-limit and accurate client IP detection
   app.set("trust proxy", 1); 
 
-  app.use(express.json());
+  app.use(express.json({ limit: "10mb" }));
+  app.use(extractCustomKey);
+  app.use(checkAuthFallback);
+
+  // Rate limiting across all POST /api/* routes
+  app.post("/api/*", apiPostLimiter);
+
+  // Fast Health Check Route for Uptime Keep-Alive Pings
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", timestamp: Date.now() });
+  });
 
   // API Health and Security Diagnostics
   app.get("/api/diagnose", (req, res) => {
@@ -65,9 +303,9 @@ async function startServer() {
   });
 
   // Intel/Competitor Search Grounding Analyzer
-  app.post("/api/analyze-competitor", checkAuthFallback, masterKeyLimiter, async (req, res) => {
-    const { handle, name, customKey } = req.body;
-    const apiKey = customKey || process.env.GEMINI_API_KEY;
+  app.post("/api/analyze-competitor", async (req: any, res) => {
+    const { handle, name } = req.body || {};
+    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
 
     if (!handle && !name) {
       res.status(400).json({ error: "At least one of 'handle' or 'name' must be provided." });
@@ -164,8 +402,7 @@ Return exactly this JSON schema:
   ]
 }`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithCascade(ai, {
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -190,24 +427,19 @@ Return exactly this JSON schema:
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error in analyze-competitor backend module:", error);
-      const errorStr = String(error.message || error.status || error.code || "");
-      const isQuota = errorStr.includes("quota") || errorStr.includes("QUOTA") || errorStr.includes("429") || errorStr.includes("RESOURCE_EXHAUSTED") || error.status === 429 || error.code === 429;
-      res.status(isQuota ? 429 : 500).json({
-        error: isQuota
-          ? "Gemini API Quota or Rate Limit Exceeded. Please try again later or add your custom Gemini API key."
-          : (error.message || "Failed to analyze competitor.")
-      });
+      const cleanMsg = cleanGeminiErrorMessage(error);
+      res.status(500).json({ error: cleanMsg });
     }
   });
 
   // Secure Gemini API Proxy with SSE Streaming support
-  app.post("/api/generate-stream", checkAuthFallback, masterKeyLimiter, async (req, res) => {
-    const { prompt, brandVoice, targetNiche, style, duration, customKey, hookTone, customInstructions, referenceHook, sourceTitle } = req.body;
+  app.post("/api/generate-stream", verifyAiAccess, async (req: any, res) => {
+    const { prompt, brandVoice, targetNiche, style, duration, hookTone, customInstructions, referenceHook, sourceTitle } = req.body || {};
 
-    const apiKey = customKey || process.env.GEMINI_API_KEY;
+    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-      res.status(401).json({ error: "Gemini API key is not configured. Please supply an API key in Suite Settings." });
+      res.status(401).json({ ok: false, error: "Gemini API key is not configured. Please supply an API key in Suite Settings." });
       return;
     }
 
@@ -303,8 +535,7 @@ Strictly format your output using this exact structure for every scene:
 Ensure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.
 `;
 
-      const responseStream = await ai.models.generateContentStream({
-        model: "gemini-3.5-flash",
+      const responseStream = await generateContentStreamWithCascade(ai, {
         contents: `${prompt || "How to build automated prompt flows in 2026"}${
           referenceHook && typeof referenceHook === "string" && referenceHook.trim()
             ? `\n\n[Reference Hook to adapt and remix]:\n"${referenceHook}"`
@@ -325,7 +556,7 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
       res.end();
     } catch (error: any) {
       console.error("Gemini server error:", error);
-      const errMsg = error.message || "An unknown server error occurred.";
+      const errMsg = cleanGeminiErrorMessage(error);
       res.write(`data: ${JSON.stringify({ error: errMsg })}\n\n`);
       res.end();
     }
@@ -1386,10 +1617,10 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
   const fetchYouTubeCaptions = fetchYoutubeSubtitles;
 
   // Secure Script Fetcher and Analyzer with Google Search grounding
-  app.post("/api/fetch-script", checkAuthFallback, async (req, res) => {
-    const { videoUrl, customKey, isLive } = req.body;
+  app.post("/api/fetch-script", async (req: any, res) => {
+    const { videoUrl, isLive } = req.body || {};
 
-    const apiKey = customKey || process.env.GEMINI_API_KEY;
+    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
 
     if (!videoUrl) {
       res.status(400).json({ error: "videoUrl is required." });
@@ -1701,8 +1932,7 @@ Return exactly this JSON schema:
       // Append Creative Director Visual Blueprint requirement
       prompt += `\n\n*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***\nYou are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.\n\nFor every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.\n\nStrictly format your output using this exact structure for every scene:\n\n[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]\n[TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]\n[AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]\nVOICEOVER: "The actual spoken dialogue goes here."\n\nEnsure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithCascade(ai, {
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -2287,10 +2517,10 @@ When analyzing how this exact sequence unfolds, we find that the leading example
   }
 
   // AI Audio Transcription / Speech-to-Text Fallback Pipeline
-  app.post("/api/transcribe-audio", checkAuthFallback, async (req, res) => {
-    const { videoUrl, customKey, title, author } = req.body;
+  app.post("/api/transcribe-audio", verifyAiAccess, async (req: any, res) => {
+    const { videoUrl, title, author } = req.body || {};
 
-    const apiKey = customKey || process.env.GEMINI_API_KEY;
+    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
     if (!videoUrl) {
       res.status(400).json({ error: "videoUrl is required." });
       return;
@@ -2331,8 +2561,7 @@ OUTPUT REQUIREMENTS:
 5. Provide at least 10-30 sequential lines covering the opening hook, core discussion, and conclusion.
 6. Return ONLY the raw JSON array. Do not enclose in backticks or markdown fences.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+      const response = await generateContentWithCascade(ai, {
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -2390,7 +2619,8 @@ OUTPUT REQUIREMENTS:
       }
     } catch (err: any) {
       console.error("[/api/transcribe-audio] Error:", err);
-      res.status(500).json({ success: false, error: err.message || "Failed to transcribe audio track." });
+      const cleanMsg = cleanGeminiErrorMessage(err);
+      res.status(500).json({ success: false, error: cleanMsg });
     }
   });
 
@@ -2680,10 +2910,10 @@ OUTPUT REQUIREMENTS:
   });
 
   // Prompt Booster / Preset Mixer Secure Proxy Endpoint
-  app.post("/api/enhance-prompt", checkAuthFallback, async (req, res) => {
-    const { userPrompt, presetName, presetPrompt, customKey, referenceHook } = req.body;
+  app.post("/api/enhance-prompt", verifyAiAccess, async (req: any, res) => {
+    const { userPrompt, presetName, presetPrompt, referenceHook } = req.body || {};
 
-    const apiKey = customKey || process.env.GEMINI_API_KEY;
+    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       res.status(401).json({ error: "Gemini API key is not configured. Please supply an API key in Suite Settings." });
@@ -2722,8 +2952,7 @@ RULES:
 - Incorporate specific hook suggestions, curiosity loops, or psychological drivers from the style preset into the raw idea.
 - Output ONLY the newly synthesized, boosted final prompt text. Do not define intro labels like "Synthesized Prompt:" or enclose in markdown backticks. Just return the raw text.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithCascade(ai, {
         contents: contents,
         config: {
           temperature: 0.8,
@@ -2734,7 +2963,8 @@ RULES:
       res.json({ enhancedPrompt: enhancedText.trim() });
     } catch (error: any) {
       console.error("Gemini enhance prompt error:", error);
-      res.status(500).json({ error: error.message || "Failed to mix and enhance prompt." });
+      const cleanMsg = cleanGeminiErrorMessage(error);
+      res.status(500).json({ error: cleanMsg });
     }
   });
 
@@ -3050,9 +3280,9 @@ RULES:
   });
 
   // Interactive Support Bot Chat Endpoint
-  app.post("/api/support-chat", checkAuthFallback, masterKeyLimiter, async (req, res) => {
-    const { message, history, customKey } = req.body;
-    const apiKey = customKey || process.env.GEMINI_API_KEY;
+  app.post("/api/support-chat", async (req: any, res) => {
+    const { message, history } = req.body || {};
+    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
 
     if (!message) {
       res.status(400).json({ error: "message is required." });
@@ -3146,8 +3376,7 @@ User's current message: "${message}"
 
 Support Bot response:`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateContentWithCascade(ai, {
         contents: contents,
         config: {
           systemInstruction: systemInstruction,
@@ -3158,8 +3387,14 @@ Support Bot response:`;
       res.json({ text: response.text || "I apologize, I could not complete that query. Let's focus on Axe Hours and your creator goals!" });
     } catch (error: any) {
       console.error("Support bot chat error:", error);
-      res.status(500).json({ error: error.message || "Support Bot Chat compilation failure." });
+      const cleanMsg = cleanGeminiErrorMessage(error);
+      res.status(500).json({ error: cleanMsg });
     }
+  });
+
+  // Catch-all route: any unknown /api/* endpoint returns 404 JSON before SPA routing
+  app.all("/api/*", (req, res) => {
+    res.status(404).json({ ok: false, error: "API endpoint not found" });
   });
 
   // Vite development integration or static serving in production

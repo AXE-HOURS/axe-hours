@@ -194,7 +194,7 @@ export const Settings: React.FC = () => {
                   className="w-full bg-black/40 border border-white/10 rounded-ax p-3 text-sm text-white focus:outline-none focus:border-primary font-mono ph-no-capture" 
                 />
                 <span className="block text-[10px] text-gray-500 font-light mt-1">
-                  Scoped secret token for your personal generative content studio.
+                  Scoped secret token for your personal generative content studio. Stored locally in your browser and sent via request header.
                 </span>
               </div>
 
@@ -275,16 +275,18 @@ export const Settings: React.FC = () => {
                   <p className="text-[9px] text-gray-400">Secure Firestore Cluster Sync Live</p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowAdvancedDbConfig(!showAdvancedDbConfig)}
-                className="px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[9px] font-bold uppercase tracking-widest text-gray-300 transition-colors cursor-pointer"
-              >
-                {showAdvancedDbConfig ? "Hide Config" : "Show Config"}
-              </button>
+              {import.meta.env.DEV && (
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedDbConfig(!showAdvancedDbConfig)}
+                  className="px-2.5 py-1 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[9px] font-bold uppercase tracking-widest text-gray-300 transition-colors cursor-pointer"
+                >
+                  {showAdvancedDbConfig ? "Hide Config" : "Dev Config"}
+                </button>
+              )}
             </div>
 
-            {showAdvancedDbConfig && (
+            {import.meta.env.DEV && showAdvancedDbConfig && (
               <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="space-y-2">
                   <label className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Web SDK Configuration JSON</label>
@@ -442,6 +444,14 @@ export const Settings: React.FC = () => {
                   <span className="text-sm font-medium">Local Ollama Server Instance (Port: 11434)</span>
                   <span id="diag-status-badge-ollama" className={`px-2 py-0.5 rounded text-[9px] font-bold ${testResults?.ollama.status === 'Online' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{testResults ? testResults.ollama.status : 'Unchecked'}</span>
                 </div>
+                {typeof window !== 'undefined' && window.location.protocol === 'https:' && (
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex gap-2.5 items-start text-left">
+                    <Info className="text-amber-400 mt-0.5 shrink-0" size={14} />
+                    <p className="text-[11px] text-amber-200/90 leading-relaxed font-light">
+                      <span className="font-semibold text-amber-300">HTTPS Environment Notice:</span> Browsers block direct connections to <code className="text-white bg-black/40 px-1 py-0.5 rounded font-mono">http://localhost:11434</code> from secure HTTPS origins due to Mixed Content policies unless your local Ollama daemon is launched with <code className="text-white bg-black/40 px-1 py-0.5 rounded font-mono">OLLAMA_ORIGINS="*"</code>. We default creators to the Cloud AI Engine for zero-friction generation.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
             <button 

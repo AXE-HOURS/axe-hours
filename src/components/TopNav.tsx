@@ -8,6 +8,7 @@ import {
 import { Modal } from './Modal';
 import { PrimaryButton } from './PrimaryButton';
 import { getSecureGeminiKey } from '../utils/secureStorage';
+import { auth } from '../lib/firebase';
 
 interface GenerationItem {
   id: number;
@@ -171,23 +172,29 @@ export const TopNav: React.FC<TopNavProps> = ({
     setIsSupportLoading(true);
 
     try {
-      const uid = user?.uid || "guest";
+      const uid = user?.uid || auth.currentUser?.uid || "guest";
       const savedKey = getSecureGeminiKey(uid);
+      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => null) : null;
       // Construct history array format for backend (filter last 10 messages for token hygiene)
       const historyData = updatedMessages.slice(-10).map(m => ({
         sender: m.sender,
         text: m.text
       }));
 
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token || "demo-guest-session"}`
+      };
+      if (savedKey) {
+        headers["x-custom-gemini-key"] = savedKey;
+      }
+
       const res = await fetch("/api/support-chat", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify({
           message: queryText,
           history: historyData,
-          customKey: savedKey,
           uid
         })
       });

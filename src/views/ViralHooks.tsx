@@ -20,7 +20,6 @@ import {
   Pause,
   X
 } from 'lucide-react';
-import { jsPDF } from 'jspdf';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
 
@@ -797,8 +796,9 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
   };
 
   // PDF Export Engine with beautiful metrics layout
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     try {
+      const { jsPDF } = await import('jspdf');
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
