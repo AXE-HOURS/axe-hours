@@ -836,12 +836,12 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       const splitTitle = doc.splitTextToSize(`"${analyzedTitle}"`, 175);
       doc.text(splitTitle, 15, 76);
 
-      // Section 2: Cognitive Metrics Scores list
+      // Section 2: Pacing & Retention Estimate Scores list
       let nextY = 88 + (splitTitle.length - 1) * 6;
       doc.setTextColor(30, 30, 30);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
-      doc.text("2. COGNITIVE HEURISTICS TARGET OUTLINE", 15, nextY);
+      doc.text("2. PACING & RETENTION ESTIMATE OUTLINE", 15, nextY);
       doc.line(15, nextY + 3, 195, nextY + 3);
 
       doc.setFont("normal");
@@ -849,7 +849,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       doc.setTextColor(80, 80, 80);
       
       const metricsList = [
-        `• Predicted CTR Quality: ${scores.total}% (Evaluation: ${scores.total >= 85 ? 'Platinum Tier - High Velocity Outlier' : scores.total >= 65 ? 'Gold Tier - Highly Viable' : 'Marginal Tier - Normal scroll risk'})`,
+        `• Estimated Hook Score: ${scores.total}% (Evaluation: ${scores.total >= 85 ? 'Platinum Tier - High Velocity Outlier' : scores.total >= 65 ? 'Gold Tier - Highly Viable' : 'Marginal Tier - Normal scroll risk'})`,
         `• Audience Curiosity Loop Index: ${scores.curiosity}%`,
         `• Emotional & Psychological Tension Level: ${scores.tension}%`,
         `• Direct Value/Payoff Demonstration: ${scores.payoff}%`,
@@ -920,7 +920,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
 
   // Quick Share url generator
   const handleQuickShare = (platform: 'twitter' | 'linkedin' | 'whatsapp') => {
-    const textToShare = `Optimized hook title with Axe Hours (+82% predicted CTR!): \n"${analyzedTitle}" \nBuild yours free: ${window.location.origin}`;
+    const textToShare = `Optimized hook title with Axe Hours (Estimated Hook Score 82!): \n"${analyzedTitle}" \nBuild yours free: ${window.location.origin}`;
     const encoded = encodeURIComponent(textToShare);
     let href = '';
 
@@ -945,7 +945,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
           <Zap className="text-yellow-400 fill-current" size={28} /> Interactive Hooks & CTR Lab
         </h1>
         <p id="viral-hooks-subtitle" className="text-on-surface-variant text-sm font-light mt-1">
-          Polish structured script blueprints or stress-test custom video titles using our real-time cognitive metrics calculator.
+          Polish structured script blueprints or stress-test custom video titles using our real-time pacing & retention calculator.
         </p>
       </div>
 
@@ -1095,7 +1095,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
         <div id="viral-hooks-stress-tester-col" className="xl:col-span-6 space-y-6">
           <div className="flex items-center gap-2 border-b border-white/5 pb-2">
             <Gauge className="text-yellow-400" size={18} />
-            <h2 className="text-base font-bold text-white uppercase tracking-wider font-mono">Cognitive Title Stress-Tester</h2>
+            <h2 className="text-base font-bold text-white uppercase tracking-wider font-mono">Title Hook & Retention Stress-Tester</h2>
           </div>
 
           <GlassCard id="title-ctr-stress-tester-card" glowColor="gold" className="border-amber-500/15 p-5 space-y-6">
@@ -1148,7 +1148,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
                         : "text-gray-400 hover:text-white"
                     }`}
                   >
-                    📊 Cognitive CTR Score
+                    📊 Estimated Hook Score
                   </button>
                   <button
                     type="button"
@@ -1202,7 +1202,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
                       <div className="space-y-1">
                         <div className="flex items-center gap-1.5">
                           <Flame className="text-amber-400 animate-pulse" size={14} />
-                          <h4 className="text-xs font-extrabold text-white">Predicted CTR Quality</h4>
+                          <h4 className="text-xs font-extrabold text-white">Estimated Hook Score</h4>
                         </div>
                         <p className="text-[10px] text-gray-400 font-light leading-relaxed select-text">
                           {scores.total >= 85 ? "🔥 Platinum Tier Hook: Sensational mental strain captures viewer scroll instantly. Highly scalable." :

@@ -23,14 +23,15 @@ export default defineConfig(() => {
       watch: isHmrDisabled ? null : {},
     },
     build: {
+      modulePreload: {
+        resolveDependencies: (filename, deps) =>
+          deps.filter(dep => !dep.includes('pdf') && !dep.includes('jspdf') && !dep.includes('html2canvas')),
+      },
       rollupOptions: {
         output: {
           manualChunks(id) {
             if (id.includes('node_modules/firebase')) {
               return 'firebase';
-            }
-            if (id.includes('node_modules/jspdf') || id.includes('node_modules/html2canvas')) {
-              return 'pdf';
             }
             if (
               id.includes('node_modules/react/') ||

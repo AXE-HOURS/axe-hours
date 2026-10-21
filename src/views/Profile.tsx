@@ -486,7 +486,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Email Node Address</label>
+                    <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Email Address</label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" size={14} />
                       <input 
@@ -494,7 +494,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                         value={user.email} 
                         disabled
                         className="w-full bg-white/5 border border-white/5 rounded-xl py-2.5 pl-10 pr-3 text-xs text-gray-500 font-mono cursor-not-allowed"
-                        title="Decentralized email identification node cannot be altered."
+                        title="Your account email address cannot be altered here."
                       />
                     </div>
                   </div>
@@ -512,9 +512,9 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                   />
                 </div>
 
-                {/* Futuristic Interactive Avatar presets widget */}
+                {/* Avatar presets widget */}
                 <div className="space-y-2">
-                  <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Select Cybernetic Avatar Preset</label>
+                  <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Choose Profile Avatar</label>
                   <div className="flex flex-wrap items-center gap-3">
                     {avatarPresets.map((pr, i) => {
                       const isSelected = avatar === pr.url;

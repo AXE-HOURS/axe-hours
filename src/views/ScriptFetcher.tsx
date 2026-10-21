@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useFirebase } from '../context/FirebaseContext';
 import { GlassCard } from '../components/GlassCard';
 import { getSecureGeminiKey } from '../utils/secureStorage';
+import { getAuthOrGuestToken } from '../utils/authSession';
 import { 
   Download, 
   Video, 
@@ -97,6 +98,7 @@ export const ScriptFetcher: React.FC = () => {
     hasTranscript: false,
     transcriptErrorCode: '',
     transcriptErrorDetails: '',
+    transcript: [] as Array<{ text: string; start: number; duration: number }>,
     clientDelegationUrl: '' as string | undefined,
     videoId: '' as string | undefined,
     status: '' as string | undefined
@@ -303,11 +305,13 @@ export const ScriptFetcher: React.FC = () => {
     playAudio(523);
     try {
       const savedKey = getSecureGeminiKey(uid);
-      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const token = await getAuthOrGuestToken();
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token || "demo-guest-session"}`
+        "Content-Type": "application/json"
       };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       if (savedKey) {
         headers["x-custom-gemini-key"] = savedKey;
       }
@@ -600,11 +604,13 @@ export const ScriptFetcher: React.FC = () => {
 
     try {
       const savedKey = getSecureGeminiKey(uid);
-      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const token = await getAuthOrGuestToken();
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token || "demo-guest-session"}`
+        "Content-Type": "application/json"
       };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       if (savedKey) {
         headers["x-custom-gemini-key"] = savedKey;
       }
@@ -739,11 +745,13 @@ export const ScriptFetcher: React.FC = () => {
             // Auto-Fallback to Audio Transcription: If all caption services fail or captions disabled, trigger AI audio transcription
             setProgressText('Captions restricted — Auto-triggering AI Audio Transcription Pipeline...');
             try {
-              const audioToken = user ? await user.getIdToken().catch(() => null) : null;
+              const audioToken = await getAuthOrGuestToken();
               const audioHeaders: Record<string, string> = {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${audioToken || "demo-guest-session"}`
+                "Content-Type": "application/json"
               };
+              if (audioToken) {
+                audioHeaders["Authorization"] = `Bearer ${audioToken}`;
+              }
               if (savedKey) {
                 audioHeaders["x-custom-gemini-key"] = savedKey;
               }
@@ -806,6 +814,7 @@ export const ScriptFetcher: React.FC = () => {
         hasTranscript: hasTranscript,
         transcriptErrorCode: finalErrorCode,
         transcriptErrorDetails: finalErrorDetails,
+        transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
         clientDelegationUrl: data.clientDelegationUrl || '',
         videoId: targetVideoId || '',
         status: hasTranscript ? 'SUCCESS' : (data.status || (isUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
@@ -942,6 +951,75 @@ export const ScriptFetcher: React.FC = () => {
 
     playAudio(880);
     addToast('TXT Blueprint Pack downloaded!', 'success');
+  };
+
+  const formatSrtTimestamp = (seconds: number): string => {
+    const totalMs = Math.max(0, Math.round(seconds * 1000));
+    const hrs = Math.floor(totalMs / 3600000);
+    const mins = Math.floor((totalMs % 3600000) / 60000);
+    const secs = Math.floor((totalMs % 60000) / 1000);
+    const ms = totalMs % 1000;
+
+    const pad = (n: number, z = 2) => String(n).padStart(z, '0');
+    return `${pad(hrs)}:${pad(mins)}:${pad(secs)},${pad(ms, 3)}`;
+  };
+
+  const downloadSrtFile = () => {
+    if (!extractedData.hasTranscript || !extractedData.fullTranscript || extractedData.fullTranscript === 'N/A') {
+      addToast('No spoken transcript available to export.', 'warning');
+      return;
+    }
+
+    let srtContent = '';
+    const transcriptItems = extractedData.transcript || [];
+
+    if (transcriptItems.length > 0) {
+      srtContent = transcriptItems.map((item: any, idx: number) => {
+        const startSec = typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4);
+        const durSec = typeof item.duration === 'number' ? item.duration : (parseFloat(item.duration) || 3.5);
+        const endSec = startSec + durSec;
+        const text = (item.text || '').trim();
+        return `${idx + 1}\n${formatSrtTimestamp(startSec)} --> ${formatSrtTimestamp(endSec)}\n${text}\n`;
+      }).join('\n');
+    } else {
+      const rawLines = extractedData.fullTranscript.split('\n').filter((l: string) => l.trim().length > 0);
+      let currentTime = 0;
+      srtContent = rawLines.map((line: string, idx: number) => {
+        const match = line.match(/(?:\[)?(\d{1,2}):(\d{2})(?:\s*-\s*(\d{1,2}):(\d{2}))?(?:\])?/);
+        let startSec = currentTime;
+        let durSec = 3.5;
+        let cleanText = line;
+        if (match) {
+          startSec = parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+          if (match[3] && match[4]) {
+            const endSec = parseInt(match[3], 10) * 60 + parseInt(match[4], 10);
+            durSec = Math.max(1, endSec - startSec);
+          }
+          cleanText = line.replace(/(?:\[)?\d{1,2}:\d{2}(?:\s*-\s*\d{1,2}:\d{2})?(?:\])?/g, '').trim();
+        }
+        currentTime = startSec + durSec;
+        return `${idx + 1}\n${formatSrtTimestamp(startSec)} --> ${formatSrtTimestamp(startSec + durSec)}\n${cleanText}\n`;
+      }).join('\n');
+    }
+
+    const sanitizedTitle = (extractedData.title || 'Extracted-Subtitles')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 50) || 'Subtitles';
+
+    const blob = new Blob([srtContent], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${sanitizedTitle}.srt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    playAudio(880);
+    addToast('Exported standard .SRT subtitle pack!', 'success');
   };
 
   const onOpenTeleprompter = () => {
@@ -1244,6 +1322,20 @@ ${extractedData.fullTranscript || 'N/A'}`;
                     >
                       <Download size={12} />
                       <span>Download TXT Pack</span>
+                    </button>
+                    <button
+                      id="script-fetcher-srt-btn"
+                      onClick={downloadSrtFile}
+                      disabled={!extractedData.hasTranscript}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-1.5 transition-all shadow-md whitespace-nowrap ${
+                        extractedData.hasTranscript
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/25 cursor-pointer font-bold'
+                          : 'bg-white/10 text-gray-500 cursor-not-allowed opacity-50'
+                      }`}
+                      title={extractedData.hasTranscript ? "Export Premiere/CapCut/DaVinci ready .SRT subtitles" : "Subtitles unavailable"}
+                    >
+                      <Download size={12} />
+                      <span>Export .SRT</span>
                     </button>
                   </div>
                 </div>

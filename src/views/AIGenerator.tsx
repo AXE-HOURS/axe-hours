@@ -15,6 +15,7 @@ import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useCalibrationBridge } from '../context/CalibrationBridgeContext';
 import { getSecureGeminiKey } from '../utils/secureStorage';
+import { getAuthOrGuestToken } from '../utils/authSession';
 import VisualBlueprintParser from '../components/VisualBlueprintParser';
 
 interface GenerationItem {
@@ -1579,11 +1580,13 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
     const activeKey = engine === 'gemini' ? savedKey : null;
 
     try {
-      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const token = await getAuthOrGuestToken();
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token || "demo-guest-session"}`
+        "Content-Type": "application/json"
       };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       if (activeKey) {
         headers["x-custom-gemini-key"] = activeKey;
       }
@@ -1705,11 +1708,13 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
     }, 45000);
 
     try {
-      const token = user ? await user.getIdToken().catch(() => null) : null;
+      const token = await getAuthOrGuestToken();
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token || "demo-guest-session"}`
+        "Content-Type": "application/json"
       };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       if (activeKey) {
         headers["x-custom-gemini-key"] = activeKey;
       }

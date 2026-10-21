@@ -445,7 +445,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   >
                     {authMode === 'signup' 
                       ? "Already have an account? Sign in" 
-                      : "Don't have an account yet? Establish a brand new access account"}
+                      : "Don't have an account yet? Sign up for free"}
                   </button>
                 </div>
 

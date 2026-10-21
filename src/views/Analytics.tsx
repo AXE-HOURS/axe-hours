@@ -667,8 +667,8 @@ export const Analytics: React.FC<AnalyticsProps> = ({ recentGenerations = [] }) 
       setExportStep(4);
       try {
         const docRef = await addDoc(collection(db, "draft_dispatches"), {
-          userId: auth.currentUser?.uid || "anonymous-creator",
-          userEmail: auth.currentUser?.email || "anonymous@axecreator.suite",
+          userId: auth.currentUser?.uid || "creator",
+          userEmail: auth.currentUser?.email || "creator@axe-hours.com",
           channelName: isYtSelected ? ytChannelName : igHandleName,
           channelId: isYtSelected ? (localStorage.getItem("axe_hours_yt_channel_id") || "sandbox-id") : "instagram-id",
           platform: selectedExportPlatform,

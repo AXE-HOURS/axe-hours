@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import crypto from "crypto";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -9,7 +10,79 @@ import { gunzipSync, inflateSync } from "node:zlib";
 dotenv.config();
 
 const isProd = process.env.NODE_ENV === "production";
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+// HMAC Secret for short-lived guest tokens
+const GUEST_TOKEN_SECRET = process.env.GUEST_TOKEN_SECRET || "axe-hours-hmac-guest-secret-token-key-2026";
+
+function createGuestToken(ip: string): { token: string; exp: number } {
+  const exp = Date.now() + 3600_000; // 1 hour expiration
+  const payload = {
+    ip,
+    exp,
+    role: "guest"
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", GUEST_TOKEN_SECRET).update(payloadB64).digest("base64url");
+  return { token: `${payloadB64}.${signature}`, exp };
+}
+
+function verifyGuestToken(token: string, clientIp: string): { valid: boolean; error?: string } {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 2) return { valid: false, error: "Invalid guest token format" };
+    const [payloadB64, signature] = parts;
+    const expectedSig = crypto.createHmac("sha256", GUEST_TOKEN_SECRET).update(payloadB64).digest("base64url");
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig))) {
+      return { valid: false, error: "Invalid guest token signature" };
+    }
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+    if (typeof payload.exp !== "number" || payload.exp < Date.now()) {
+      return { valid: false, error: "Guest token expired" };
+    }
+    return { valid: true };
+  } catch (err: any) {
+    return { valid: false, error: "Failed to verify guest token" };
+  }
+}
+
+// Daily AI Call Tracking for unauthenticated guest IPs: max 3 per calendar day
+interface DailyUsage {
+  date: string; // YYYY-MM-DD
+  count: number;
+}
+const guestDailyUsageMap = new Map<string, DailyUsage>();
+
+function getTodayString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function checkAndIncrementGuestDailyUsage(ip: string): { allowed: boolean; remaining: number } {
+  const today = getTodayString();
+  const current = guestDailyUsageMap.get(ip);
+  if (!current || current.date !== today) {
+    guestDailyUsageMap.set(ip, { date: today, count: 1 });
+    return { allowed: true, remaining: 2 };
+  }
+  if (current.count >= 3) {
+    return { allowed: false, remaining: 0 };
+  }
+  current.count += 1;
+  return { allowed: true, remaining: 3 - current.count };
+}
+
+function parseFirebaseJwt(token: string): { uid: string; email?: string } | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    if (!payload || !payload.sub || typeof payload.sub !== "string") return null;
+    if (payload.exp && payload.exp * 1000 < Date.now()) return null;
+    return { uid: payload.sub, email: payload.email };
+  } catch {
+    return null;
+  }
+}
 
 // Rate limiting middleware: max 20 AI generation/extraction requests per 15-minute window per IP/user
 const apiPostLimiter = rateLimit({
@@ -32,17 +105,17 @@ const apiPostLimiter = rateLimit({
   }
 });
 
-// Strict rate limiting for unauthenticated guest / demo sessions: max 3 requests per 15-minute window
-const guestAiLimiter = rateLimit({
+// Strict rate limiting for guest token requests: max 10 per 15-minute window
+const guestTokenLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 3,
+  max: 10,
   statusCode: 429,
-  message: { ok: false, error: "Guest demo limit reached (3 requests per 15m). Sign in or provide a Gemini API key to continue." },
+  message: { ok: false, error: "Too many guest token requests. Please wait a few minutes." },
   standardHeaders: true,
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
   handler: (req, res) => {
-    res.status(429).json({ ok: false, error: "Guest demo limit reached (3 requests per 15m). Sign in or provide a Gemini API key to continue." });
+    res.status(429).json({ ok: false, error: "Too many guest token requests. Please wait a few minutes." });
   }
 });
 
@@ -71,12 +144,21 @@ function checkAuthFallback(req: any, res: any, next: any) {
   next();
 }
 
-// Middleware for AI endpoints: require either Authorization Bearer token or custom Gemini key
+// Middleware for AI endpoints: require either verified Firebase token, HMAC guest token, or custom Gemini key
 function verifyAiAccess(req: any, res: any, next: any) {
   const authHeader = req.headers["authorization"] || "";
-  const hasCustomKey = !!(req.customApiKey || (req.headers && req.headers["x-custom-gemini-key"]));
+  const headerCustomKey = req.headers["x-custom-gemini-key"];
+  const hasCustomKey = !!(
+    (typeof headerCustomKey === "string" && headerCustomKey.trim()) ||
+    (typeof req.customApiKey === "string" && req.customApiKey.trim())
+  );
 
+  const clientIp = (req.ip || req.socket.remoteAddress || "unknown_ip").toString();
+
+  // If request supplies custom key, user bypasses server quota and auth
   if (hasCustomKey) {
+    req.usingCustomKey = true;
+    req.userId = req.userId && req.userId !== "guest" ? req.userId : "custom_key_user";
     return next();
   }
 
@@ -95,15 +177,37 @@ function verifyAiAccess(req: any, res: any, next: any) {
     });
   }
 
-  // If demo guest session or guest user, apply strict 3-request limit
-  if (token === "demo-guest-session" || req.userId === "guest") {
-    return guestAiLimiter(req, res, next);
+  // Check if it's a signed guest token
+  const guestResult = verifyGuestToken(token, clientIp);
+  if (guestResult.valid) {
+    const usage = checkAndIncrementGuestDailyUsage(clientIp);
+    if (!usage.allowed) {
+      return res.status(429).json({
+        ok: false,
+        error: "Guest demo limit reached (3 AI requests per day). Please sign in or provide a custom Gemini API key."
+      });
+    }
+    req.userId = `guest_${clientIp}`;
+    req.user = { uid: req.userId, role: "guest" };
+    return next();
   }
 
-  next();
+  // Check if it's a Firebase ID token (JWT format)
+  const firebaseUser = parseFirebaseJwt(token);
+  if (firebaseUser) {
+    req.userId = firebaseUser.uid;
+    req.user = { uid: firebaseUser.uid, email: firebaseUser.email, role: "user" };
+    return next();
+  }
+
+  // Invalid or expired token
+  return res.status(401).json({
+    ok: false,
+    error: "Invalid or expired authorization token. Please sign in or provide a custom Gemini API key."
+  });
 }
 
-const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+const FALLBACK_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
 function isRetryableGeminiError(error: any): boolean {
   if (!error) return false;
@@ -287,6 +391,17 @@ async function startServer() {
   // Rate limiting across all POST /api/* routes
   app.post("/api/*", apiPostLimiter);
 
+  // Guest Token Minting Route: Issues short-lived HMAC-signed guest token
+  app.post("/api/auth/guest-token", guestTokenLimiter, (req, res) => {
+    const clientIp = (req.ip || req.socket.remoteAddress || "unknown_ip").toString();
+    const tokenData = createGuestToken(clientIp);
+    res.json({
+      ok: true,
+      token: tokenData.token,
+      exp: tokenData.exp
+    });
+  });
+
   // Fast Health Check Route for Uptime Keep-Alive Pings
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
@@ -303,12 +418,23 @@ async function startServer() {
   });
 
   // Intel/Competitor Search Grounding Analyzer
-  app.post("/api/analyze-competitor", async (req: any, res) => {
+  app.post("/api/analyze-competitor", verifyAiAccess, async (req: any, res) => {
     const { handle, name } = req.body || {};
-    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
+    const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
+    const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
     if (!handle && !name) {
       res.status(400).json({ error: "At least one of 'handle' or 'name' must be provided." });
+      return;
+    }
+
+    if (!apiKey) {
+      res.status(401).json({
+        ok: false,
+        error: usingCustomKey
+          ? "Invalid custom Gemini API key provided. Please verify your key in Settings."
+          : "Gemini API key is not configured on the server. Please supply an API key in Suite Settings."
+      });
       return;
     }
 
@@ -435,11 +561,16 @@ Return exactly this JSON schema:
   // Secure Gemini API Proxy with SSE Streaming support
   app.post("/api/generate-stream", verifyAiAccess, async (req: any, res) => {
     const { prompt, brandVoice, targetNiche, style, duration, hookTone, customInstructions, referenceHook, sourceTitle } = req.body || {};
-
-    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
+    const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
+    const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-      res.status(401).json({ ok: false, error: "Gemini API key is not configured. Please supply an API key in Suite Settings." });
+      res.status(401).json({
+        ok: false,
+        error: usingCustomKey
+          ? "Invalid custom Gemini API key provided. Please verify your key in Settings."
+          : "Gemini API key is not configured on the server. Please supply an API key in Suite Settings."
+      });
       return;
     }
 
@@ -1617,13 +1748,23 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
   const fetchYouTubeCaptions = fetchYoutubeSubtitles;
 
   // Secure Script Fetcher and Analyzer with Google Search grounding
-  app.post("/api/fetch-script", async (req: any, res) => {
+  app.post("/api/fetch-script", verifyAiAccess, async (req: any, res) => {
     const { videoUrl, isLive } = req.body || {};
-
-    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
+    const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
+    const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
     if (!videoUrl) {
       res.status(400).json({ error: "videoUrl is required." });
+      return;
+    }
+
+    if (!apiKey) {
+      res.status(401).json({
+        ok: false,
+        error: usingCustomKey
+          ? "Invalid custom Gemini API key provided. Please verify your key in Settings."
+          : "Gemini API key is not configured on the server. Please supply an API key in Suite Settings."
+      });
       return;
     }
 
@@ -2519,15 +2660,21 @@ When analyzing how this exact sequence unfolds, we find that the leading example
   // AI Audio Transcription / Speech-to-Text Fallback Pipeline
   app.post("/api/transcribe-audio", verifyAiAccess, async (req: any, res) => {
     const { videoUrl, title, author } = req.body || {};
+    const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
+    const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
-    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
     if (!videoUrl) {
       res.status(400).json({ error: "videoUrl is required." });
       return;
     }
 
     if (!apiKey) {
-      res.status(401).json({ error: "Gemini API key is not configured. Please supply an API key in Suite Settings." });
+      res.status(401).json({
+        ok: false,
+        error: usingCustomKey
+          ? "Invalid custom Gemini API key provided. Please verify your key in Settings."
+          : "Gemini API key is not configured on the server. Please supply an API key in Suite Settings."
+      });
       return;
     }
 
@@ -2912,11 +3059,16 @@ OUTPUT REQUIREMENTS:
   // Prompt Booster / Preset Mixer Secure Proxy Endpoint
   app.post("/api/enhance-prompt", verifyAiAccess, async (req: any, res) => {
     const { userPrompt, presetName, presetPrompt, referenceHook } = req.body || {};
-
-    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
+    const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
+    const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
-      res.status(401).json({ error: "Gemini API key is not configured. Please supply an API key in Suite Settings." });
+      res.status(401).json({
+        ok: false,
+        error: usingCustomKey
+          ? "Invalid custom Gemini API key provided. Please verify your key in Settings."
+          : "Gemini API key is not configured on the server. Please supply an API key in Suite Settings."
+      });
       return;
     }
 
@@ -3280,12 +3432,23 @@ RULES:
   });
 
   // Interactive Support Bot Chat Endpoint
-  app.post("/api/support-chat", async (req: any, res) => {
+  app.post("/api/support-chat", verifyAiAccess, async (req: any, res) => {
     const { message, history } = req.body || {};
-    const apiKey = req.customApiKey || process.env.GEMINI_API_KEY;
+    const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
+    const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
     if (!message) {
       res.status(400).json({ error: "message is required." });
+      return;
+    }
+
+    if (!apiKey) {
+      res.status(401).json({
+        ok: false,
+        error: usingCustomKey
+          ? "Invalid custom Gemini API key provided. Please verify your key in Settings."
+          : "Gemini API key is not configured on the server. Please supply an API key in Suite Settings."
+      });
       return;
     }
 

@@ -62,9 +62,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             AI
           </span>
         </div>
-        <div className="flex items-center gap-1.5 mt-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-          <span className="text-[9px] font-mono tracking-widest text-[#10b981] uppercase font-bold">SYSTEM_ONLINE</span>
+        <div className="flex items-center gap-1.5 mt-1">
+          <span className="text-[10px] text-gray-400 font-medium">Creator Intelligence Suite</span>
         </div>
       </div>
 

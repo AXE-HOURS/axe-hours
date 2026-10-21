@@ -44,21 +44,21 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   };
 
   const proFeatures = [
-    'Unlimited Gemini 2.5 Pro & Flash generation runs',
-    'Full YouTube speech transcript decoder (residential gateway)',
-    'Real-time competitor tracking and subscriber modeling',
+    'Unlimited AI scripts, extractions & blueprints',
+    'Teleprompter Studio with clean speech delivery',
     '15+ Neuro-linguistic viral hook formulas',
-    'Cloud-synchronized blueprint and script vault',
-    'Custom Brand Rules & Augmentation Directives',
+    'Full YouTube dialogue decoder & audio fallback',
+    'Real-time competitor tracking & velocity radar',
+    'Cloud-synchronized script & hook vault',
     'Priority high-throughput server processing'
   ];
 
   const agencyFeatures = [
-    'Everything in Pro Suite',
+    'Everything in Creator Pro',
+    'Unlimited Competitor Intel audits & radar scans',
+    'Priority audio speech transcription fallback pipeline',
     'Multi-creator collaboration pods & team workspaces',
-    'Bulk batch script generation (up to 50 variations)',
-    'Full YouTube Data API & Analytics direct bridge',
-    'White-label PDF and script export reports',
+    'Bulk batch script generation & exports',
     'Dedicated support desk & priority engineering SLA'
   ];
 
@@ -121,7 +121,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
                     <h3 className="text-xl font-black text-white mt-0.5">High-Retention Suite</h3>
                   </div>
                   <div className="text-right">
-                    <span className="text-2xl font-black text-white">$29</span>
+                    <span className="text-2xl font-black text-white">$19</span>
                     <span className="text-[10px] text-gray-400 font-mono block">/month</span>
                   </div>
                 </div>
@@ -208,7 +208,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
             <div className="flex items-center gap-2 text-xs text-gray-400 font-mono">
               <Shield size={14} className="text-emerald-400" />
-              <span>256-Bit SSL Encrypted & Stripe Protected</span>
+              <span>Instant Plan Activation • Cancel Anytime</span>
             </div>
 
             <button
@@ -222,7 +222,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
                 <span>Securing Subscription...</span>
               ) : (
                 <>
-                  <span>Subscribe to {selectedTier === 'pro' ? 'Pro ($29/mo)' : 'Agency ($79/mo)'}</span>
+                  <span>Subscribe to {selectedTier === 'pro' ? 'Pro ($19/mo)' : 'Agency ($79/mo)'}</span>
                   <ArrowRight size={15} />
                 </>
               )}

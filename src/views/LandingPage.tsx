@@ -394,7 +394,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             onClick={() => openModal('signup')}
             className="px-6 py-3.5 bg-white/10 hover:bg-white/15 border border-white/20 rounded-xl text-xs md:text-sm font-extrabold uppercase tracking-wider text-white transition-all cursor-pointer hover:border-purple-500/40 shadow-md"
           >
-            Establish Secure Vault
+            Create Free Account
           </button>
         </div>
       </section>
@@ -521,7 +521,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                       </div>
                     </div>
                     <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 select-none">
-                      Event listening loop: 5 monitored channels synced.
+                      Sample Metrics: Channel analytics preview
                     </div>
                   </div>
                 )}
@@ -565,7 +565,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                     </div>
 
                     <div className="text-[10px] text-gray-400 font-mono border-t border-white/10 pt-2 mt-1 flex justify-between items-center select-none">
-                      <span>Stream latency: 24ms (Optimal)</span>
+                      <span>Live Creator Preview</span>
                       <span className="text-purple-300 font-semibold">Pipeline Synced</span>
                     </div>
                   </div>
@@ -585,7 +585,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                           <div className="w-full bg-white/10 h-1.5 rounded-full overflow-hidden">
                             <div className="bg-purple-400 h-full w-[94%]" />
                           </div>
-                          <div className="text-[10px] font-mono text-gray-300 text-right font-bold">94% CTR</div>
+                          <div className="text-[10px] font-mono text-gray-300 text-right font-bold">Estimated Hook Score: 94</div>
                         </div>
 
                         <div className="duel-card-b p-2.5 bg-cyan-500/10 border border-cyan-500/30 rounded-lg space-y-1.5">
@@ -689,50 +689,56 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
         </div>
       </section>
 
-      {/* PHASE 4: ONBOARDING & PREMIUM GLOW (HOLOGRAPHIC DISPLAYS) */}
-      <section id="pricing" className="relative z-10 max-w-5xl mx-auto px-6 py-14">
+      {/* PHASE 4: ONBOARDING & PRICING PLANS */}
+      <section id="pricing" className="relative z-10 max-w-6xl mx-auto px-6 py-14">
         <div className="text-center mb-12 select-none">
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs font-black uppercase tracking-widest mb-3">
-            <ShieldCheck size={12} /> Secure Onboarding Plans
+            <ShieldCheck size={12} /> Simple, Transparent Pricing
           </div>
-          <h2 className="text-3xl md:text-4xl font-black text-white uppercase tracking-tight">Premium Creator Node Vaults</h2>
-          <p className="text-xs md:text-sm text-gray-300 mt-2 font-normal">Select the bandwidth size configured for your digital production pipeline.</p>
+          <h2 className="text-3xl md:text-4xl font-black text-white uppercase tracking-tight">Creator Plans & Pricing</h2>
+          <p className="text-xs md:text-sm text-gray-300 mt-2 font-normal">Choose the plan that fits your video production workflow. Instant activation, cancel anytime.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-3xl mx-auto items-stretch">
-          {/* Creator Suite (Free Plan Hologram) */}
-          <div id="price-card-free" className="bg-black/60 border border-white/15 rounded-2xl p-7 flex flex-col justify-between relative backdrop-blur-md transition-all hover:border-white/30 select-none">
-            <div className="space-y-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto items-stretch">
+          {/* Starter (Free Plan) */}
+          <div id="price-card-free" className="bg-black/60 border border-white/15 rounded-2xl p-6 flex flex-col justify-between relative backdrop-blur-md transition-all hover:border-white/30 select-none">
+            <div className="space-y-4">
               <div>
-                <span className="text-[11px] font-mono font-bold text-gray-400 uppercase tracking-widest">Base Subscription</span>
-                <h3 className="text-2xl font-black text-white tracking-tight uppercase mt-1">Creator Suite</h3>
-                <p className="text-xs text-gray-300 font-normal mt-1">Perfect for sandbox testing and basic local layouts.</p>
+                <span className="text-[11px] font-mono font-bold text-gray-400 uppercase tracking-widest">Free Plan</span>
+                <h3 className="text-xl font-black text-white tracking-tight uppercase mt-1">Starter</h3>
+                <p className="text-xs text-gray-300 font-normal mt-1">Explore viral hooks and script blueprints.</p>
               </div>
 
-              <div className="py-4 border-y border-white/10">
-                <div className="text-5xl font-black text-white flex items-baseline gap-1.5">
-                  $0<span className="text-xs text-gray-400 font-mono font-bold uppercase tracking-widest"> / Forever</span>
+              <div className="py-3 border-y border-white/10">
+                <div className="text-4xl font-black text-white flex items-baseline gap-1.5">
+                  $0<span className="text-xs text-gray-400 font-mono font-bold uppercase tracking-widest"> / month</span>
                 </div>
               </div>
 
-              <ul className="space-y-3">
-                <li className="flex items-center gap-3 text-xs md:text-sm text-gray-200">
+              <ul className="space-y-2.5">
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
                   <div className="p-1 bg-white/10 border border-white/20 rounded-lg text-gray-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>5 content generation cycles per month</span>
+                  <span>5 AI video scripts per day</span>
                 </li>
-                <li className="flex items-center gap-3 text-xs md:text-sm text-gray-200">
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
                   <div className="p-1 bg-white/10 border border-white/20 rounded-lg text-gray-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Standard local Ollama model integration</span>
+                  <span>3 daily video extractions</span>
                 </li>
-                <li className="flex items-center gap-3 text-xs md:text-sm text-gray-200">
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
                   <div className="p-1 bg-white/10 border border-white/20 rounded-lg text-gray-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Standard Sandbox script comparator deck</span>
+                  <span>Viral Hook template directory</span>
+                </li>
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
+                  <div className="p-1 bg-white/10 border border-white/20 rounded-lg text-gray-300 shrink-0">
+                    <Check size={12} />
+                  </div>
+                  <span>Local script editor & exporter</span>
                 </li>
               </ul>
             </div>
@@ -740,73 +746,124 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             <button 
               id="price-free-action-btn" 
               onClick={() => openModal('signup')} 
-              className="w-full py-3.5 mt-6 bg-white/10 hover:bg-white/15 border border-white/20 text-white rounded-xl font-bold uppercase tracking-widest text-xs md:text-sm cursor-pointer transition-colors shadow-md"
+              className="w-full py-3 mt-6 bg-white/10 hover:bg-white/15 border border-white/20 text-white rounded-xl font-bold uppercase tracking-widest text-xs cursor-pointer transition-colors shadow-md"
             >
-              Configure Suite Node
+              Start Free
             </button>
           </div>
 
-          {/* Creator Pro (Premium Plan Hologram with Vibrant Pulse Violet Glow) */}
-          <div id="price-card-pro" className="bg-[#030209]/90 rounded-2xl p-7 flex flex-col justify-between backdrop-blur-2xl transition-all border holo-card-glow relative">
-            {/* Hologram badge */}
+          {/* Creator Pro */}
+          <div id="price-card-pro" className="bg-[#030209]/90 rounded-2xl p-6 flex flex-col justify-between backdrop-blur-2xl transition-all border holo-card-glow relative border-purple-500 shadow-[0_0_30px_rgba(168,85,247,0.3)]">
             <div className="absolute -top-3 right-5 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-black text-[10px] uppercase tracking-widest px-3 py-1 rounded-full shadow-[0_0_15px_rgba(168,85,247,0.5)]">
-              Recommended Node
+              Most Popular
             </div>
 
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div>
-                <span className="text-[11px] font-mono font-bold text-purple-300 uppercase tracking-widest">Enterprise Priority</span>
-                <h3 className="text-2xl font-black text-white tracking-tight uppercase mt-1">Creator Pro</h3>
-                <p className="text-xs text-purple-200 font-normal mt-1">High-bandwidth access to full production matrix pipelines.</p>
+                <span className="text-[11px] font-mono font-bold text-purple-300 uppercase tracking-widest">Creator Tier</span>
+                <h3 className="text-xl font-black text-white tracking-tight uppercase mt-1">Creator Pro</h3>
+                <p className="text-xs text-purple-200 font-normal mt-1">Unlimited blueprints and full teleprompter suite.</p>
               </div>
 
-              <div className="py-4 border-y border-purple-500/30">
-                <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-purple-100 to-pink-200 flex items-baseline gap-1.5">
-                  $29<span className="text-xs text-purple-300 font-mono font-bold uppercase tracking-widest"> / Month</span>
+              <div className="py-3 border-y border-purple-500/30">
+                <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-purple-100 to-pink-200 flex items-baseline gap-1.5">
+                  $19<span className="text-xs text-purple-300 font-mono font-bold uppercase tracking-widest"> / month</span>
                 </div>
               </div>
 
-              <ul className="space-y-3">
-                <li className="flex items-center gap-3 text-xs md:text-sm text-purple-100">
+              <ul className="space-y-2.5">
+                <li className="flex items-center gap-2.5 text-xs text-purple-100">
                   <div className="p-1 bg-purple-500/25 border border-purple-500/50 rounded-lg text-purple-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Unlimited generation and transcription cycles</span>
+                  <span>Unlimited AI video scripts & blueprints</span>
                 </li>
-                <li className="flex items-center gap-3 text-xs md:text-sm text-purple-100">
+                <li className="flex items-center gap-2.5 text-xs text-purple-100">
                   <div className="p-1 bg-purple-500/25 border border-purple-500/50 rounded-lg text-purple-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Priority Google Gemini cloud generation pipelines</span>
+                  <span>Unlimited video extractions & .SRT export</span>
                 </li>
-                <li className="flex items-center gap-3 text-xs md:text-sm text-purple-100">
+                <li className="flex items-center gap-2.5 text-xs text-purple-100">
                   <div className="p-1 bg-purple-500/25 border border-purple-500/50 rounded-lg text-purple-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Full-speed automated channel upload notifications</span>
+                  <span>Full Teleprompter Studio with clean speech</span>
                 </li>
-                <li className="flex items-center gap-3 text-xs md:text-sm text-purple-100">
+                <li className="flex items-center gap-2.5 text-xs text-purple-100">
                   <div className="p-1 bg-purple-500/25 border border-purple-500/50 rounded-lg text-purple-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>Cloud Firebase synchronization for ideas & activities</span>
+                  <span>Cloud synchronization across devices</span>
                 </li>
               </ul>
             </div>
 
-            <div className="mt-6 pt-3 border-t border-purple-500/20 text-center">
-              <p className="text-[11px] text-purple-200/90 leading-relaxed font-sans">
-                Recurring billing. Cancel anytime from your Profile Settings. By clicking Subscribe, you agree that your plan will automatically renew monthly until canceled.
+            <div className="mt-4 pt-2 border-t border-purple-500/20 text-center">
+              <p className="text-[10px] text-purple-200/90 leading-relaxed font-sans">
+                Recurring billing. Cancel anytime.
               </p>
             </div>
 
             <PrimaryButton 
               id="price-pro-action-btn" 
               onClick={() => openModal('signup')} 
-              className="w-full py-4 mt-3 text-sm md:text-base font-black uppercase tracking-widest cursor-pointer shadow-[0_0_30px_rgba(168,85,247,0.5)] border border-purple-400 rounded-2xl"
+              className="w-full py-3.5 mt-2 text-xs font-black uppercase tracking-widest cursor-pointer shadow-[0_0_25px_rgba(168,85,247,0.5)] border border-purple-400 rounded-xl"
             >
-              Unlock Pro Node Suite
+              Get Creator Pro
             </PrimaryButton>
+          </div>
+
+          {/* Agency Elite */}
+          <div id="price-card-agency" className="bg-black/60 border border-white/15 rounded-2xl p-6 flex flex-col justify-between relative backdrop-blur-md transition-all hover:border-amber-500/40 select-none">
+            <div className="space-y-4">
+              <div>
+                <span className="text-[11px] font-mono font-bold text-amber-400 uppercase tracking-widest">Multi-Seat</span>
+                <h3 className="text-xl font-black text-white tracking-tight uppercase mt-1">Agency Elite</h3>
+                <p className="text-xs text-gray-300 font-normal mt-1">For teams, production studios & agencies.</p>
+              </div>
+
+              <div className="py-3 border-y border-white/10">
+                <div className="text-4xl font-black text-white flex items-baseline gap-1.5">
+                  $79<span className="text-xs text-gray-400 font-mono font-bold uppercase tracking-widest"> / month</span>
+                </div>
+              </div>
+
+              <ul className="space-y-2.5">
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
+                  <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
+                    <Check size={12} />
+                  </div>
+                  <span>Everything in Creator Pro</span>
+                </li>
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
+                  <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
+                    <Check size={12} />
+                  </div>
+                  <span>Unlimited Competitor Intel audits</span>
+                </li>
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
+                  <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
+                    <Check size={12} />
+                  </div>
+                  <span>Priority audio fallback pipeline</span>
+                </li>
+                <li className="flex items-center gap-2.5 text-xs text-gray-200">
+                  <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
+                    <Check size={12} />
+                  </div>
+                  <span>Team collaboration & priority SLA</span>
+                </li>
+              </ul>
+            </div>
+
+            <button 
+              id="price-agency-action-btn" 
+              onClick={() => openModal('signup')} 
+              className="w-full py-3 mt-6 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-black font-bold uppercase tracking-widest text-xs cursor-pointer transition-colors shadow-md rounded-xl"
+            >
+              Get Agency Elite
+            </button>
           </div>
         </div>
       </section>

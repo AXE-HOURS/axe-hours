@@ -9,6 +9,7 @@ import { Modal } from './Modal';
 import { PrimaryButton } from './PrimaryButton';
 import { getSecureGeminiKey } from '../utils/secureStorage';
 import { auth } from '../lib/firebase';
+import { getAuthOrGuestToken } from '../utils/authSession';
 
 interface GenerationItem {
   id: number;
@@ -174,7 +175,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     try {
       const uid = user?.uid || auth.currentUser?.uid || "guest";
       const savedKey = getSecureGeminiKey(uid);
-      const token = auth.currentUser ? await auth.currentUser.getIdToken().catch(() => null) : null;
+      const token = await getAuthOrGuestToken();
       // Construct history array format for backend (filter last 10 messages for token hygiene)
       const historyData = updatedMessages.slice(-10).map(m => ({
         sender: m.sender,
@@ -182,9 +183,11 @@ export const TopNav: React.FC<TopNavProps> = ({
       }));
 
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token || "demo-guest-session"}`
+        "Content-Type": "application/json"
       };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
       if (savedKey) {
         headers["x-custom-gemini-key"] = savedKey;
       }
@@ -407,8 +410,7 @@ export const TopNav: React.FC<TopNavProps> = ({
               </div>
 
               <div className="flex items-center gap-1.5 mb-4 px-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                <span className="text-[9px] font-mono tracking-widest text-[#10b981] uppercase font-bold">SYSTEM_ONLINE</span>
+                <span className="text-[10px] text-gray-400 font-medium">Creator Suite</span>
               </div>
 
               <div className="space-y-1.5 overflow-y-auto max-h-[calc(100vh-210px)] custom-scrollbar pr-1">
@@ -612,9 +614,9 @@ export const TopNav: React.FC<TopNavProps> = ({
       <Modal isOpen={isProfileOpen} onClose={() => setIsProfileOpen(false)} title="Creator Profile Settings">
         <form id="profile-settings-form" onSubmit={handleProfileSubmit} className="space-y-5">
           {saveSuccess && (
-            <div id="profile-success-toast" className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-bold flex items-center gap-1.5 animate-pulse">
+            <div id="profile-success-toast" className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-bold flex items-center gap-1.5">
               <Check size={14} />
-              Profile updated and hot-reloaded!
+              Profile changes saved successfully!
             </div>
           )}
 
@@ -705,7 +707,7 @@ export const TopNav: React.FC<TopNavProps> = ({
           </div>
 
           <PrimaryButton id="profile-save-submit" className="w-full mt-3 flex items-center justify-center py-3 text-xs font-bold uppercase tracking-wider" type="submit">
-            Save & Hot-Reload
+            Save Changes
           </PrimaryButton>
         </form>
       </Modal>

@@ -76,9 +76,8 @@ export const Footer: React.FC = () => {
 
             <span className="h-4 w-[1px] bg-white/10 hidden sm:block" />
 
-            <div className="flex items-center gap-1.5 text-emerald-400 font-mono text-[10px] bg-emerald-500/10 border border-emerald-500/15 py-1 px-2.5 rounded-full">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>SYSTEM STATE: OPERATIONAL</span>
+            <div className="flex items-center gap-1.5 text-gray-400 font-mono text-[10px] bg-white/5 border border-white/10 py-1 px-2.5 rounded-full">
+              <span>Creator Intelligence Suite</span>
             </div>
           </div>
         </div>

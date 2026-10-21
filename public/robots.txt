@@ -4,3 +4,4 @@ Allow: /
 Disallow: /api/
 
 Sitemap: https://axe-hours.onrender.com/sitemap.xml
+

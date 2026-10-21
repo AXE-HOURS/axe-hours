@@ -12,6 +12,7 @@ import {
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { GlassCard } from '../components/GlassCard';
 import { getSecureGeminiKey } from '../utils/secureStorage';
+import { getAuthOrGuestToken } from '../utils/authSession';
 import { 
   TrendingUp, 
   Users, 
@@ -1167,11 +1168,13 @@ export const CompetitorIntel: React.FC = () => {
         
         const uid = user?.uid || "guest";
         const savedKey = getSecureGeminiKey(uid);
-        const token = user ? await user.getIdToken().catch(() => null) : null;
+        const token = await getAuthOrGuestToken();
         const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token || "demo-guest-session"}`
+          "Content-Type": "application/json"
         };
+        if (token) {
+          headers["Authorization"] = `Bearer ${token}`;
+        }
         if (savedKey) {
           headers["x-custom-gemini-key"] = savedKey;
         }
