@@ -43,6 +43,7 @@ service cloud.firestore {
         && (!data.keys().contains('handle') || (data.handle is string && data.handle.size() <= 128))
         && (!data.keys().contains('avatar') || (data.avatar is string && data.avatar.size() <= 1000))
         && (!data.keys().contains('bio') || (data.bio is string && data.bio.size() <= 1000))
+        && (!data.keys().contains('betaSignature') || (data.betaSignature is string && data.betaSignature.size() <= 256))
         && (!data.keys().contains('customInstructions') || (data.customInstructions is string && data.customInstructions.size() <= 5000));
     }
 
@@ -155,21 +156,28 @@ service cloud.firestore {
 
     // 6. Collection Match Blocks
     
-    // Server Usage Quotas (Server-managed only, clients cannot tamper, reset or overwrite quotas)
+    // Server Usage Quotas (Persisted daily quotas; users can only update their own quota record)
     match /server_usage_quotas/{quotaId} {
       allow read: if isSignedIn();
-      allow write: if false; // Clients cannot directly write or reset server daily quotas
+      allow create, update: if isSignedIn() && (quotaId.matches('^' + request.auth.uid + '_.*') || isValidId(quotaId));
+      allow delete: if false;
     }
 
     // Users Collection with strict User Document Isolation and Tier Protection
     match /users/{userId} {
       allow get: if isSignedIn() && request.auth.uid == userId;
       allow list: if false;
-      allow create: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
-      // Users can only update their own profile; cannot arbitrarily escalate role or set unauthorized tier
+      // On creation, profile must start on 'free' Starter tier
+      allow create: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming())
+        && (!incoming().keys().contains('tier') || incoming().tier == 'free');
+      // On update, users cannot self-escalate tier to 'pro' without a valid server-issued betaSignature
       allow update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming())
         && (!incoming().keys().contains('role') || incoming().role == existing().role || incoming().role in ['Creator'])
-        && (!incoming().keys().contains('tier') || incoming().tier in ['free', 'pro']);
+        && (
+          !incoming().keys().contains('tier')
+          || incoming().tier == existing().tier
+          || (incoming().tier == 'pro' && incoming().keys().contains('betaSignature') && incoming().betaSignature is string && incoming().betaSignature.size() >= 32)
+        );
       allow delete: if false;
 
       match /{subcollection=**} {

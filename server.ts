@@ -13,8 +13,9 @@ dotenv.config();
 const isProd = process.env.NODE_ENV === "production";
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// HMAC Secret for short-lived guest tokens
-const GUEST_TOKEN_SECRET = process.env.GUEST_TOKEN_SECRET || "axe-hours-hmac-guest-secret-token-key-2026";
+// Dynamic cryptographic secret at runtime (never hardcoded in source)
+const SERVER_SECRET = process.env.SERVER_SECRET || process.env.GUEST_TOKEN_SECRET || crypto.randomBytes(32).toString("hex");
+const GUEST_TOKEN_SECRET = process.env.GUEST_TOKEN_SECRET || SERVER_SECRET;
 
 function createGuestToken(ip: string): { token: string; exp: number } {
   const exp = Date.now() + 3600_000; // 1 hour expiration
@@ -67,38 +68,19 @@ interface PersistedQuota {
 }
 
 const userDailyQuotaMap = new Map<string, PersistedQuota>();
-const QUOTAS_CACHE_FILE = path.resolve(process.cwd(), ".server_quotas.json");
 
-// Read local disk cache on startup for instant warm-start resilience
-function loadLocalQuotasCache(): Record<string, PersistedQuota> {
-  try {
-    if (fs.existsSync(QUOTAS_CACHE_FILE)) {
-      return JSON.parse(fs.readFileSync(QUOTAS_CACHE_FILE, "utf8"));
-    }
-  } catch {}
-  return {};
-}
-
-const initialDiskCache = loadLocalQuotasCache();
-for (const [k, v] of Object.entries(initialDiskCache)) {
-  userDailyQuotaMap.set(k, v);
-}
-
-function persistQuotaRecord(docId: string, quota: PersistedQuota) {
-  // 1. Write to local file cache
-  try {
-    const current = loadLocalQuotasCache();
-    current[docId] = quota;
-    fs.writeFileSync(QUOTAS_CACHE_FILE, JSON.stringify(current, null, 2), "utf8");
-  } catch {}
-
-  // 2. Asynchronously write-through to Firestore collection 'server_usage_quotas'
+function persistQuotaRecord(docId: string, quota: PersistedQuota, authToken?: string) {
+  // Asynchronously write-through to Firestore collection 'server_usage_quotas'
   if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authToken) {
+      headers["Authorization"] = `Bearer ${authToken}`;
+    }
     fetch(
       `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/server_usage_quotas/${docId}?key=${FIREBASE_API_KEY}`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           fields: {
             extractions: { integerValue: String(quota.extractions) },
@@ -157,9 +139,16 @@ async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agenc
       if (res.ok) {
         const json = await res.json();
         const tier = json?.fields?.tier?.stringValue;
-        if (tier === "agency" || tier === "pro") {
-          userTierCache.set(uid, { tier, exp: Date.now() + 300_000 });
-          return tier;
+        const betaSig = json?.fields?.betaSignature?.stringValue;
+        const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
+
+        if (tier === "agency") {
+          userTierCache.set(uid, { tier: "agency", exp: Date.now() + 300_000 });
+          return "agency";
+        }
+        if (tier === "pro" && betaSig === expectedSig) {
+          userTierCache.set(uid, { tier: "pro", exp: Date.now() + 300_000 });
+          return "pro";
         }
       }
     } catch {}
@@ -266,7 +255,8 @@ function enforceDailyQuota(type: "extraction" | "generation") {
     userDailyQuotaMap.set(docId, quota);
 
     // Persist write-through across restarts
-    persistQuotaRecord(docId, quota);
+    const authToken = req.headers["authorization"]?.slice(7)?.trim();
+    persistQuotaRecord(docId, quota, authToken);
 
     next();
   };
@@ -602,6 +592,61 @@ async function startServer() {
   // Fast Health Check Route for Uptime Keep-Alive Pings
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: Date.now() });
+  });
+
+  // Dedicated Authenticated Endpoint to Unlock Beta Pro Access
+  app.post("/api/billing/unlock-beta", async (req: any, res) => {
+    const authHeader = req.headers["authorization"] || "";
+    if (!authHeader || typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        ok: false,
+        error: "Authentication required to unlock Beta Access. Please sign in."
+      });
+    }
+
+    const token = authHeader.slice(7).trim();
+    const firebaseUser = parseFirebaseJwt(token);
+    if (!firebaseUser || !firebaseUser.uid) {
+      return res.status(401).json({
+        ok: false,
+        error: "Invalid or expired authorization token."
+      });
+    }
+
+    const uid = firebaseUser.uid;
+    // Generate HMAC signature proving server-authorized beta unlock
+    const signature = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
+
+    // Update in-memory tier cache
+    userTierCache.set(uid, { tier: "pro", exp: Date.now() + 86400_000 * 30 }); // 30 days cache
+
+    // If Firestore is available, attempt to write server-verified tier & betaSignature to user doc
+    if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
+      fetch(
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}?updateMask.fieldPaths=tier&updateMask.fieldPaths=betaSignature&updateMask.fieldPaths=updatedAt&key=${FIREBASE_API_KEY}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            fields: {
+              tier: { stringValue: "pro" },
+              betaSignature: { stringValue: signature },
+              updatedAt: { stringValue: new Date().toISOString() }
+            }
+          }),
+          signal: AbortSignal.timeout(3000)
+        }
+      ).catch(() => {});
+    }
+
+    return res.json({
+      ok: true,
+      tier: "pro",
+      signature
+    });
   });
 
   // API Health and Security Diagnostics
@@ -3755,6 +3800,14 @@ Support Bot response:`;
   // Catch-all route: any unknown /api/* endpoint returns 404 JSON before SPA routing
   app.all("/api/*", (req, res) => {
     res.status(404).json({ ok: false, error: "API endpoint not found" });
+  });
+
+  // Explicit security guard: block server bundles, maps, source files, and internal configs
+  app.use((req, res, next) => {
+    if (/\.(cjs|map|ts|rules|json)$/i.test(req.path) && !req.path.startsWith("/manifest.json")) {
+      return res.status(404).json({ ok: false, error: "Not found" });
+    }
+    next();
   });
 
   // Vite development integration or static serving in production

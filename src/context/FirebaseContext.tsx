@@ -29,6 +29,7 @@ export interface UserProfile {
   bio: string;
   role: string;
   tier: 'free' | 'pro' | 'agency';
+  betaSignature?: string;
   customInstructions?: string;
   createdAt: string;
   updatedAt: string;

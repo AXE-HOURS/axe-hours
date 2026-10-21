@@ -3,6 +3,7 @@ import { Crown, Check, X, Shield, Zap, Sparkles, ArrowRight } from 'lucide-react
 import { GlassCard } from './GlassCard';
 import { useToast } from '../context/ToastContext';
 import { useFirebase } from '../context/FirebaseContext';
+import { auth } from '../lib/firebase';
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -25,19 +26,38 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   const handleSubscribe = async () => {
     setIsProcessing(true);
     try {
-      // Simulate/trigger checkout session initiation
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        addToast("Please sign in or create an account to unlock Beta Access.", "warning");
+        onClose();
+        window.dispatchEvent(new CustomEvent("open-auth-modal"));
+        return;
+      }
+
+      const res = await fetch("/api/billing/unlock-beta", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to unlock Beta Access.");
+      }
 
       if (dbUser) {
         await updateProfile({
-          tier: selectedTier
+          tier: selectedTier,
+          betaSignature: data.signature
         });
       }
 
-      addToast(`🎉 Successfully upgraded to ${selectedTier === 'pro' ? 'Pro Creator' : 'Agency Elite'}! All limits unlocked.`, 'success');
+      addToast(`🎉 Successfully unlocked Beta ${selectedTier === 'pro' ? 'Pro Creator' : 'Agency Elite'}! Generous daily creator quotas active.`, 'success');
       onClose();
     } catch (err: any) {
-      addToast(err?.message || 'Failed to initiate checkout session.', 'error');
+      addToast(err?.message || 'Failed to unlock Beta Access.', 'error');
     } finally {
       setIsProcessing(false);
     }
