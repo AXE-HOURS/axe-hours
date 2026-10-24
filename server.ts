@@ -69,6 +69,21 @@ interface PersistedQuota {
 
 const userDailyQuotaMap = new Map<string, PersistedQuota>();
 
+// In-Memory Transcript Cache (24-hour TTL, max 500 entries)
+interface TranscriptCacheEntry {
+  data: any;
+  cachedAt: number;
+}
+const TRANSCRIPT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+const transcriptCache = new Map<string, TranscriptCacheEntry>();
+
+function extractYoutubeVideoId(url: string): string | null {
+  if (!url || typeof url !== "string") return null;
+  const regExp = new RegExp('^.*(?:youtu\\.be\\/|v\\/|u\\/\\w\\/|embed\\/|watch\\?v=|&v=|shorts\\/)([^#&?]{11})');
+  const match = url.match(regExp);
+  return (match && match[1] && match[1].length === 11) ? match[1] : null;
+}
+
 function persistQuotaRecord(docId: string, quota: PersistedQuota, authToken?: string) {
   // Asynchronously write-through to Firestore collection 'server_usage_quotas'
   if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
@@ -394,7 +409,7 @@ function verifyAiAccess(req: any, res: any, next: any) {
   });
 }
 
-const FALLBACK_MODELS = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
 
 function isRetryableGeminiError(error: any): boolean {
   if (!error) return false;
@@ -832,84 +847,64 @@ Return exactly this JSON schema:
       });
 
       // Construct a highly engineered, professional system/instruction prompt for high retention content creation
-      const voiceDescriptor = brandVoice || "Contrarian";
-      const nicheDescriptor = targetNiche || "Tech Developers";
+      // Construct a highly engineered, professional system/instruction prompt for natural creator scripts
+      const voiceDescriptor = brandVoice || "Engaging & Authentic";
+      const nicheDescriptor = targetNiche && targetNiche !== "Tech Developers" ? targetNiche : "General Creator";
       const formatDuration = duration || "60s Short-form";
-      const styleVibe = style || "Cyber-glow fast cuts";
+      const styleVibe = style || "Cinematic fast cuts";
       const appliedTone = hookTone || "Exciting";
 
-      const systemInstruction = `You are a high-performance content psychologist, scriptwriter, and viral growth analyst. 
-Your goal is to output an extremely compelling, detail-oriented high-engagement video production blueprint.
-Niche Target: ${nicheDescriptor}
-Tone/Voice Tone: ${voiceDescriptor} (Sub-tone Preset: ${appliedTone})
-Video Duration Format: ${formatDuration}
-Visual Style/Aesthetic Vibe: ${styleVibe}
+      const systemInstruction = `You are an elite content strategist, creative director, and viral scriptwriter for top YouTube, TikTok, and Instagram creators.
+Your mission is to write natural, engaging, human-sounding creator scripts tailored specifically to the user's actual topic (whether it is luxury cars like Rolls-Royce, fitness, business, storytelling, tech, food, or lifestyle).
 
-CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
+CRITICAL DIRECTIVE ON JARGON & TOPIC AUTHENTICITY:
+- NEVER force tech/SaaS/developer jargon ("boilerplate", "repository", "micro-solution map", "code shortcut", "API") onto non-tech topics!
+- Completely immerse yourself in the authentic vocabulary, emotional tone, and cultural nuances of the requested subject.
+- Write like a real, charismatic human speaking with confidence and passion on camera.
+
+Topic / Subject: "${prompt || "Viral Video Blueprint"}"
+Target Niche: ${nicheDescriptor}
+Voice Tone: ${voiceDescriptor} (${appliedTone})
+Duration Format: ${formatDuration}
+Visual Aesthetic: ${styleVibe}
 ${
   referenceHook && typeof referenceHook === "string" && referenceHook.trim()
-    ? `\n[CRITICAL REFERENCE HOOK GROUNDING & PSYCHOLOGICAL REMIX]:
-Authentic Source Reference Hook${sourceTitle ? ` (from "${sourceTitle}")` : ""}:
-"${referenceHook}"
-
-GROUNDING & REMIXING INSTRUCTIONS:
-1. Deconstruct the reference hook's underlying psychological mechanism (curiosity loop, negative contrast, authority shock, pacing cadence, or numerical anchor).
-2. In [THE HOOK SCRIPTS (3 VARIATIONS)] and the opening scene of [SCENE-BY-SCENE VISUAL BLUEPRINT TIMELINE], you MUST directly adapt the cadence, rhythm, word economy, and cognitive tension curve of this reference hook for the new topic ("${prompt}"). Ensure the remix captures equal or greater scroll-stopping intensity.`
+    ? `\n[REFERENCE HOOK ADAPTATION]:
+Source Reference Hook${sourceTitle ? ` (from "${sourceTitle}")` : ""}: "${referenceHook}"
+Deconstruct the curiosity loop, tension, and cadence of this reference hook, and adapt its psychological mechanism directly for "${prompt}".`
     : ""
 }
 
-Produce an output in a well-structured Markdown-like hierarchy using these EXACT headers:
-[CORE CONCEPT & VIRAL ANGLE]
-Explain the specific psychological hook, interest loops, and target audience click motivation. Emphasize why a ${appliedTone} delivery strategy is ideal for this concept.
+OUTPUT STRUCTURE & FORMATTING REQUIREMENTS:
+Structure your response cleanly using these EXACT 3 sections so the output functions as a high-retention production blueprint AND works seamlessly in the Teleprompter Studio:
 
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: The Negative Contrast Hook (Sensational, challenges common developer wisdom, styled with a highly ${appliedTone} flavor)
-Option 2: The Curiosity Loop Hook (Unveils an underground secret, styled with a highly ${appliedTone} flavor)
-Option 3: The Value-Bomb Hook (Promises immediate transformation or cheat code, styled with a highly ${appliedTone} flavor)
+[Hook Options]
+Provide 3 punchy, natural spoken hooks specific to this topic that stop the scroll within 3 seconds:
+- Option 1 (Contrarian Pattern Interrupt): A bold opening that challenges conventional assumptions.
+- Option 2 (Curiosity Loop): An irresistible question or mystery that forces the viewer to stay to the end.
+- Option 3 (High-Stakes Anchor): A shocking fact, number, or emotional contrast.
 
-[CHOSEN HOOK RETENTION FORMULA]
-Provide a detailed breakdown of EXACTLY why the chosen hook keeps view drop-off under 10% in the first 3 seconds.
+[Spoken Script]
+Write the complete, word-for-word spoken script that the creator will read on camera from the very first word to the closing beat.
+CRITICAL FORMATTING RULE FOR TELEPROMPTER INTEGRATION:
+- Every camera direction, B-roll cue, scene transition, sound effect, timestamp, and stage gesture MUST be enclosed strictly in square brackets (e.g. [Cut to close-up of car interior], [0:00 - 0:05], [SFX: Cinematic whoosh], [Slight pause], [B-Roll: Slow glide across badges], [Look directly into camera]).
+- All spoken dialogue MUST be written outside brackets as natural, flowing, conversational sentences without any speaker prefixes (NEVER include 'Host:', 'VO:', 'Narrator:', or 'Speaker:').
+- This ensures that in the Teleprompter Studio, clicking 'Spoken Only' mode cleanly strips all bracketed directions and leaves pure, continuous spoken dialogue!
 
-[SCENE-BY-SCENE VISUAL BLUEPRINT TIMELINE]
-Break down the script scene-by-scene using this EXACT structure for EVERY beat:
-[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
-[TEXT OVERLAY: The exact typographic text to display on screen (e.g., "The 80-Hour Trap")]
-[AUDIO CUE: Specific sound effect or music transition (e.g., "Heavy sub-bass drop")]
-[0:00 - 0:05] [Slight head tilt] The actual spoken dialogue goes here as a pure sentence without headers or quotes.
-
-Repeat this block for EVERY single scene and major beat. Output only Visual Blueprint format with all directorial extras inside brackets.
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: Composition, split screens, and focal depth map.
-- Ideal Contrast Elements: Visual glow colors, objects on screen.
-- Overlay Copy Text: Short, high CTR typography suggested phrase.
-- Psychological click motivation.
-
-Keep your response punchy, clear, modern, and highly creative. Avoid low-quality filler.${
+[Visual & Retention Notes]
+Provide brief, high-leverage editing and B-roll guidance:
+- Editing & Pacing Cues: Strategic cut points, zoom-ins, typography text overlays, and sound design accents.
+- Retention Strategy: How the chosen structure retains viewers past the 3-second drop-off and drives completion.
+- Thumbnail Concept: Suggested visual composition, focal point, and high-CTR text overlay.
+${
   customInstructions && typeof customInstructions === "string" && customInstructions.trim()
-    ? `\n\n[USER SPECIFIED CREATOR STYLING & CUSTOM DIRECTIVES]:\nAdhere strictly to these personal style guidelines at all times:\n${customInstructions}`
+    ? `\n[CREATOR CUSTOM DIRECTIVES]:\n${customInstructions}`
     : ""
 }
-
-*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT & BRACKET STANDARDIZATION ***
-You are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.
-
-CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
-
-For every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.
-
-Strictly format your output using this exact structure for every scene:
-
-[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]
-[TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]
-[AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]
-[0:00 - 0:05] [Slight head tilt] The actual spoken dialogue goes here as a pure sentence without headers or quotes.
-
-Ensure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.
 `;
 
       const responseStream = await generateContentStreamWithCascade(ai, {
-        contents: `${prompt || "How to build automated prompt flows in 2026"}${
+        contents: `${prompt || "Viral Creator Script Blueprint"}${
           referenceHook && typeof referenceHook === "string" && referenceHook.trim()
             ? `\n\n[Reference Hook to adapt and remix]:\n"${referenceHook}"`
             : ""
@@ -1700,6 +1695,50 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
           console.warn(`[SubtitleFetcher] Android player API returned HTTP ${playerRes.status} (${playerRes.statusText})`);
         }
 
+        // Retry with alternate mobile User-Agent if 429 or no tracks found
+        if (step1Status === 429 || !tracks || !Array.isArray(tracks) || tracks.length === 0) {
+          console.log("[SubtitleFetcher] Layer 1 returned empty/429. Waiting 1.5s and retrying with alternate mobile User-Agent...");
+          await new Promise((r) => setTimeout(r, 1500));
+          try {
+            const altAndroidHeaders: Record<string, string> = {
+              "Content-Type": "application/json",
+              "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14)",
+              "X-YouTube-Client-Name": "3",
+              "X-YouTube-Client-Version": "19.29.37",
+              "Accept-Encoding": "gzip, deflate, br",
+              "Cookie": watchCookie || standardConsentCookie
+            };
+            const altPlayerRes = await fetch(playerEndpoint, {
+              method: "POST",
+              headers: altAndroidHeaders,
+              body: JSON.stringify({
+                context: {
+                  client: {
+                    clientName: "ANDROID",
+                    clientVersion: "19.29.37",
+                    hl: "en",
+                    gl: "US",
+                    ...(visitorData ? { visitorData } : {})
+                  }
+                },
+                videoId: videoId
+              }),
+              keepalive: true
+            });
+            if (altPlayerRes.ok) {
+              const altJson = await altPlayerRes.json() as any;
+              const altTracklist = altJson.captions?.playerCaptionsTracklistRenderer || altJson.playerCaptionsTracklistRenderer;
+              if (altTracklist?.captionTracks && Array.isArray(altTracklist.captionTracks) && altTracklist.captionTracks.length > 0) {
+                tracks = altTracklist.captionTracks;
+                step1Status = 200;
+                console.log(`[SubtitleFetcher] Alternate mobile User-Agent retry succeeded with ${tracks.length} caption tracks!`);
+              }
+            }
+          } catch (altErr) {
+            console.warn("[SubtitleFetcher] Alternate mobile retry encountered error:", altErr);
+          }
+        }
+
         console.log('[Captions] Step 1 - Android Innertube returned:', tracks?.length || 0);
 
         if (tracks && Array.isArray(tracks) && tracks.length > 0) {
@@ -1992,6 +2031,28 @@ Ensure the Visual Blueprint appears for every line or major beat and is unambigu
   // Secure Script Fetcher and Analyzer with Google Search grounding
   app.post("/api/fetch-script", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const { videoUrl, isLive } = req.body || {};
+
+    // Normalize YouTube URL and check Transcript Cache (24-hour TTL)
+    const normalizedVideoId = extractYoutubeVideoId(videoUrl);
+    if (normalizedVideoId && transcriptCache.has(normalizedVideoId)) {
+      const cached = transcriptCache.get(normalizedVideoId)!;
+      const isFresh = (Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL;
+      const hasValidData = cached.data && (
+        cached.data.hasTranscript === true || 
+        (cached.data.fullTranscript && !cached.data.fullTranscript.startsWith("[Notice:"))
+      );
+      if (isFresh && hasValidData) {
+        console.log(`[fetch-script] Serving cached transcript payload for videoId: ${normalizedVideoId} ("${cached.data.title || 'Untitled'}")`);
+        transcriptCache.delete(normalizedVideoId);
+        transcriptCache.set(normalizedVideoId, cached);
+        return res.json({
+          ...cached.data,
+          cached: true
+        });
+      } else if (!isFresh) {
+        transcriptCache.delete(normalizedVideoId);
+      }
+    }
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
@@ -2367,6 +2428,17 @@ Return exactly this JSON schema:
         parsedData.transcript = [];
       }
 
+      if (normalizedVideoId && parsedData && (parsedData.hasTranscript || (parsedData.fullTranscript && !parsedData.fullTranscript.startsWith("[Notice:")))) {
+        transcriptCache.set(normalizedVideoId, {
+          data: parsedData,
+          cachedAt: Date.now()
+        });
+        if (transcriptCache.size > 500) {
+          const oldestKey = transcriptCache.keys().next().value;
+          if (oldestKey) transcriptCache.delete(oldestKey);
+        }
+      }
+
       res.json(parsedData);
     } catch (error: any) {
       console.log("[fetch-script] Transitioning to local high-fidelity fallback generator due to rate limit or API exception.");
@@ -2377,6 +2449,24 @@ Return exactly this JSON schema:
         res.status(500).json({ error: "Fallback failure: " + (fallbackError.message || "Unknown error") });
       }
     }
+  });
+
+
+  // Endpoint to cache transcripts resolved client-side or via audio transcription
+  app.post("/api/cache-transcript", (req, res) => {
+    const { videoId, payload } = req.body || {};
+    if (videoId && typeof videoId === "string" && videoId.length === 11 && payload) {
+      transcriptCache.set(videoId, {
+        data: payload,
+        cachedAt: Date.now()
+      });
+      if (transcriptCache.size > 500) {
+        const oldestKey = transcriptCache.keys().next().value;
+        if (oldestKey) transcriptCache.delete(oldestKey);
+      }
+      return res.json({ ok: true, cached: true });
+    }
+    return res.status(400).json({ ok: false, error: "Invalid videoId or payload" });
   });
 
   // Unique high-fidelity script fallback builder

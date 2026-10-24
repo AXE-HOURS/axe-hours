@@ -46,6 +46,8 @@ import {
   cleanTranscriptForPrompter
 } from '../utils/transcriptParser';
 
+const sessionTranscriptCache = new Map<string, any>();
+
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
   const { logUserActivity, logActivity, user, dbUser, saveIdeaDB } = useFirebase();
@@ -571,6 +573,20 @@ export const ScriptFetcher: React.FC = () => {
       }
     }
 
+    // Check in-memory session cache for repeat fetches
+    const localVideoId = extractYoutubeId(cleanedUrl);
+    if (localVideoId && sessionTranscriptCache.has(localVideoId)) {
+      const cached = sessionTranscriptCache.get(localVideoId);
+      if (cached && cached.hasTranscript) {
+        setExtractedData(cached);
+        setIsLoading(false);
+        setExtractionDone(true);
+        addToast(`Loaded transcript from local cache! ⚡`, 'success');
+        playAudio(880);
+        return;
+      }
+    }
+
     // Client-Side URL Validation Guard
     const validation = validateVideoUrl(cleanedUrl);
     if (!validation.isValid) {
@@ -755,6 +771,26 @@ export const ScriptFetcher: React.FC = () => {
             transcriptErrorCode = '';
             transcriptErrorDetails = '';
             addToast(`Bypassed datacenter block! Recovered authentic transcript (${clientLines.length} lines) 🚀`, 'success');
+            // Asynchronously populate server transcriptCache
+            fetch('/api/cache-transcript', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                videoId: targetVideoId,
+                payload: {
+                  ...data,
+                  hasTranscript: true,
+                  fullTranscript,
+                  transcript: clientLines,
+                  hookText,
+                  pacingSpeed,
+                  hookScore,
+                  transcriptErrorCode: '',
+                  transcriptErrorDetails: '',
+                  status: 'OK'
+                }
+              })
+            }).catch(() => {});
           } else {
             // Auto-Fallback to Audio Transcription: If all caption services fail or captions disabled, trigger AI audio transcription
             setProgressText('Captions restricted — Auto-triggering AI Audio Transcription Pipeline...');
@@ -795,6 +831,25 @@ export const ScriptFetcher: React.FC = () => {
                   transcriptErrorCode = '';
                   transcriptErrorDetails = '';
                   addToast("Recovered spoken dialogue via AI Audio Transcription Pipeline! 🎙️🚀", "success");
+                  // Asynchronously populate server transcriptCache
+                  fetch('/api/cache-transcript', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      videoId: targetVideoId,
+                      payload: {
+                        ...data,
+                        hasTranscript: true,
+                        fullTranscript,
+                        hookText,
+                        pacingSpeed,
+                        hookScore,
+                        transcriptErrorCode: '',
+                        transcriptErrorDetails: '',
+                        status: 'OK'
+                      }
+                    })
+                  }).catch(() => {});
                 }
               }
             } catch (audioErr) {
@@ -837,6 +892,30 @@ export const ScriptFetcher: React.FC = () => {
         videoId: targetVideoId || '',
         status: hasTranscript ? 'SUCCESS' : (data.status || (isUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
       });
+
+      if (targetVideoId && hasTranscript) {
+        sessionTranscriptCache.set(targetVideoId, {
+          title: data.title || 'Untitled Extraction',
+          author: data.author || '',
+          platform: data.platform || 'youtube',
+          duration: data.duration || 'N/A',
+          views: data.views || 'N/A',
+          hookScore: hookScore,
+          pacingSpeed: pacingSpeed,
+          thumbnailSuggestion: data.thumbnailSuggestion || 'N/A',
+          hookText: hookText,
+          fullTranscript: fullTranscript,
+          metadataDesc: data.metadataDesc || 'N/A',
+          suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
+          hasTranscript: hasTranscript,
+          transcriptErrorCode: finalErrorCode,
+          transcriptErrorDetails: finalErrorDetails,
+          transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
+          clientDelegationUrl: data.clientDelegationUrl || '',
+          videoId: targetVideoId || '',
+          status: hasTranscript ? 'SUCCESS' : (data.status || (isUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
+        });
+      }
 
       logActivity('fetch_script', data.title || 'Untitled Extraction', `Processed video elements for extraction.`);
 

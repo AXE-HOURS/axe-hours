@@ -814,7 +814,8 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   };
   
   // Custom creator options
-  const [engine, setEngine] = useState<"gemini" | "ollama" | "sandbox">("gemini");
+  const [engine, setEngine] = useState<"gemini" | "ollama">("gemini");
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const [brandVoice, setBrandVoice] = useState("Contrarian");
   const [hookTone, setHookTone] = useState<"Exciting" | "Professional" | "Suspenseful" | "Minimalist">("Exciting");
   const [targetNiche, setTargetNiche] = useState("General Specialist & Creator");
@@ -1269,11 +1270,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
     const savedVoice = localStorage.getItem(`axe_hours_brand_voice_${uid}`) || localStorage.getItem("axe_hours_brand_voice");
     const savedNiche = localStorage.getItem(`axe_hours_target_niche_${uid}`) || localStorage.getItem("axe_hours_target_niche");
 
-    if (savedKey) {
-      setEngine("gemini");
-    } else {
-      setEngine("sandbox");
-    }
+    setEngine("gemini");
 
     if (savedVoice) setBrandVoice(savedVoice);
     if (savedNiche) setTargetNiche(savedNiche);
@@ -1545,37 +1542,6 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       }
     }, 400);
 
-    if (engine === "sandbox") {
-      setTimeout(() => {
-        clearInterval(logInterval);
-        
-        let boosted = `[BOOSTED PROMPT]: ${activePreset.name} Mix\n\n`;
-        boosted += `Topic Challenge: "${prompt}"\n`;
-        boosted += `Suggested Format Angle: ${activePreset.name}\n\n`;
-        
-        if (selectedMixPresetIndex === 0) {
-          if (importedContext?.openingHook) {
-            boosted += `Adapting Reference Hook DNA: "${importedContext.openingHook}".\nDeconstruct the opening psychological tension and curiosity loop of this viral hook and remix it for "${prompt}". Highlight the contrarian angle, retain the high-energy cadence, and deliver a seamless transition into the core solution.`;
-          } else {
-            boosted += `Stop doing traditional implementation for: "${prompt}". Why 99% of developers fail this step by over-complicating boilerplate. Instead, deploy this modern microscopic code shortcut that automates the exact flow in 15 minutes. Show exactly how anyone can replicate this immediate cheat code.`;
-          }
-        } else if (selectedMixPresetIndex === 1) {
-          boosted += `The 0.1% of advanced creators are using an underground loop trick to solve: "${prompt}". Why standard tutorials are hiding this productivity method, and how it reduces cognitive overhead with zero setup.`;
-        } else if (selectedMixPresetIndex === 2) {
-          boosted += `A highly tactical, step-by-step mastercode walkthrough on "${prompt}". Break it down into exact structured segments with actionable lists, so the audience can copy-paste and deploy instantly.`;
-        } else {
-          boosted += `This is why most attempts to build "${prompt}" fail catastrophically. The critical 3-second mistake that drains viewer retention, and the clean value formula to get successful results immediately.`;
-        }
-        
-        setPrompt(boosted);
-        setIsMixing(false);
-        setMixLog("");
-        showToast("AI Prompt mixed, engineered, and boosted successfully in Sandbox!");
-        playAudioCue(880, "triangle"); // A5
-      }, 2000);
-      return;
-    }
-
     const savedKey = getSecureGeminiKey(uid);
     const activeKey = engine === 'gemini' ? savedKey : null;
 
@@ -1620,10 +1586,10 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       }
     } catch (e: any) {
       console.error(e);
-      showToast("Key missing or API Error. Reverted to Sandbox mixer engine.");
+      showToast("Applied smart prompt enhancement template.", "info");
       
       let boosted = `[HEURISTIC MIXED PROMPT]: ${activePreset.name} Preset\n\n`;
-      boosted += `Stop building traditional solutions for "${prompt}". Here is how we exploit a micro-automation recipe using specific creative triggers. Show exactly why standard pathways fall short and build the dynamic strategy now.`;
+      boosted += `Reinvent the traditional approach to "${prompt}". Here is how top creators achieve outsized engagement using unconventional angles. Break down why standard advice fails and outline the exact framework to stand out.`;
       setPrompt(boosted);
     } finally {
       setIsMixing(false);
@@ -1634,6 +1600,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   const generateMagic = async () => {
     if (!prompt) return;
     setIsLoading(true);
+    setGenerationError(null);
     setResult("");
     setIsSaved(false);
     setActiveTab("blueprint");
@@ -1643,10 +1610,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       document.getElementById("ai-generator-workspace-tabs-group")?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 250);
 
-    if (engine === 'sandbox') {
-      runSandboxSimulation();
-      return;
-    }
+
 
     if (engine === 'ollama') {
       try {
@@ -1687,10 +1651,11 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         }
         return;
       } catch (e: any) {
-        console.warn("Local Ollama loop offline or blocked. engaging sandbox compiler.", e);
-        showToast("Local Ollama is offline or unavailable. Engaging Sandbox fallback simulation! ⚡", "warning");
-        setResult("📡 Connection to 'http://localhost:11434' timed out.\nEngaging highly adaptive creator sandbox fallback generator...\n\n");
-        setTimeout(() => runSandboxSimulation(), 1500);
+        console.warn("Local Ollama connection failed:", e);
+        const errMsg = "Local Ollama is offline or unreachable at http://localhost:11434. Please ensure Ollama is running ('ollama run llama3') with CORS enabled, or switch to Gemini Cloud.";
+        setGenerationError(errMsg);
+        setIsLoading(false);
+        showToast(errMsg, "error");
         return;
       }
     }
@@ -1743,7 +1708,11 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => null);
-        throw new Error(errJson?.error || ("HTTP error " + response.status));
+        const errMsg = errJson?.error || (`Generation failed (HTTP ${response.status})`);
+        setGenerationError(errMsg);
+        setIsLoading(false);
+        showToast(errMsg, "error");
+        return;
       }
 
       const reader = response.body?.getReader();
@@ -1802,304 +1771,13 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
       }
     } catch (error: any) {
       clearTimeout(timeoutId);
-      if (isStreamTimedOut || error.name === 'AbortError') {
-        console.warn("[AIGenerator] Synthesis stream connection timed out after 45s.");
-        setIsLoading(false);
-        showToast('Synthesis timed out. Reconnecting pipeline...', 'warning');
-        setResult(prev => (prev ? prev + "\n\n⚠️ [TIMEOUT GUARD] Synthesis timed out after 45 seconds. Pipeline reset." : "⚠️ [TIMEOUT GUARD] Synthesis timed out after 45 seconds. Please try again."));
-        return;
-      }
-
-      console.warn("Gemini Cloud connection failed. Attempting automatic routing failover to Local Ollama...", error);
-      setResult("📡 [FAILOVER TRIGGERED] Gemini Cloud unavailable or API rate limit reached.\nRouting pipeline to Local Ollama host (http://localhost:11434)... \n\n");
-      showToast("Gemini Cloud failed. Testing automatic failover to local Ollama...", "warning");
-      
-      try {
-        const response = await fetch("http://localhost:11434/api/generate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: "llama3",
-            prompt: `You are a high-performance content psychologist, scriptwriter, and viral growth analyst. Assemble a detailed video script blueprint as failover from Gemini Cloud.
-Topic Challenge: "${prompt}"
-Niche Target: ${targetNiche}
-Voice Tone Rules: ${brandVoice} (Sub-tone Preset: ${hookTone})
-Format: ${duration}
-Aesthetic Vibe: ${visualStyle}
-
-CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
-Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [SCENE-BY-SCENE VISUAL BLUEPRINT], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
-            stream: false
-          })
-        });
-
-        if (!response.ok) {
-          throw new Error("Local Ollama responded with error code: " + response.status);
-        }
-
-        const data = await response.json();
-        const generatedText = data.response || "";
-        setIsLoading(false);
-        if (generatedText) {
-          setResult(generatedText);
-          saveToHistory(prompt, generatedText);
-          parseScriptStructure(generatedText);
-          logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Ollama failover.`);
-          showToast("Routed failover session to local Ollama successfully! 🦾", "success");
-        } else {
-          throw new Error("Empty payload returned from local model.");
-        }
-      } catch (ollamaErr: any) {
-        console.warn("Local Ollama failover failed or offline. Routing to Sandbox compiler.", ollamaErr);
-        setResult("📡 [OLLAMA OFFLINE] Failover to Local Ollama failed.\nEngaging highly adaptive creator sandbox fallback generator...\n\n");
-        showToast("AI Failover pipeline complete: Launching localized Sandbox model", "warning");
-        setTimeout(() => runSandboxSimulation(), 1200);
-      }
+      setIsLoading(false);
+      const errMsg = isStreamTimedOut || error.name === 'AbortError'
+        ? "Script synthesis timed out after 45 seconds. Please retry."
+        : (error.message || "Failed to generate video script with Gemini. Please retry.");
+      setGenerationError(errMsg);
+      showToast(errMsg, "error");
     }
-  };
-
-  const runSandboxSimulation = () => {
-    setResult("⚡ COGNITIVE ROUTER CONFIGURED...\nDEPLOYING ADAPTATIVE CONTENT GENERATOR...\n\n");
-    const query = prompt.toLowerCase();
-    const nicheLower = targetNiche.toLowerCase();
-    
-    let themeTitle = prompt || "Untethered Achievement";
-    // If it's a boosted prompt with structured Topic Challenge, extract the clean topic text
-    if (themeTitle.includes('Topic Challenge: "')) {
-      const match = themeTitle.match(/Topic Challenge:\s*"([^"]+)"/);
-      if (match) {
-        themeTitle = match[1];
-      }
-    } else if (themeTitle.includes("[BOOSTED PROMPT]")) {
-      const parts = themeTitle.split("\n");
-      const challengeLine = parts.find(p => p.toLowerCase().includes("challenge"));
-      if (challengeLine) {
-        themeTitle = challengeLine.replace(/[^"]*"([^"]+)"[^"]*/, "$1");
-      } else {
-        themeTitle = "Tech Workflow Mastery";
-      }
-    }
-    
-    // Ensure we don't have extremely long labels in simple template replacements
-    if (themeTitle.length > 80) {
-      themeTitle = themeTitle.substring(0, 77) + "...";
-    }
-
-    let generatedText = "";
-
-    if (query.includes("math") || query.includes("science") || query.includes("conjecture") || query.includes("collatz") || query.includes("unsolved") || query.includes("solve")) {
-      generatedText = `[CORE CONCEPT & VIRAL ANGLE]
-Our core angle focuses on deconstructing highly complex mathematical concepts into captivating narrative journeys. The target click motivation is the "Illusion of Simplicity" – presenting a puzzle that looks easy but is mathematically unsolved.
-
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: "This math problem is so ridiculously simple, any primary school student can understand it. Yet, the world's most brilliant minds have spent almost a century trying to prove it — and many warn that it's a trap." (98% Potential)
-Option 2: "They are lying to you about mathematical certainty. Let's look at a simple 3-step loop that completely breaks the rules of arithmetic." (95% Curiosity Curve)
-Option 3: "If you start running this simple numerical sequence, you will hit an unbreakable cycle. Mathematics cannot prove why this happens." (92% Engagement Rate)
-
-[CHOSEN HOOK RETENTION FORMULA]
-Our target hook instantly presents a massive pain-point contrast: Simple rule vs Unsolvable paradox. This leverages curiosity loops and cognitive friction to force retention past the critical 3-second dropoff.
-
-[SCENE-BY-SCENE VISUAL BLUEPRINT]
-[VISUAL: Extreme close-up of chalk drawing a simple formula on a black canvas.]
-[TEXT OVERLAY: The Hook]
-[AUDIO CUE: Sharp chalk snap]
-[0:00 - 0:05] [Hook] This math problem is so ridiculously simple, any primary school student can understand it. Yet, the world's most brilliant minds have spent almost a century trying to prove it.
-
-[VISUAL: Visual representation of the numbers 4, 2, and 1 circling infinitely.]
-[TEXT OVERLAY: The Challenge]
-[AUDIO CUE: Mysterious build-up]
-[0:05 - 0:15] [The Challenge] Take any positive integer. If it's even, divide it by two. If it's odd, triple it and add one.
-
-[VISUAL: Detailing computer tests up to 2^68, and showing Paul Erdős's famous quote.]
-[TEXT OVERLAY: The Development]
-[AUDIO CUE: Fast-paced digital ticking]
-[0:15 - 0:45] [The Problem] No matter what number you pick, mathematicians believe you always end up trapped in the four, two, one loop, but nobody has ever been able to prove it.
-
-[VISUAL: Screen showing a custom diagram overlay requesting comments about personal tests.]
-[TEXT OVERLAY: Comment Below]
-[AUDIO CUE: Climax drop]
-[0:45 - 1:00] [Call to Action] Test your own starting number in the comments and let's see how many steps it takes you to collapse into the loop.
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: High contrast dark layout, chalk formulas scattered around.
-- Ideal Contrast Elements: Electric azure glows contrasting with matte chalkboard files.
-- Overlay Copy Text: "UNSOLVABLE?!"`;
-    } else if (selectedCategory === "Food" || nicheLower.includes("cook") || nicheLower.includes("food") || nicheLower.includes("chef") || query.includes("pasta") || query.includes("chef") || query.includes("cook")) {
-      generatedText = `[CORE CONCEPT & VIRAL ANGLE]
-Our viral focus centres on disrupting traditional cooking mistakes in ${targetNiche}. The psychological angle is restaurant-grade perfection: showing the audience a simple organic ingredient shift or chemical balancing ratio that immediately spikes their saliva receptors.
-
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: "Stop dumping table salt on your food when it tastes flat. Why top Michelin chefs use three obscure citric acid ratios to trigger intense taste depth instantly." (95% Retention Potential)
-Option 2: "They are lying to you about cooking pasta the old way. Let's look at a simple starch-reduction strategy that creates absolute cream texture with zero butter." (97% Curiosity Curve)
-Option 3: "If you're still boiling your green vegetables standardly, you need to look at this simple 5-second shock ice-bath recipe trick." (92% Engagement Rate)
-
-[CHOSEN HOOK RETENTION FORMULA]
-Our hook relies on culinary disruption. We challenge conventional seasoning and boiling habits, creating immediate curiosity that commands watchtime past the 3-second mark.
-
-[SCENE-BY-SCENE VISUAL BLUEPRINT]
-[0:00 - 0:03] [HOOK] [VISUAL: Extreme close-up of a hot skillet sizzling with olive oil and fresh garlic.] Stop dumping table salt on your food when it tastes flat.
-[0:03 - 0:15] [CONTRAST] [VISUAL: Split visual comparing gray soggy broccoli with vibrant, crisp ice-shocked greens.] Here is why top Michelin star chefs use citrus acid ratios instead.
-[0:15 - 0:45] [METHOD] [VISUAL: Presenting the exact water starch ratio on screen with clear bold overlay badges.] Save your pasta water and emulsion reduce it to create rich velvety sauce.
-[0:45 - 1:00] [CTA] [VISUAL: Close-up of the dish being tossed beautifully with steam rising.] Comment RECIPE below to get the full chef formulation guide.
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: High saturate food shot in the center; left side reflects standard failure.
-- Ideal Contrast Elements: Extreme crimson flames contrasted with matte charcoal cooking utensils.
-- Overlay Copy Text: "MICHELIN BLUEPRINT"`;
-    } else if (selectedCategory === "Finance" || nicheLower.includes("finance") || nicheLower.includes("wealth") || nicheLower.includes("money") || nicheLower.includes("invest") || query.includes("passive") || query.includes("saving") || query.includes("wealth")) {
-      generatedText = `[CORE CONCEPT & VIRAL ANGLE]
-Our viral focus is revealing hidden asset structures or cash flow strategies in ${targetNiche}. The cognitive loop levers are "The Inflation Scam" or "Unfair Leverage": highlighting how traditional advice keeps people poor while elite players exploit micro royalty streams.
-
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: "Why standard high-yield savings accounts are secretly eating your purchasing power. Top institutions are buying obscure digital royalties to earn 12% passive yields." (96% Gold Tier Potential)
-Option 2: "The elite solopreneurs don't raise venture capital. Instead, they build micro automated cashflow machines in under 48 hours for $0." (98% Curiosity Curve)
-Option 3: "If you're still investing standardly in broad index funds, step back and look at these three asset-hedging alternatives." (93% Engagement Rate)
-
-[CHOSEN HOOK RETENTION FORMULA]
-The hook targets systemic financial anxiety. By framing traditional saving as an active loss, we trigger strong psychological tension and promise a high-payoff automated shortcut.
-
-[SCENE-BY-SCENE VISUAL BLUEPRINT]
-[0:00 - 0:03] [HOOK] [VISUAL: Sleek, high-contrast dark diagram tracking inflation vectors with neon gold accents.] Standard high-yield savings accounts are secretly eating your purchasing power.
-[0:03 - 0:15] [FRICTION] [VISUAL: Screen showing traditional bank interest statements collapsing into pixel dust.] While inflation outpaces your returns, your cash sits dormant.
-[0:15 - 0:45] [PAYOFF] [VISUAL: Staggered bullet-points outlining automated AI or digital property acquisitions.] Top modern builders deploy automated micro royalty cashflow systems instead.
-[0:45 - 1:00] [CTA] [VISUAL: Displaying a clean website mockup illustrating direct cash distributions.] Comment MUTINY below to inspect the full automated architecture.
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: Extreme zoom-in on bank interest screens with overlay red crosses.
-- Ideal Contrast Elements: Glowing gold gold bars juxtaposed with faded corporate spreadsheets.
-- Overlay Copy Text: "12% HACKED?!"`;
-    } else if (selectedCategory === "Travel" || nicheLower.includes("travel") || nicheLower.includes("nomad") || nicheLower.includes("backpack") || query.includes("country") || query.includes("island") || query.includes("bag")) {
-      generatedText = `[CORE CONCEPT & VIRAL ANGLE]
-Our core angle centers on geographically- arbitrage and lifestyle hacking. We hook viewers with extreme luxurious benefits for tiny budgets, leveraging the physical desire for travel and escapism.
-
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: "Stop packing massive suitcases for long international voyages. This simple 20-liter backpack layout allows you to travel the world for 3 months with zero luggage fees." (94% Retention Potential)
-Option 2: "They are lying to you about Bali prices. There is an elite island sanctuary less than 2 hours away where you can live like royalty for under $800 split-rent." (96% Curiosity Curve)
-Option 3: "If you're still staying in standard travel hostels, you need to see this secret architectural villa compound." (91% Engagement Rate)
-
-[CHOSEN HOOK RETENTION FORMULA]
-Our hook uses geographic arbitrage. We contrast cheap costs with luxury living standards, opening a curiosity loop that gets viewers excited for the practical breakdown.
-
-[SCENE-BY-SCENE VISUAL BLUEPRINT]
-[0:00 - 0:03] [HOOK] [VISUAL: Overwhelmingly gorgeous drone zoom of crystal blue waves crashing on a black volcanic sand beach.] Stop packing massive suitcases for long international trips.
-[0:03 - 0:15] [PROBLEM] [VISUAL: Frustrated tourist dragging massive suitcases in a crowded airport line with warning overlays.] This minimalist twenty-liter backpack blueprint lets you explore for three months with zero baggage fees.
-[0:15 - 0:45] [BLUEPRINT] [VISUAL: Quick cuts demonstrating packing layouts or digital nomad workspace views.] Pack four compression cubes, modular clothing, and ultra-light tech gear.
-[0:45 - 1:00] [CTA] [VISUAL: Aerial sunset shot of a gorgeous tropical shared workspace.] Comment PARADISE below to get the full international packing layout.
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: Split layout. Left: $800 modern villa. Right: Crowded grey office cubicle.
-- Ideal Contrast Elements: Neon sea-foam green ocean waters paired with matte slate business suits.
-- Overlay Copy Text: "BALI IS DEAD?"`;
-    } else if (selectedCategory === "Fitness" || nicheLower.includes("fit") || nicheLower.includes("health") || nicheLower.includes("muscle") || nicheLower.includes("gym") || query.includes("weight") || query.includes("workout")) {
-      generatedText = `[CORE CONCEPT & VIRAL ANGLE]
-Our viral focus is physical and neurological biohacking. We disrupt normal gym lore by demonstrating correct biomechanics or circadian sleep optimization patterns that yields massive results.
-
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: "Why 95% of gym-goers get absolutely ZERO muscle gains despite training hard 5 days a week. It isn't your diet; it is the complete lack of eccentric tension optimization." (95% High Score)
-Option 2: "Stop drinking espresso the second you wake up. This obscure 10-minute cortisol delay sequence naturally doubles your morning alertness with no crash." (98% Curiosity Curve)
-Option 3: "If you are still performing standard overhead presses, you are slowly grinding down your rotator cuff joints." (90% Engagement Rate)
-
-[CHOSEN HOOK RETENTION FORMULA]
-The hook targets wasted gym effort. We challenge traditional workout lore with scientific biohacking, forcing viewers to pay attention to fix their mistakes.
-
-[SCENE-BY-SCENE VISUAL BLUEPRINT]
-[0:00 - 0:03] [HOOK] [VISUAL: Extreme close-up of a dumbbell being lowered in slow motion with glowing muscular overlays.] Why ninety-five percent of gym goers get zero results despite training five days a week.
-[0:03 - 0:15] [SCIENCE] [VISUAL: Quick dynamic skeletal movement overlay showing shoulder joint pressure values.] It is not your nutrition, it is completely uncontrolled eccentric momentum.
-[0:15 - 0:45] [BLUEPRINT] [VISUAL: Practical exercise demonstration showing exact elbow positioning.] Slow down each negative rep to three full seconds to maximize mechanical tension.
-[0:45 - 1:00] [CTA] [VISUAL: Presenter demonstrating proper posture.] Comment TRAIN below to download the clinically backed hypertrophy training split.
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: Left side outlines joint damage in red; right side shows correct alignment in emerald green.
-- Ideal Contrast Elements: High-saturation neon athletic orange contrasted with dark slate gym floors.
-- Overlay Copy Text: "STOP DOING THIS"`;
-    } else if (selectedCategory === "Gaming" || nicheLower.includes("game") || nicheLower.includes("esport") || nicheLower.includes("retro") || query.includes("console") || query.includes("pixel") || query.includes("map")) {
-      generatedText = `[CORE CONCEPT & VIRAL ANGLE]
-Our core angle captures elite spatial mastery or unique mechanical loops in competitive and retro titles. The curiosity trigger is showing hidden map glitches or hardware repairs that feel like magic to players.
-
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: "Why 99% of competitive players completely fail on this map loop. Using this hidden pixel placement allows you to lock down the entire site solo with zero backup." (96% Potential)
-Option 2: "The retro gaming community is thriving. How a simple $15 soldering hardware modification turns old consoles into spectacular 4K widescreen outputs." (97% Curiosity Curve)
-Option 3: "If you still fight the final boss using conventional sword combinations, you are missing this incredibly easy level cheat." (91% Engagement Rate)
-
-[CHOSEN HOOK RETENTION FORMULA]
-The hook promises unfair gameplay leverage. By demonstrating a pixel-perfect positional trick, we grab competitive gamer instincts and guarantee complete high retention path.
-
-[SCENE-BY-SCENE VISUAL BLUEPRINT]
-- 0:00 - 0:03 [HOOK]: Ultra-smooth 60fps game camera pan looking down a highly complex competitive level layout.
-- 0:03 - 0:15 [EXPLOIT]: On-screen graphic highlighting exact player coordinate lines with yellow glow overlays.
-- 0:15 - 0:45 [TUTORIAL]: Demonstration of the strategy succeeding against multiple opponents consecutively.
-- 0:45 - 1:00 [CTA]: Close-up of a retro gamepad vibrating. Caption: "Comment 'GLITCH' to get the coordinate files."
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: Stylized gaming map HUD; right side shows direct pixel coordinates highlighted in neon cyan.
-- Ideal Contrast Elements: Acid-yellow coordinate lines pop over a dark dark blue gaming background.
-- Overlay Copy Text: "UNBEATABLE!"`;
-    } else {
-      generatedText = `[CORE CONCEPT & VIRAL ANGLE]
-Our viral focus centres on disrupting traditional, slow assumptions in ${themeTitle}. The core psychological angle is immediate efficiency: showing the audience a high-speed, simplified framework that cuts out standard boilerplate and delivers successful outputs.
-
-[THE HOOK SCRIPTS (3 VARIATIONS)]
-Option 1: "Stop doing traditional implementation for ${themeTitle}. Why 99% of creators fail by overcomplicating their workflows, and the exact 12-hour automated cheat code." (94% Retention Potential)
-Option 2: "The elite 0.1% are utilizing an underground productivity loophole for ${themeTitle} that saves them 20 hours a week with absolute freedom." (96% Curiosity Curve)
-Option 3: "If you're still building ${themeTitle} the old way, you need to step away and look at this micro-solution map." (91% Engagement Rate)
-
-[CHOSEN HOOK RETENTION FORMULA]
-Our optimized hook presents a stark contrast: high effort/wasted time vs automated simplicity. This immediately disrupts the scroll feed, establishes cognitive tension, and maximizes early viewer retention.
-
-[SCENE-BY-SCENE VISUAL BLUEPRINT]
-[VISUAL: Rapid close-up transition of direct project files with clean bold fonts.]
-[TEXT OVERLAY: The Blueprint]
-[AUDIO CUE: Fast digital whoosh]
-VOICEOVER: "Stop doing traditional implementation."
-
-[VISUAL: Slide deck showcasing standard, slow failed attempts overlaying a frustration indicator.]
-[TEXT OVERLAY: The Problem]
-[AUDIO CUE: Low bass drop]
-VOICEOVER: "This is why you are failing."
-
-[VISUAL: Interactive step-by-step display of the dynamic, streamlined template.]
-[TEXT OVERLAY: The Solution]
-[AUDIO CUE: Upbeat progression]
-VOICEOVER: "Use this streamlined template instead."
-
-[VISUAL: Seamless custom screen requesting comments to access the raw repository folder instantly.]
-[TEXT OVERLAY: Comment for Access]
-[AUDIO CUE: Notification chime]
-VOICEOVER: "Comment below to get the raw files."
-
-[THUMBNAIL STRATEGIST ASSIGNED PLAN]
-- Core Layout Strategy: Flat 16:9 canvas split. Left features warning indicators; right highlights neon purple rewards.
-- Ideal Contrast Elements: Extreme contrast magenta overlays paired with clean display typography.
-- Overlay Copy Text: "DONE IN 12H"`;
-    }
-
-    // Infuse the selected hookTone preset into sandbox generation text for robust UI reflection
-    let refinedText = generatedText;
-    if (hookTone !== "Exciting") {
-      refinedText = refinedText.replace("[CORE CONCEPT & VIRAL ANGLE]", `[CORE CONCEPT & VIRAL ANGLE] - CURRENT TONE PRESET: ${hookTone.toUpperCase()}`);
-      refinedText = refinedText.replaceAll("Option 1: ", `Option 1 [${hookTone} style]: `);
-      refinedText = refinedText.replaceAll("Option 2: ", `Option 2 [${hookTone} style]: `);
-      refinedText = refinedText.replaceAll("Option 3: ", `Option 3 [${hookTone} style]: `);
-    }
-
-    const lines = refinedText.split("\n");
-    let index = 0;
-    
-    typewriterIntervalRef.current = setInterval(() => {
-      if (index < lines.length) {
-        setResult(prev => prev + lines[index] + "\n");
-        index++;
-      } else {
-        if (typewriterIntervalRef.current) {
-          clearInterval(typewriterIntervalRef.current);
-        }
-        setIsLoading(false);
-        saveToHistory(prompt, generatedText);
-        parseScriptStructure(generatedText);
-        logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Sandbox generator.`);
-        showToast("AI script compiled successfully under Sandbox fallback! 📽️", "success");
-      }
-    }, 45);
   };
 
   const evaluateCustomTitle = () => {
@@ -2343,7 +2021,7 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
 
         {/* Engine switcher bar */}
         <div id="ai-gen-engine-tabs-deck" className="bg-white/5 p-1 rounded-xl border border-white/10 flex items-center gap-1.5 text-xs font-bold font-mono">
-          {(["gemini", "ollama", "sandbox"] as const).map((engName) => (
+          {(["gemini", "ollama"] as const).map((engName) => (
             <button
               key={engName}
               id={`engine-btn-${engName}`}
@@ -2954,6 +2632,34 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
           </GlassCard>
         </div>
       </div>
+
+      {/* Script Generation Error Banner */}
+      {generationError && (
+        <div id="ai-generator-error-banner" className="w-full p-5 bg-red-950/40 border border-red-500/30 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl shadow-red-950/30 animate-in fade-in duration-300">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 shrink-0">
+              <AlertTriangle size={20} />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-sm font-bold text-white tracking-tight">Script Generation Failed</h4>
+              <p className="text-xs text-red-200/90 leading-relaxed font-sans">{generationError}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setGenerationError(null);
+                generateMagic();
+              }}
+              className="px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-400 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer transition-all shadow-md active:scale-95 whitespace-nowrap"
+            >
+              <RotateCcw size={13} />
+              <span>Retry Generation</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Structured Result workspace */}
       {(result || isLoading) && (

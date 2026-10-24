@@ -665,7 +665,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
   "capabilities": ["Retuner", "Synth_API"],
   "groupsJoined": ${JSON.stringify(displayedGroups.filter(g => g.isMember).map(g => g.name.substring(0, 12) + "..."))},
   "creationRules": {
-    "engine": "gemini-3.5-flash",
+    "engine": "gemini-2.5-flash",
     "retentionThreshold": 0.85
   }
 }`}
