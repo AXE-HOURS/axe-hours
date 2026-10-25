@@ -260,7 +260,11 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       ],
       tag: "Contrarian",
       potential: "96%",
-      compile: () => `Stop doing ${inputs.commonAction}. Instead, do ${inputs.unconventionalStrategy} to achieve ${inputs.desiredResult} in just ${inputs.timeframe}.`
+      compile: () => {
+        const action = inputs.commonAction.toLowerCase().startsWith("doing ") ? inputs.commonAction.slice(6) : inputs.commonAction;
+        const strat = inputs.unconventionalStrategy.replace(/^(?:do|use|using)\s+/i, "");
+        return `Stop doing ${action}. Instead, use ${strat} to achieve ${inputs.desiredResult} in just ${inputs.timeframe}.`;
+      }
     },
     {
       id: 2,
@@ -273,7 +277,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       ],
       tag: "Story Loop",
       potential: "94%",
-      compile: () => `How I went from a ${inputs.negativeState} to ${inputs.positiveState} in just ${inputs.timeframe} using this one simple method.`
+      compile: () => `How I went from ${inputs.negativeState.replace(/^(?:a|an)\s+/i, "")} to ${inputs.positiveState} in just ${inputs.timeframe} using this one simple method.`
     },
     {
       id: 3,
@@ -379,7 +383,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
   const refinedAlternatives = useMemo(() => {
     const titleLower = analyzedTitle.toLowerCase();
     
-    // Stop words to clean extracted topics
+    // Stop words to clean extracted topics (including verbs and non-noun modifiers)
     const stopwords = new Set([
       "why", "how", "what", "who", "when", "where", "which", "whose", "whom",
       "people", "person", "someone", "somebody", "anyone", "anybody", "everyone", "everybody",
@@ -387,7 +391,14 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       "the", "a", "an", "and", "or", "but", "if", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once",
       "here", "there", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now", "are", "is", "am", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing",
       "this", "that", "these", "those", "like", "get", "gets", "got", "getting", "make", "makes", "made", "making", "about",
-      "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves"
+      "i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves",
+      // Non-noun verbs and generic filler
+      "stop", "stopped", "stopping", "approach", "approached", "approaching", "grow", "growing", "grew", "grown",
+      "build", "building", "built", "create", "creating", "created", "start", "started", "starting",
+      "try", "trying", "tried", "use", "using", "used", "work", "working", "worked", "look", "looking", "looked",
+      "see", "seeing", "saw", "learn", "learning", "learned", "know", "knowing", "knew", "master", "mastering",
+      "play", "playing", "played", "spend", "spending", "spent", "find", "finding", "found", "take", "taking", "took",
+      "give", "giving", "gave", "show", "showing", "showed", "run", "running", "ran", "keep", "keeping", "kept"
     ]);
 
     // Split title, clean punctuation, filter length, and exclude stop words
@@ -399,10 +410,10 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       .filter(w => w.length > 2 && !stopwords.has(w));
 
     // Get the most significant words or generic fallback
-    const rawNoun1 = filteredWords[0] || "Concept";
-    const rawNoun2 = filteredWords[1] || "Strategy";
+    const rawNoun1 = filteredWords[0] || "Content Strategy";
+    const rawNoun2 = filteredWords[1] || "Audience Growth";
 
-    // Capitalize beautifully
+    // Capitalize cleanly
     const keyword = rawNoun1.charAt(0).toUpperCase() + rawNoun1.slice(1).toLowerCase();
     const subKeyword = rawNoun2.charAt(0).toUpperCase() + rawNoun2.slice(1).toLowerCase();
 
@@ -433,17 +444,17 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop playing ${topic.toLowerCase()} like standard amateurs: Use this outlier technique instead! 🏆`,
+          title: `Stop playing ${topic.toLowerCase()} like standard amateurs: Use this outlier technique instead`,
           score: Math.min(98, scores.total + 15)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% fail to master ${topic}: The simple high-velocity play that doubled my performance in 7 days ⚡`,
+          title: `Why 99% fail to master ${topic}: The simple high-velocity play that doubled my performance in 7 days`,
           score: Math.min(97, scores.total + 12)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure ${topic.toLowerCase()} secret elite coaches keep completely hidden from the league. 🚀`,
+          title: `The obscure ${topic.toLowerCase()} secret elite coaches keep completely hidden from the league`,
           score: Math.min(96, scores.total + 14)
         }
       ];
@@ -470,17 +481,17 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop preparing ${topic} like ordinary home cooks: Try this Michelin technique! 🍳`,
+          title: `Stop preparing ${topic} like ordinary home cooks: Try this Michelin technique`,
           score: Math.min(98, scores.total + 16)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% fail to make the perfect ${topic}: Master this absolute texture or timing loophole ⚡`,
+          title: `Why 99% fail to make the perfect ${topic}: Master this absolute texture or timing loophole`,
           score: Math.min(97, scores.total + 13)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure five-star cooking secret top masterchefs keep completely hidden. 🤫`,
+          title: `The obscure five-star cooking secret top masterchefs keep completely hidden`,
           score: Math.min(96, scores.total + 15)
         }
       ];
@@ -507,17 +518,17 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop playing ${topic} like casual gamers: Activate this advanced trick immediately! 🎮`,
+          title: `Stop playing ${topic} like casual gamers: Activate this advanced trick immediately`,
           score: Math.min(98, scores.total + 14)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% fail to complete this ${topic} level: How I reached rank 100 in hours ⚡`,
+          title: `Why 99% fail to complete this ${topic} level: How I reached rank 100 in hours`,
           score: Math.min(97, scores.total + 11)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure ${topic} engine glitch professional speedrunners keep hidden from developers. 🤫`,
+          title: `The obscure ${topic} engine glitch professional speedrunners keep hidden from developers`,
           score: Math.min(96, scores.total + 16)
         }
       ];
@@ -543,17 +554,17 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop visiting ${topic} like standard tourists: Experience this underground route! ✈️`,
+          title: `Stop visiting ${topic.toLowerCase()} destinations like standard tourists: Experience this underground route`,
           score: Math.min(98, scores.total + 12)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% spend too much on ${topic} bookings: How I travel five-star for cheaper ⚡`,
+          title: `Why 99% spend too much on ${topic.toLowerCase()} bookings: How I travel five-star for cheaper`,
           score: Math.min(97, scores.total + 14)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure ${topic} booking loophole airline reservation platforms keep completely hidden. 🤫`,
+          title: `The obscure ${topic.toLowerCase()} booking loophole airline reservation platforms keep completely hidden`,
           score: Math.min(96, scores.total + 16)
         }
       ];
@@ -585,17 +596,17 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop running your ${topic.toLowerCase()} like standard amateurs: Do this outlier strategy! 📈`,
+          title: `Stop running your ${topic.toLowerCase()} like standard amateurs: Do this outlier strategy`,
           score: Math.min(98, scores.total + 15)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% fail with ${topic}: How I built an elite workflow in just 30 days ⚡`,
+          title: `Why 99% fail with ${topic.toLowerCase()}: How I built an elite workflow in just 30 days`,
           score: Math.min(97, scores.total + 14)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure ${topic.toLowerCase()} cheat code that self-made founders keep hidden. 🤫`,
+          title: `The obscure ${topic.toLowerCase()} cheat code that self-made founders keep hidden`,
           score: Math.min(96, scores.total + 16)
         }
       ];
@@ -621,17 +632,17 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop investing in ${topic.toLowerCase()} like standard amateurs: Do this loophole instead! 💰`,
+          title: `Stop investing in ${topic.toLowerCase()} like standard amateurs: Do this loophole instead`,
           score: Math.min(98, scores.total + 15)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% fail to profit from ${topic}: How I built a $10K passive stream in 12 days 🚀`,
+          title: `Why 99% fail to profit from ${topic.toLowerCase()}: How I built a $10K passive stream in 12 days`,
           score: Math.min(97, scores.total + 16)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure ${topic} investment secret top 1% wealth managers hide from you. 🤫`,
+          title: `The obscure ${topic.toLowerCase()} investment secret top 1% wealth managers hide from you`,
           score: Math.min(96, scores.total + 14)
         }
       ];
@@ -654,21 +665,21 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       titleLower.includes("stretch") ||
       titleLower.includes("cardio")
     ) {
-      const topic = titleLower.includes("diet") ? "diet" : (titleLower.includes("workout") ? "workout" : keyword.toLowerCase());
+      const topic = titleLower.includes("diet") ? "diet" : (titleLower.includes("workout") ? "workout" : (titleLower.includes("fitness") ? "fitness" : keyword.toLowerCase()));
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop approaching your ${topic} like standard beginners: Use this biology trick! 🏃‍♂️`,
+          title: `Stop approaching your ${topic} like standard beginners: Use this biology principle instead`,
           score: Math.min(98, scores.total + 14)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% fail to stay consistent with their ${topic}: The 5-minute hack that works ⚡`,
+          title: `Why 99% fail to stay consistent with their ${topic}: The 5-minute routine that works`,
           score: Math.min(97, scores.total + 13)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure body-science secret elite athletes use that remains completely hidden. 🤫`,
+          title: `The obscure body-science protocol elite athletes use that remains completely hidden`,
           score: Math.min(96, scores.total + 15)
         }
       ];
@@ -690,44 +701,43 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       titleLower.includes("saas") ||
       titleLower.includes("server")
     ) {
-      const topic = titleLower.includes("saas") ? "SaaS" : keyword;
-      const act = titleLower.includes("react") || titleLower.includes("javascript") ? "code" : "build";
+      const topic = titleLower.includes("saas") ? "SaaS" : (titleLower.includes("code") || titleLower.includes("dev") ? "software development" : keyword);
       const tool = titleLower.includes("prompt") || titleLower.includes("ai") ? "prompt" : "software";
       return [
         {
           style: "Contrarian Challenge",
-          title: `Stop building ${topic.toLowerCase()} like standard developers: Do this ${subKeyword.toLowerCase() || 'frictionless'} loophole instead! 🤫`,
+          title: `Stop building ${topic.toLowerCase()} like standard developers: Do this ${subKeyword.toLowerCase() || 'frictionless'} framework instead`,
           score: Math.min(98, scores.total + 15)
         },
         {
           style: "Unconventional Timeframe",
-          title: `Why 99% fail to ${act} ${topic}: How I automated a ${tool} MVP in just 12 hours ⚡`,
+          title: `Why 99% fail to build ${topic.toLowerCase()}: How I automated a ${tool} MVP in just 12 hours`,
           score: Math.min(97, scores.total + 12)
         },
         {
           style: "Curiosity Underground Secret",
-          title: `The obscure ${topic.toLowerCase()} system top engineers keep completely hidden from you. (Deploy in seconds) 🚀`,
+          title: `The obscure ${topic.toLowerCase()} system top engineers keep completely hidden from you`,
           score: Math.min(96, scores.total + 14)
         }
       ];
     }
 
     // 9. GENERAL / CATCH-ALL
-    const displayKeyword = keyword !== "Concept" ? keyword : "Content";
+    const displayKeyword = keyword !== "Content Strategy" ? keyword : "Content Strategy";
     return [
       {
         style: "Contrarian Challenge",
-        title: `Stop approaching ${displayKeyword.toLowerCase()} like standard amateurs: Try this outlier strategy! 💡`,
+        title: `Stop approaching ${displayKeyword.toLowerCase()} like standard amateurs: Try this outlier strategy`,
         score: Math.min(98, scores.total + 15)
       },
       {
         style: "Unconventional Timeframe",
-        title: `Why 99% of people fail to master ${displayKeyword}: Do this single mindset loophole instead ⚡`,
+        title: `Why 99% of creators fail to master ${displayKeyword.toLowerCase()}: Do this single mindset shift instead`,
         score: Math.min(97, scores.total + 13)
       },
       {
         style: "Curiosity Underground Secret",
-        title: `The obscure ${displayKeyword.toLowerCase()} blueprint top-performing creators keep hidden from you. 🤫`,
+        title: `The obscure ${displayKeyword.toLowerCase()} blueprint top-performing creators keep hidden from you`,
         score: Math.min(96, scores.total + 14)
       }
     ];

@@ -1000,6 +1000,10 @@ Provide 3 punchy, natural spoken hooks specific to this topic that stop the scro
 - Option 1 (Contrarian Pattern Interrupt): A bold opening that challenges conventional assumptions.
 - Option 2 (Curiosity Loop): An irresistible question or mystery that forces the viewer to stay to the end.
 - Option 3 (High-Stakes Anchor): A shocking fact, number, or emotional contrast.
+HOOK RULES:
+- The topic of each hook MUST be a noun or noun phrase, never an awkward raw verb or verb phrase (e.g. use 'cold outreach', not 'approaching'; use 'software development', not 'grew').
+- Do NOT include emojis in title or hook suggestions.
+- Self-check step: Before outputting each hook, verify the sentence is 100% grammatically correct, natural conversational English.
 
 [Spoken Script]
 Write the complete, word-for-word spoken script that the creator will read on camera from the very first word to the closing beat.
@@ -2609,7 +2613,7 @@ Return exactly this JSON schema:
   "duration": "Duration of the video (e.g. 10:24m)",
   "views": "Approximate or real views count (e.g. 2.1M views)",
   "hookScore": 95,
-  "thumbnailSuggestion": "Ideal visual combination contrast and caption design for this exact video topic",
+  "thumbnailSuggestion": "Ideal visual combination contrast and caption design for this exact video topic. Extract a punchy 2-5 word thumbnail headline derived from the HOOK or core topic (NOT the raw video title, and never include 'Official Video' or artist names). Format: High-contrast split-screen layout with bold Text overlay: '2-5 WORDS'",
   "hookText": "The actual narrative hook line used in the opening of this video or '[Visual Highlights/Action Track]' if non-verbal",
   "fullTranscript": "Complete scene-by-scene Visual Blueprint with [VISUAL], [TEXT OVERLAY], [AUDIO CUE], and VOICEOVER for every beat",
   "pacingSpeed": "Words per minute speed standard (e.g., 145 words/min - Narrative, or 0 words/min - Non-Verbal Pacing)",
@@ -2848,13 +2852,23 @@ Return exactly this JSON schema:
 
       const hasValidTranscript = Boolean((scrapedData.transcriptArray && scrapedData.transcriptArray.length > 0) || (scrapedData.transcript && scrapedData.transcript.trim().length > 0));
 
+      const sanitizedCleanTitle = (displayTitle || "")
+        .replace(/\s*[\(\[](?:Official\s+)?(?:Music\s+)?Video[\)\]]/gi, "")
+        .replace(/\s*[\(\[]Lyric\s+Video[\)\]]/gi, "")
+        .replace(/\s*[\(\[]Visualizer[\)\]]/gi, "")
+        .replace(/\s*[\(\[]Audio[\)\]]/gi, "")
+        .replace(/\.\w{2,4}$/i, "")
+        .trim();
+      const headlineWords = (sanitizedCleanTitle.includes(" - ") ? sanitizedCleanTitle.split(" - ").slice(1).join(" - ") : sanitizedCleanTitle)
+        .split(/\s+/).filter(Boolean).slice(0, 4).join(" ").toUpperCase() || "REVEALED";
+
       return {
         title: displayTitle,
         platform: "youtube" as const,
         duration: displayDuration,
         views: displayViews,
         hookScore: 92,
-        thumbnailSuggestion: `High contrast split-screen presentation. Left: Macro theme representing "${displayTitle}". Right: Bright focal glow. Center text: "REVEALED!"`,
+        thumbnailSuggestion: `High contrast split-screen presentation. Left: Expressive reaction shot. Right: Focal visual highlighting core topic. Text overlay: "${headlineWords}"`,
         hookText: truncatedHook,
         fullTranscript: finalReportTranscript.trim(),
         pacingSpeed: calculatedPacing,

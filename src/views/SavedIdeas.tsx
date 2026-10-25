@@ -79,7 +79,7 @@ export const SavedIdeas: React.FC<SavedIdeasProps> = ({ savedIdeas = [], removeI
       title: '5 AI Coding Workflows That Save 20 Hours a Week [High-Conversion Blueprint]',
       content: `[Hook]
 [0:00 - 0:08]
-If you are still writing boilerplate code manually in 2025, you are losing at least 15 hours every single week.
+If you are still writing boilerplate code manually, you are losing at least 15 hours every single week.
 
 [The Core Problem]
 [0:08 - 0:25]

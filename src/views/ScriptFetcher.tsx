@@ -108,6 +108,55 @@ export const ScriptFetcher: React.FC = () => {
     }
   }, [calibrationHook, setCalibrationHook, addToast]);
 
+  // Helper to ensure thumbnail spec has a punchy 2-5 word hook headline rather than raw video title
+  const formatThumbnailSpec = (rawSpec: string, title: string, hookText: string): string => {
+    let cleanTitle = (title || "")
+      .replace(/\s*[\(\[](?:Official\s+)?(?:Music\s+)?Video[\)\]]/gi, "")
+      .replace(/\s*[\(\[]Lyric\s+Video[\)\]]/gi, "")
+      .replace(/\s*[\(\[]Visualizer[\)\]]/gi, "")
+      .replace(/\s*[\(\[]Audio[\)\]]/gi, "")
+      .replace(/\s*[\(\[]4K[\)\]]/gi, "")
+      .replace(/\s*[\(\[]HD[\)\]]/gi, "")
+      .replace(/\.\w{2,4}$/i, "")
+      .trim();
+
+    if (cleanTitle.includes(" - ")) {
+      cleanTitle = cleanTitle.split(" - ").slice(1).join(" - ").trim();
+    }
+
+    let punchyHeadline = "";
+    if (hookText && hookText !== "N/A" && !hookText.startsWith("[")) {
+      const hookWords = hookText.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
+      if (hookWords.length >= 2) {
+        punchyHeadline = hookWords.slice(0, 4).join(" ").toUpperCase();
+      }
+    }
+    if (!punchyHeadline && cleanTitle) {
+      const titleWords = cleanTitle.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
+      punchyHeadline = titleWords.slice(0, 4).join(" ").toUpperCase();
+    }
+    if (!punchyHeadline) {
+      punchyHeadline = "REVEALED";
+    }
+
+    let cleanedSpec = rawSpec || "";
+    if (cleanedSpec) {
+      cleanedSpec = cleanedSpec
+        .replace(/\s*[\(\[](?:Official\s+)?(?:Music\s+)?Video[\)\]]/gi, "")
+        .replace(/\s*[\(\[]Lyric\s+Video[\)\]]/gi, "")
+        .replace(/\s*[\(\[]Visualizer[\)\]]/gi, "")
+        .replace(/\s*[\(\[]Audio[\)\]]/gi, "");
+    }
+
+    if (!cleanedSpec || cleanedSpec === "N/A" || cleanedSpec.length < 15) {
+      return `High-contrast split-screen layout. Left: Expressive reaction shot. Right: Focal visual highlighting core topic. Text overlay: "${punchyHeadline}"`;
+    }
+
+    cleanedSpec = cleanedSpec.replace(/(?:text\s+overlay|text\s+outline|center\s+text|text\s+tag)\s*[:\-]\s*["'][^"']+["']/i, `Text overlay: "${punchyHeadline}"`);
+
+    return cleanedSpec;
+  };
+
   // Simulated extraction package contents
   const [extractedData, setExtractedData] = useState({
     title: '',
@@ -798,7 +847,7 @@ export const ScriptFetcher: React.FC = () => {
         views: data.views || 'N/A',
         hookScore: hookScore,
         pacingSpeed: pacingSpeed,
-        thumbnailSuggestion: data.thumbnailSuggestion || 'N/A',
+        thumbnailSuggestion: formatThumbnailSpec(data.thumbnailSuggestion, data.title, hookText),
         hookText: hookText,
         fullTranscript: fullTranscript,
         metadataDesc: data.metadataDesc || 'N/A',
@@ -821,7 +870,7 @@ export const ScriptFetcher: React.FC = () => {
           views: data.views || 'N/A',
           hookScore: hookScore,
           pacingSpeed: pacingSpeed,
-          thumbnailSuggestion: data.thumbnailSuggestion || 'N/A',
+          thumbnailSuggestion: formatThumbnailSpec(data.thumbnailSuggestion, data.title, hookText),
           hookText: hookText,
           fullTranscript: fullTranscript,
           metadataDesc: data.metadataDesc || 'N/A',

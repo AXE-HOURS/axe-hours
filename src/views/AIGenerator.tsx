@@ -171,6 +171,26 @@ const HOOK_TRIGGERS = [
   "Experts are lying to you about..."
 ];
 
+export const NICHE_OPTIONS = [
+  "General",
+  "Tech",
+  "Food",
+  "Fitness",
+  "Wealth",
+  "Travel",
+  "Gaming"
+];
+
+export const cleanHookText = (raw: string): string => {
+  if (!raw) return "";
+  let text = raw.trim();
+  text = text.replace(/\*\*/g, "").replace(/\*/g, "");
+  text = text.replace(/^(?:Option\s*\d+|Angle\s*[A-C])\s*(?:\([^)]*\))?\s*[:\-–—]\s*/i, "");
+  text = text.replace(/^["'«“`]+|["'»”`]+$/g, "");
+  text = text.replace(/\*\*/g, "").replace(/\*/g, "");
+  return text.trim();
+};
+
 export interface ArchitectImportedPayload {
   title: string;
   author: string;
@@ -841,14 +861,17 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [brandVoice, setBrandVoice] = useState("Contrarian");
   const [hookTone, setHookTone] = useState<"Exciting" | "Professional" | "Suspenseful" | "Minimalist">("Exciting");
-  const [targetNiche, setTargetNiche] = useState("General Specialist & Creator");
+  const [targetNiche, setTargetNiche] = useState("General");
   const [duration, setDuration] = useState("60s Short-form");
   const [visualStyle, setVisualStyle] = useState("Cyber-glow console zoom-ins");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
 
   const [customInstructions, setCustomInstructions] = useState(() => {
-    const defaultRule = "CRITICAL FORMATTING RULE: You must output the scene-by-scene blueprint EXACTLY in the following format. Do not use timestamps. Do not change the bracket tags.\n\n[VISUAL: description of the visuals]\n[TEXT OVERLAY: text on screen]\n[AUDIO CUE: sound effects or music]\nVOICEOVER: \"The exact words spoken\"";
-    return dbUser?.customInstructions || localStorage.getItem(`axe_hours_custom_instructions_guest`) || defaultRule;
+    const saved = dbUser?.customInstructions || localStorage.getItem(`axe_hours_custom_instructions_guest`);
+    if (saved && (saved.includes("CRITICAL FORMATTING RULE") || saved.includes("Fast-paced short form"))) {
+      return "";
+    }
+    return saved || "";
   });
 
   useEffect(() => {
@@ -881,9 +904,9 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       return;
     }
     
-    const option1Regex = /(?:Option 1|Angle A|Angle A \(Curiosity Loop\))\s*[:\-]\s*["'«“]?([^"'\n»”)]+)/i;
-    const option2Regex = /(?:Option 2|Angle B|Angle B \(Negative Paradox\))\s*[:\-]\s*["'«“]?([^"'\n»”)]+)/i;
-    const option3Regex = /(?:Option 3|Angle C|Angle C \(Immediate Pattern Break\))\s*[:\-]\s*["'«“]?([^"'\n»”)]+)/i;
+    const option1Regex = /(?:Option\s*1|Angle\s*A)(?:\s*\([^)]*\))?\s*[:\-–—]\s*["'«“`*]*([^\n]+)/i;
+    const option2Regex = /(?:Option\s*2|Angle\s*B)(?:\s*\([^)]*\))?\s*[:\-–—]\s*["'«“`*]*([^\n]+)/i;
+    const option3Regex = /(?:Option\s*3|Angle\s*C)(?:\s*\([^)]*\))?\s*[:\-–—]\s*["'«“`*]*([^\n]+)/i;
 
     const opt1Match = result.match(option1Regex);
     const opt2Match = result.match(option2Regex);
@@ -898,15 +921,15 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       lines.forEach(line => {
         const lowerLine = line.toLowerCase();
         if (lowerLine.includes("option 1") || lowerLine.includes("angle a")) {
-          const val = line.replace(/^(?:Option 1|Angle A)[:\-\s"']+/i, "").replace(/["'\s\)]+$/, "").trim();
+          const val = line.replace(/^(?:Option\s*1|Angle\s*A)(?:\s*\([^)]*\))?[:\-–—\s"'\*]+/i, "").replace(/["'\s\)\*]+$/, "").trim();
           if (val.length > 10) hA = val;
         }
         if (lowerLine.includes("option 2") || lowerLine.includes("angle b")) {
-          const val = line.replace(/^(?:Option 2|Angle B)[:\-\s"']+/i, "").replace(/["'\s\)]+$/, "").trim();
+          const val = line.replace(/^(?:Option\s*2|Angle\s*B)(?:\s*\([^)]*\))?[:\-–—\s"'\*]+/i, "").replace(/["'\s\)\*]+$/, "").trim();
           if (val.length > 10) hB = val;
         }
         if (lowerLine.includes("option 3") || lowerLine.includes("angle c")) {
-          const val = line.replace(/^(?:Option 3|Angle C)[:\-\s"']+/i, "").replace(/["'\s\)]+$/, "").trim();
+          const val = line.replace(/^(?:Option\s*3|Angle\s*C)(?:\s*\([^)]*\))?[:\-–—\s"'\*]+/i, "").replace(/["'\s\)\*]+$/, "").trim();
           if (val.length > 10) hC = val;
         }
       });
@@ -916,20 +939,18 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
     const cleanTopic = topic.replace(/\[BOOSTED PROMPT\]/g, "").replace(/Topic Challenge:/g, "").trim();
 
     if (!hA) {
-      hA = `The math behind ${cleanTopic} is completely broken — and it's opening an unbreakable cognitive loophole. 🤫`;
+      hA = `The math behind ${cleanTopic} is completely broken — and it reveals an unexpected loophole.`;
     }
     if (!hB) {
-      hB = `Stop trusting common advice about ${cleanTopic}. Why 99% of creators are completely wrong. 🚨`;
+      hB = `Stop trusting common advice about ${cleanTopic}. Why 99% of creators are completely wrong.`;
     }
     if (!hC) {
-      hC = `This obscure ${cleanTopic} exploit is automating everything. Here is the rapid proof. ⚡`;
+      hC = `This obscure ${cleanTopic} method is automating workflows. Here is the rapid proof.`;
     }
 
-    const cleanHook = (h: string) => h.replace(/^["'«“\s\-\*]+/g, "").replace(/["'»”]+$/g, "").trim();
-
-    setAngleAHook(cleanHook(hA));
-    setAngleBHook(cleanHook(hB));
-    setAngleCHook(cleanHook(hC));
+    setAngleAHook(cleanHookText(hA));
+    setAngleBHook(cleanHookText(hB));
+    setAngleCHook(cleanHookText(hC));
   }, [result, prompt]);
   
   // Active output tabs: "blueprint", "timeline", "ctr", "thumbnail", "coach"
@@ -2382,13 +2403,15 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
 
               <div className="space-y-1">
                 <label className="text-[10px] text-gray-400 uppercase font-bold">Target Channel Niche</label>
-                <input 
-                  type="text" 
+                <select 
                   value={targetNiche} 
                   onChange={(e) => setTargetNiche(e.target.value)}
-                  placeholder="e.g. passive passive pipeline" 
-                  className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-primary"
-                />
+                  className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-white text-xs focus:outline-none focus:border-primary cursor-pointer"
+                >
+                  {NICHE_OPTIONS.map((n) => (
+                    <option key={n} value={n} className="bg-[#120f24] text-white">{n}</option>
+                  ))}
+                </select>
               </div>
 
               <div id="ai-generator-parameters-extra-row" className="grid grid-cols-2 gap-3.5">
@@ -2436,7 +2459,7 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
                   id="ai-generator-custom-instructions-textarea"
                   value={customInstructions}
                   onChange={(e) => setCustomInstructions(e.target.value)}
-                  placeholder="e.g., 'Do not use emojis. Focus on technical command-line visual transitions. Maintain a direct, tutorial tone at all times.'"
+                  placeholder="Optional: Add your own brand rules, tone of voice, pacing preferences, or banned words..."
                   className="w-full bg-black/60 border border-white/10 hover:border-white/20 focus:border-primary rounded-xl p-3 text-white text-xs min-h-[95px] resize-none focus:outline-none transition-all leading-relaxed"
                 />
                 <span className="text-[9px] text-gray-500 font-mono leading-tight block">These rules are injected system-wide directly into the AI prompt engineering pipeline.</span>
@@ -3015,7 +3038,7 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
                           </div>
                           <h5 className="text-xs font-bold text-gray-200">Cognitive Gaps & Anomalies</h5>
                           <p className="text-[11px] text-gray-400 italic bg-black/40 p-3 rounded-lg border border-white/5 line-clamp-4 min-h-[92px]">
-                            "{angleAHook}"
+                            "{cleanHookText(angleAHook)}"
                           </p>
                         </div>
                         
@@ -3104,7 +3127,7 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
                           </div>
                           <h5 className="text-xs font-bold text-gray-200">Systemic Subversion</h5>
                           <p className="text-[11px] text-gray-400 italic bg-black/40 p-3 rounded-lg border border-white/5 line-clamp-4 min-h-[92px]">
-                            "{angleBHook}"
+                            "{cleanHookText(angleBHook)}"
                           </p>
                         </div>
                         
@@ -3193,7 +3216,7 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
                           </div>
                           <h5 className="text-xs font-bold text-gray-200">Rapid Disruption Metrics</h5>
                           <p className="text-[11px] text-gray-400 italic bg-black/40 p-3 rounded-lg border border-white/5 line-clamp-4 min-h-[92px]">
-                            "{angleCHook}"
+                            "{cleanHookText(angleCHook)}"
                           </p>
                         </div>
                         
