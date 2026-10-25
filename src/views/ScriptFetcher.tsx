@@ -297,7 +297,7 @@ export const ScriptFetcher: React.FC = () => {
   };
 
   // Empirical Algorithmic Trust Metrics Simulator
-  const [simHook, setSimHook] = useState<string>('Stop spending 6 months coding a SaaS to save hours of pain! 🤫');
+  const [simHook, setSimHook] = useState<string>('Stop spending 6 months coding a SaaS to save hours of pain.');
   const [simWpm, setSimWpm] = useState<number>(145);
   const [simCuts, setSimCuts] = useState<number>(4);
   const [simPlatform, setSimPlatform] = useState<'youtube' | 'tiktok' | 'instagram'>('youtube');
@@ -337,12 +337,39 @@ export const ScriptFetcher: React.FC = () => {
     const triggerBonus = Math.min(25, detectedTriggersCount * 12);
     score += triggerBonus;
 
-    // 3. Punctuation emphasis / pattern attention check
-    let attentionMarkBonus = 0;
-    if (/[!?]/.test(simHook)) {
-      attentionMarkBonus = 10;
-      score += attentionMarkBonus;
+    // 3. 3s Retention Framing / Cognitive Grip Analysis
+    let retentionFramingBonus = 0;
+    let retentionFramingDesc = "Standard Framing";
+    
+    // Reward quantifiable specificity (numbers, metrics, timeframes)
+    const hasQuantifiableMetric = /\b\d+([kmb%]|x|\.\d+)?\b/i.test(simHook);
+    if (hasQuantifiableMetric) {
+      retentionFramingBonus += 8;
     }
+
+    // Reward contrarian statement / pattern interrupt
+    const hasContrarianOpening = /\b(stop|never|why|truth|myth|mistake|wrong|nobody|secret)\b/i.test(simHook);
+    if (hasContrarianOpening) {
+      retentionFramingBonus += 8;
+    }
+
+    // Penalize excessive punctuation (e.g. ?! or !!! or ???)
+    if (/(\?!|!\?|!{2,}|\?{2,})/.test(simHook)) {
+      retentionFramingBonus -= 10;
+      retentionFramingDesc = "Excessive Punctuation Penalty (-10)";
+    } else if (hasQuantifiableMetric && hasContrarianOpening) {
+      retentionFramingDesc = "High Retention (+16: Metric + Contrarian)";
+    } else if (hasQuantifiableMetric || hasContrarianOpening) {
+      retentionFramingDesc = "Solid Framing (+8)";
+    }
+
+    // Penalize emoji spam
+    const emojiMatches = simHook.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|\p{Emoji_Presentation}/gu);
+    if (emojiMatches && emojiMatches.length > 1) {
+      retentionFramingBonus -= 8;
+    }
+
+    score += retentionFramingBonus;
 
     // 4. Words per minute (WPM) engagement score
     let pacingBonus = 0;
@@ -410,7 +437,8 @@ export const ScriptFetcher: React.FC = () => {
       finalScore,
       lengthRating,
       detectedTriggersCount,
-      attentionMarkBonus,
+      retentionFramingBonus,
+      retentionFramingDesc,
       pacingDesc,
       visualDesc,
       expectedRetentionRatio: Math.round(expectedRetentionRatio)
@@ -493,26 +521,9 @@ export const ScriptFetcher: React.FC = () => {
 
     setIsLoading(true);
     setExtractionDone(false);
-    setProgressVal(15);
-    setProgressText('Resolving media host coordinates & oEmbed payload...');
+    setProgressVal(20);
+    setProgressText('Fetching video metadata & caption tracks...');
     playAudio(523);
-
-    const progressInterval = setInterval(() => {
-      setProgressVal((prev) => {
-        if (prev < 90) {
-          const next = prev + Math.floor(Math.random() * 8) + 2;
-          if (next >= 40 && next < 65) {
-            setProgressText('Isolating channels, running search-grounded lookups...');
-          } else if (next >= 65 && next < 85) {
-            setProgressText('Gemini processing actual video transcript and visual layouts...');
-          } else if (next >= 85) {
-            setProgressText('Synthesizing high retention blueprint sections...');
-          }
-          return next;
-        }
-        return prev;
-      });
-    }, 400);
 
     try {
       const savedKey = getSecureGeminiKey(uid);
@@ -534,8 +545,6 @@ export const ScriptFetcher: React.FC = () => {
         })
       });
 
-      clearInterval(progressInterval);
-
       if (!response.ok) {
         let errData: any = {};
         try {
@@ -546,6 +555,7 @@ export const ScriptFetcher: React.FC = () => {
 
         if (response.status === 429 || errData.code === 'QUOTA_EXCEEDED') {
           setIsLoading(false);
+          setProgressVal(0);
           setProgressText('');
           const msg = errData.error || 'Daily extraction limit reached. Unlock Beta Access or add your Gemini API key in Settings.';
           setQuotaError(msg);
@@ -556,6 +566,7 @@ export const ScriptFetcher: React.FC = () => {
 
         if (response.status === 401) {
           setIsLoading(false);
+          setProgressVal(0);
           setProgressText('');
           const msg = errData.error || 'Authentication required. Please sign in or provide a Gemini API key in Settings.';
           setQuotaError(msg);
@@ -581,6 +592,8 @@ export const ScriptFetcher: React.FC = () => {
           setIsManualInputOpen(true);
           setIsLoading(false);
           setExtractionDone(true);
+          setProgressVal(0);
+          setProgressText('');
           addToast(getClientFriendlyErrorMessage('VIDEO_PRIVATE_OR_REMOVED'), 'warning');
           return;
         }
@@ -594,6 +607,8 @@ export const ScriptFetcher: React.FC = () => {
         setIsLoading(false);
         setExtractionDone(true);
         setIsManualInputOpen(true);
+        setProgressVal(0);
+        setProgressText('');
         if (errData.error === 'INVALID_VIDEO_URL') {
           setUrlValidationError(errorMessage);
           addToast(errorMessage, 'warning');
@@ -655,8 +670,8 @@ export const ScriptFetcher: React.FC = () => {
 
       if (shouldTriggerClientResolver && targetVideoId) {
         setIsResolvingClientSide(true);
-        setProgressText('Connecting to media source & recovering transcript...');
-        setProgressVal(94);
+        setProgressText('Recovering caption tracks via residential network...');
+        setProgressVal(45);
         try {
           const clientLines = await resolveTranscriptClientSide(
             targetVideoId,
@@ -685,7 +700,8 @@ export const ScriptFetcher: React.FC = () => {
 
           } else {
             // Auto-Fallback to Audio Transcription: If all caption services fail or captions disabled, trigger AI audio transcription
-            setProgressText('Captions restricted — Auto-triggering AI Audio Transcription Pipeline...');
+            setProgressVal(60);
+            setProgressText('No manual captions found — running AI audio transcription...');
             try {
               const audioToken = await getAuthOrGuestToken();
               const audioHeaders: Record<string, string> = {
@@ -750,6 +766,9 @@ export const ScriptFetcher: React.FC = () => {
         }
       }
 
+      setProgressVal(85);
+      setProgressText('Calculating hook retention & speech pacing metrics...');
+
       const finalErrorCode = hasTranscript ? '' : (transcriptErrorCode ? getClientFriendlyDiagnosisCode(transcriptErrorCode) : 'NO_OFFICIAL_CAPTIONS');
       const finalErrorDetails = hasTranscript ? '' : (transcriptErrorDetails ? getClientFriendlyErrorMessage(transcriptErrorCode, transcriptErrorDetails) : getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS'));
 
@@ -801,6 +820,8 @@ export const ScriptFetcher: React.FC = () => {
 
       logActivity('fetch_script', data.title || 'Untitled Extraction', `Processed video elements for extraction.`);
 
+      setProgressVal(100);
+      setProgressText('');
       setIsLoading(false);
       setExtractionDone(true);
 
@@ -834,8 +855,9 @@ export const ScriptFetcher: React.FC = () => {
         }
       }
     } catch (error: any) {
-      clearInterval(progressInterval);
       console.error("YouTube Data API / Script Fetcher error detected:", error);
+      setProgressVal(0);
+      setProgressText('');
       setIsLoading(false);
       setExtractionDone(true);
       setIsManualInputOpen(true);
@@ -1725,7 +1747,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                   <div className="flex flex-wrap gap-1.5 pt-1 select-none">
                     <span className="text-[10px] text-gray-500 font-mono self-center">Presets:</span>
                     {[
-                      { label: 'High Score Hook', text: 'Stop spending 6 whole months coding a SaaS that nobody actually wants! 🤫' },
+                      { label: 'High Score Hook', text: 'Stop spending 6 whole months coding a SaaS that nobody actually wants.' },
                       { label: 'Low Score Hook', text: 'Hello guys, welcome back to my channel. Today I wanted to talk about SaaS.' }
                     ].map((p, idx) => (
                       <button
@@ -1838,8 +1860,8 @@ ${extractedData.fullTranscript || 'N/A'}`;
                       <span className="text-emerald-300 font-bold block">{simMetricsResult.expectedRetentionRatio}% (Good)</span>
                     </div>
                     <div className="mt-1">
-                      <span className="text-gray-500 block select-none">Punctuation triggers:</span>
-                      <span className="text-gray-300 block">{simMetricsResult.attentionMarkBonus > 0 ? "Present (+10)" : "None"}</span>
+                      <span className="text-gray-500 block select-none">3s Retention Framing:</span>
+                      <span className="text-gray-300 block">{simMetricsResult.retentionFramingDesc}</span>
                     </div>
                   </div>
                 </div>

@@ -76,6 +76,8 @@ interface TranscriptCacheEntry {
 }
 const TRANSCRIPT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const transcriptCache = new Map<string, TranscriptCacheEntry>();
+// Set to deduplicate extraction quota deductions per user/IP + video ID on the same day
+const userExtractedVideosSet = new Set<string>();
 
 function extractYoutubeVideoId(url: string): string | null {
   if (!url || typeof url !== "string") return null;
@@ -292,6 +294,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
           (cached.data.fullTranscript && !cached.data.fullTranscript.startsWith("[Notice:"))
         );
         if (isFresh && hasValidData) {
+          req.consumeExtractionQuota = () => {};
           return next();
         }
       }
@@ -309,7 +312,29 @@ function enforceDailyQuota(type: "extraction" | "generation") {
           error: errorMsg
         });
       }
-      quota.extractions += 1;
+
+      // Defer quota consumption until transcript extraction actually succeeds!
+      req.consumeExtractionQuota = (targetVideoId?: string) => {
+        if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
+          return;
+        }
+        const dedupeKey = targetVideoId ? `${docId}_${targetVideoId}` : null;
+        if (dedupeKey && userExtractedVideosSet.has(dedupeKey)) {
+          return;
+        }
+        if (quota.extractions < limits.extractions) {
+          quota.extractions += 1;
+          quota.updatedAt = Date.now();
+          userDailyQuotaMap.set(docId, quota);
+          const authToken = req.headers["authorization"]?.slice(7)?.trim();
+          persistQuotaRecord(docId, quota, authToken);
+        }
+        if (dedupeKey) {
+          userExtractedVideosSet.add(dedupeKey);
+        }
+      };
+
+      return next();
     } else if (type === "generation") {
       if (quota.generations >= limits.generations) {
         const errorMsg = tier === "guest"
@@ -325,16 +350,15 @@ function enforceDailyQuota(type: "extraction" | "generation") {
         });
       }
       quota.generations += 1;
+      quota.updatedAt = Date.now();
+      userDailyQuotaMap.set(docId, quota);
+
+      // Persist write-through across restarts
+      const authToken = req.headers["authorization"]?.slice(7)?.trim();
+      persistQuotaRecord(docId, quota, authToken);
+
+      next();
     }
-
-    quota.updatedAt = Date.now();
-    userDailyQuotaMap.set(docId, quota);
-
-    // Persist write-through across restarts
-    const authToken = req.headers["authorization"]?.slice(7)?.trim();
-    persistQuotaRecord(docId, quota, authToken);
-
-    next();
   };
 }
 
@@ -2558,6 +2582,7 @@ Return exactly this JSON schema:
       }
 
       if (normalizedVideoId && parsedData && (parsedData.hasTranscript || (parsedData.fullTranscript && !parsedData.fullTranscript.startsWith("[Notice:")))) {
+        req.consumeExtractionQuota?.(normalizedVideoId);
         transcriptCache.set(normalizedVideoId, {
           data: parsedData,
           cachedAt: Date.now()
@@ -2586,7 +2611,7 @@ Return exactly this JSON schema:
     const isInsta = videoUrl.toLowerCase().includes("instagram.com") || videoUrl.toLowerCase().includes("reels");
     const platform = isTikTok ? "tiktok" : isInsta ? "instagram" : "youtube";
 
-    const title = realTitle || (isTikTok ? "Shocking Secret They Keep Hidden 🤫" : isInsta ? "The Ultimate CSS Blur Effect Trick! ⚡" : "The Hidden Structure Behind Viral Growth");
+    const title = realTitle || (isTikTok ? "Shocking Secret They Keep Hidden" : isInsta ? "The Ultimate CSS Blur Effect Trick" : "The Hidden Structure Behind Viral Growth");
     const author = realAuthor || (isTikTok ? "Creator Secrets" : isInsta ? "UX Designer Pro" : "Axe Hours Analyst");
 
     // Simple deterministic DJB2 hash generator to ensure consistent stats across refreshes for the same title
@@ -3101,7 +3126,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
   }
 
   // AI Audio Transcription / Speech-to-Text Fallback Pipeline (Consolidated with extraction quota)
-  app.post("/api/transcribe-audio", verifyAiAccess, async (req: any, res) => {
+  app.post("/api/transcribe-audio", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const { videoUrl, title, author } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
@@ -3271,6 +3296,10 @@ OUTPUT REQUIREMENTS:
             const oldestKey = transcriptCache.keys().next().value;
             if (oldestKey) transcriptCache.delete(oldestKey);
           }
+        }
+
+        if (lines.length > 0) {
+          req.consumeExtractionQuota?.(videoId);
         }
 
         res.json({

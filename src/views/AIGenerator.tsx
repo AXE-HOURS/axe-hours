@@ -287,14 +287,30 @@ const calculateDraftViralScore = (text: string): DraftViralScoreResult => {
 
   keywordScore = Math.min(45, keywordScore);
 
-  let triggerBonus = 0;
-  if (/[!?]/.test(text)) triggerBonus += 10;
-  
-  // Checking for high interest focal emojis
-  const emojiRegex = /[\uD800-\uDFFF]./g;
-  if (emojiRegex.test(text)) triggerBonus += 5;
+  let retentionBonus = 0;
+  // Reward quantifiable specificity (numbers, metrics, timeframes)
+  if (/\b\d+([kmb%]|x|\.\d+)?\b/i.test(text)) {
+    retentionBonus += 12;
+  }
+  // Reward contrarian statement / pattern interrupt / curiosity gap
+  if (/\b(stop|never|why|truth|myth|mistake|wrong|nobody|secret|how i)\b/i.test(text)) {
+    retentionBonus += 12;
+  }
 
-  const rawScore = 10 + lenScore + keywordScore + triggerBonus;
+  // Penalize excessive punctuation (e.g. ?! or !!!)
+  if (/(\?!|!\?|!{2,}|\?{2,})/.test(text)) {
+    retentionBonus -= 10;
+  } else if (/[.?!]/.test(text)) {
+    retentionBonus += 5; // Clean natural sentence punctuation
+  }
+
+  // Penalize emoji spam (more than 1 emoji)
+  const emojiMatches = text.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|\p{Emoji_Presentation}/gu);
+  if (emojiMatches && emojiMatches.length > 1) {
+    retentionBonus -= 10;
+  }
+
+  const rawScore = 10 + lenScore + keywordScore + retentionBonus;
   const score = Math.min(100, Math.max(10, rawScore));
 
   let grade = "C";
@@ -334,11 +350,17 @@ const calculateDraftViralScore = (text: string): DraftViralScoreResult => {
   if (detected.length === 0) {
     tips.push("Inject high-conversion words such as 'stop' or 'fail' in the opening concept.");
   }
-  if (!/[!?]/.test(text)) {
-    tips.push("Deploy double punctuation marks (e.g., '?!') to provoke high mental focus.");
+  if (!/\b(stop|never|why|truth|myth|mistake|wrong|nobody|secret)\b/i.test(text)) {
+    tips.push("Anchor the first 3 seconds with a contrarian statement or curiosity gap.");
   }
-  if (!emojiRegex.test(text)) {
-    tips.push("Use dramatic focal emojis (like '🚨', '🤫' or '⚡') to arrest eyes instantly.");
+  if (!/\b\d+([kmb%]|x|\.\d+)?\b/i.test(text)) {
+    tips.push("Include a specific metric, timeframe, or quantifiable result (e.g., '24 hours', '99%', '$10k').");
+  }
+  if (/(\?!|!\?|!{2,}|\?{2,})/.test(text)) {
+    tips.push("Avoid clickbait punctuation like '?!' or excessive exclamation points.");
+  }
+  if (emojiMatches && emojiMatches.length > 1) {
+    tips.push("Avoid emoji spam in the opening hook; clean, spoken phrasing builds stronger authority.");
   }
 
   return {
@@ -1613,6 +1635,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       const ollamaController = new AbortController();
       let ollamaTimedOut = false;
       let ollamaInactivityTimer: any = null;
+      let generatedText = "";
 
       const resetOllamaTimer = () => {
         if (ollamaInactivityTimer) clearTimeout(ollamaInactivityTimer);
@@ -1654,7 +1677,6 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         const decoder = new TextDecoder("utf-8");
         let done = false;
         let streamBuffer = "";
-        let generatedText = "";
 
         while (!done) {
           const { value, done: readerDone } = await reader!.read();
@@ -1697,6 +1719,12 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
       } catch (e: any) {
         if (ollamaInactivityTimer) clearTimeout(ollamaInactivityTimer);
         console.warn("Local Ollama connection failed:", e);
+        if (generatedText && generatedText.trim().length > 80) {
+          const partialTitle = `[Partial] ${(prompt || 'Untitled Generation').slice(0, 40)}`;
+          saveToHistory(partialTitle, generatedText);
+          parseScriptStructure(generatedText);
+          setResult(generatedText);
+        }
         const errMsg = ollamaTimedOut
           ? "Local Ollama generation timed out due to inactivity."
           : `Local Ollama is offline or unreachable at http://localhost:11434. Please ensure Ollama is running ('ollama run ${ollamaModel || "llama3.2"}') with CORS enabled, or switch to Gemini Cloud.`;
@@ -1713,6 +1741,7 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
     const controller = new AbortController();
     let isStreamTimedOut = false;
     let inactivityTimer: any = null;
+    let generatedText = "";
 
     const resetInactivityTimer = () => {
       if (inactivityTimer) clearTimeout(inactivityTimer);
@@ -1769,7 +1798,6 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
       const decoder = new TextDecoder("utf-8");
       let done = false;
       let streamBuffer = "";
-      let generatedText = "";
 
       while (!done) {
         const { value, done: readerDone } = await reader!.read();
@@ -1797,10 +1825,11 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
                   throw new Error(parsed.error);
                 }
               } catch (e: any) {
-                // Only rethrow explicit application errors, safely ignore partial syntax errors
-                if (e.message && !e.name?.includes("SyntaxError") && !e.message.includes("JSON")) {
-                  throw e;
+                // Ignore partial JSON syntax errors from streamed chunk boundaries, rethrow real application errors
+                if (e instanceof SyntaxError || e?.name === "SyntaxError") {
+                  continue;
                 }
+                throw e;
               }
             }
           }
@@ -1822,7 +1851,9 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
                 throw new Error(parsed.error);
               }
             } catch (e: any) {
-              if (e.message && !e.name?.includes("SyntaxError") && !e.message.includes("JSON")) {
+              if (e instanceof SyntaxError || e?.name === "SyntaxError") {
+                // Ignore incomplete trailing chunk
+              } else {
                 throw e;
               }
             }
@@ -1847,6 +1878,12 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
     } catch (error: any) {
       if (inactivityTimer) clearTimeout(inactivityTimer);
       setIsLoading(false);
+      if (generatedText && generatedText.trim().length > 80) {
+        const partialTitle = `[Partial] ${(prompt || 'Untitled Generation').slice(0, 40)}`;
+        saveToHistory(partialTitle, generatedText);
+        parseScriptStructure(generatedText);
+        setResult(generatedText);
+      }
       const errMsg = isStreamTimedOut
         ? "Script synthesis timed out due to stream inactivity. Please retry."
         : (error.name === 'AbortError' ? "Script generation request was aborted. Please retry." : (error.message || "Failed to generate video script with Gemini. Please retry."));
@@ -3898,7 +3935,7 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
                       <div className="grid grid-cols-1 gap-2 text-xs">
                         <button
                           onClick={() => {
-                            setCustomTitle("Why 99% of developers fail to deploy code in 24 hours?! (Secrets exposed)");
+                            setCustomTitle("Why 99% of developers fail to deploy code in 24 hours (The Real Reason)");
                             playAudioCue(523.25);
                           }}
                           className="p-2.5 text-left bg-black/20 hover:bg-white/5 rounded-lg border border-white/5 font-mono text-[9.5px] cursor-pointer"

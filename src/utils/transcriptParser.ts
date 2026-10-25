@@ -314,11 +314,12 @@ export function formatSubtitles(lines: SubtitleLine[]): string {
 
 /**
  * Calculates hook quality score (0-100) based on linguistic triggers,
- * length density, punctuation emphasis, and delivery pacing speed.
+ * length density, retention framing (quantifiable numbers & contrarian cues), and delivery pacing speed.
  */
 export function calculateHookScore(hookText: string, wpm?: number, platform?: string): number {
   let score = 50;
-  const words = (hookText || '').trim().split(/\s+/).filter(Boolean);
+  const rawText = (hookText || '').trim();
+  const words = rawText.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
 
   // 1. Length density constraint (Optimal hook is dense but punchy, e.g. 6 to 14 words)
@@ -343,9 +344,25 @@ export function calculateHookScore(hookText: string, wpm?: number, platform?: st
   });
   score += Math.min(25, detectedTriggersCount * 12);
 
-  // 3. Punctuation emphasis / pattern attention check
-  if (/[!?]/.test(hookText || '')) {
-    score += 10;
+  // 3. Modern Retention Framing: Quantifiable metrics and contrarian cues
+  if (/\b\d+([kmb%]|x|\.\d+)?\b/i.test(rawText)) {
+    score += 8; // Specific numbers/timeframes anchor credibility
+  }
+  if (/\b(stop|never|why|truth|myth|mistake|wrong|nobody|secret)\b/i.test(rawText)) {
+    score += 8; // Contrarian phrasing / open loop
+  }
+
+  // Penalize excessive punctuation (?! or multiple exclamation/question marks)
+  if (/(\?!|!\?|!{2,}|\?{2,})/.test(rawText)) {
+    score -= 10;
+  } else if (/[.?!]/.test(rawText)) {
+    score += 5; // Clean, natural sentence termination
+  }
+
+  // Penalize emoji spam
+  const emojiMatches = rawText.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|\p{Emoji_Presentation}/gu);
+  if (emojiMatches && emojiMatches.length > 1) {
+    score -= 8;
   }
 
   // 4. Words per minute pacing check
