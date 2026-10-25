@@ -180,6 +180,14 @@ export default function App() {
     localStorage.removeItem("axe_hours_user");
   };
 
+  useEffect(() => {
+    const handleLoginTrigger = () => {
+      handleLogout();
+    };
+    window.addEventListener('axe-trigger-login', handleLoginTrigger);
+    return () => window.removeEventListener('axe-trigger-login', handleLoginTrigger);
+  }, [firebaseUser]);
+
   // Derive active user object: either Firestore profile or local Sandbox guest creator
   const user: UserData | null = dbUser ? {
     email: dbUser.email,

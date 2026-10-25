@@ -73,7 +73,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
   // Main form states
   const [name, setName] = useState(user?.name || "Guest Creator");
   const [handle, setHandle] = useState(user?.handle || "@guest_creator");
-  const [avatar, setAvatar] = useState(user?.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100");
+  const [avatar, setAvatar] = useState(user?.avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Creator");
   const [bio, setBio] = useState(user?.bio || "Futuristic AI explorer breaking the limits of retention and hook generation.");
   const [role, setRole] = useState(user?.role || "Prompt Engineer");
   
@@ -274,13 +274,13 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
     setTimeout(() => setIsSaved(false), 2000);
   };
 
-  // Avatar presets catalog
+  // Avatar presets catalog (Dicebear SVGs)
   const avatarPresets = [
-    { url: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=100", label: "Pink Cyber" },
-    { url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=100", label: "Blue Slate" },
-    { url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100", label: "Volt Neon" },
-    { url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=100", label: "Amber Glow" },
-    { url: "https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&q=80&w=100", label: "Tech Core" }
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=CyberPink", label: "Pink Cyber" },
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=BlueSlate", label: "Blue Slate" },
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=VoltNeon", label: "Volt Neon" },
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=AmberGlow", label: "Amber Glow" },
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=TechCore", label: "Tech Core" }
   ];
 
   // Join/Leave group
@@ -318,7 +318,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
           uid: fbUser.uid,
           name: dbUser?.name || fbUser.displayName || fbUser.email?.split("@")[0] || "Axe Creator",
           handle: dbUser?.handle || fbUser.displayName?.toLowerCase().replace(/\s+/g, "_") || "creator",
-          avatar: dbUser?.avatar || fbUser.photoURL || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100",
+          avatar: dbUser?.avatar || fbUser.photoURL || "https://api.dicebear.com/7.x/bottts/svg?seed=Creator",
           joinedAt: new Date().toISOString()
         });
       }
@@ -373,7 +373,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
         uid: fbUser.uid,
         name: dbUser?.name || fbUser.displayName || fbUser.email?.split("@")[0] || "Axe Creator",
         handle: dbUser?.handle || fbUser.displayName?.toLowerCase().replace(/\s+/g, "_") || "creator",
-        avatar: dbUser?.avatar || fbUser.photoURL || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100",
+        avatar: dbUser?.avatar || fbUser.photoURL || "https://api.dicebear.com/7.x/bottts/svg?seed=Creator",
         joinedAt: new Date().toISOString()
       });
 
@@ -492,15 +492,27 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Email Address</label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">Email Address</label>
+                      {(!user?.email || user.email === 'guest@axe-hours.ai' || user.email.startsWith('guest_') || !user.uid) && (
+                        <button 
+                          type="button" 
+                          onClick={() => window.dispatchEvent(new CustomEvent('axe-trigger-login'))}
+                          className="text-[10px] text-purple-400 hover:text-purple-300 font-extrabold uppercase tracking-wider underline cursor-pointer"
+                        >
+                          Sign In
+                        </button>
+                      )}
+                    </div>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-600" size={14} />
                       <input 
                         type="email" 
-                        value={user.email} 
+                        value={(!user?.email || user.email === 'guest@axe-hours.ai' || user.email.startsWith('guest_') || !user.uid) ? "" : user.email} 
+                        placeholder={(!user?.email || user.email === 'guest@axe-hours.ai' || user.email.startsWith('guest_') || !user.uid) ? "Sign in to add your email" : ""}
                         disabled
-                        className="w-full bg-white/5 border border-white/5 rounded-xl py-2.5 pl-10 pr-3 text-xs text-gray-500 font-mono cursor-not-allowed"
-                        title="Your account email address cannot be altered here."
+                        className="w-full bg-white/5 border border-white/5 rounded-xl py-2.5 pl-10 pr-3 text-xs text-gray-400 placeholder-gray-500 font-mono cursor-not-allowed"
+                        title={(!user?.email || user.email === 'guest@axe-hours.ai' || user.email.startsWith('guest_') || !user.uid) ? "Sign in to add your email" : "Your account email address cannot be altered here."}
                       />
                     </div>
                   </div>
@@ -661,7 +673,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                   <span className="text-gray-500 font-bold block text-[9px] uppercase tracking-wider">LATEST EXTENSIBLE METADATA JSON</span>
                   <pre className="text-cyan-400/90 whitespace-pre overflow-x-auto text-[9px] pt-1 leading-snug">
 {`{
-  "creatorId": "${user.email.replace(/[@.]/g, '_')}",
+  "creatorId": "${(!user?.email || user.email === 'guest@axe-hours.ai' || user.email.startsWith('guest_') || !user.uid) ? "guest_creator" : user.email.replace(/[@.]/g, '_')}",
   "capabilities": ["Retuner", "Synth_API"],
   "groupsJoined": ${JSON.stringify(displayedGroups.filter(g => g.isMember).map(g => g.name.substring(0, 12) + "..."))},
   "creationRules": {
@@ -751,7 +763,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                                 <img
                                   key={mbr.uid}
                                   className="inline-block h-5 w-5 rounded-full ring-2 ring-black bg-[#111] object-cover"
-                                  src={mbr.avatar || "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100"}
+                                  src={mbr.avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Creator"}
                                   alt={mbr.name}
                                   title={`${mbr.name} (${mbr.handle})`}
                                   referrerPolicy="no-referrer"

@@ -232,7 +232,7 @@ function generateHookStrategy(title: string, views: number, channelTitle: string
     visual = 'Dramatic POV footage with animated countdown overlays and pulsing red alert graphics.';
     pacing = 'Staccato narration, intense sub-bass drops, and fast multi-angle cutaways.';
   } else if (lower.includes('secret') || lower.includes('truth') || lower.includes('died') || lower.includes('stop')) {
-    strategy = `Contrarian shock hook: calls out an industry standard practice directly to induce strong FOMO and cognitive friction.`;
+    strategy = `Contrarian shock hook: calls out an industry standard practice directly to create high attention and curiosity.`;
     visual = 'Direct-to-camera candid stare with blurred background and striking typography graphics.';
     pacing = 'Tight pause at 0:02 to build dramatic weight followed by accelerated explanation.';
   }

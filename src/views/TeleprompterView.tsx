@@ -229,7 +229,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
       container.scrollTop = Math.floor(scrollAccumulatorRef.current);
 
       // Finished reading to the end
-      if (container.scrollTop >= scrollableDistance - 2) {
+      if (!isScriptEmpty && scrollableDistance > 20 && container.scrollTop >= scrollableDistance - 2) {
         setIsPlaying(false);
         playAudioCue(587.33); // D5 chime
         addToast('Teleprompter script completed! Great recording! 🎬', 'success');
@@ -322,14 +322,20 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
     };
   }, [isPlaying]);
 
+  const isScriptEmpty = !rawScriptText || !rawScriptText.trim() || rawScriptText.trim() === FALLBACK_SCRIPT;
+
   // --- TOGGLE PLAY / PAUSE ---
   const handleTogglePlay = useCallback(() => {
+    if (isScriptEmpty) {
+      addToast("Load or type a script to begin scrolling", "info");
+      return;
+    }
     setIsPlaying(prev => {
       const next = !prev;
       playAudioCue(next ? 880 : 440);
       return next;
     });
-  }, []);
+  }, [isScriptEmpty, addToast]);
 
   // --- RESET TO TOP ---
   const handleResetToTop = useCallback(() => {
@@ -658,12 +664,15 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
             <button
               type="button"
               onClick={handleTogglePlay}
-              className={`px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95 ${
-                isPlaying 
-                  ? 'bg-amber-400 hover:bg-amber-300 text-black shadow-amber-500/20' 
-                  : 'bg-emerald-400 hover:bg-emerald-300 text-black shadow-emerald-500/30'
+              disabled={isScriptEmpty && !isPlaying}
+              className={`px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center gap-2 transition-all shadow-lg active:scale-95 ${
+                isScriptEmpty && !isPlaying
+                  ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-white/5 opacity-60'
+                  : isPlaying 
+                    ? 'bg-amber-400 hover:bg-amber-300 text-black shadow-amber-500/20 cursor-pointer' 
+                    : 'bg-emerald-400 hover:bg-emerald-300 text-black shadow-emerald-500/30 cursor-pointer'
               }`}
-              title="Toggle Play / Pause (Spacebar)"
+              title={isScriptEmpty ? "Load or type a script to begin scrolling" : "Toggle Play / Pause (Spacebar)"}
             >
               {isPlaying ? <Pause size={16} /> : <Play size={16} fill="currentColor" />}
               <span>{isPlaying ? 'PAUSE' : 'SCROLL'}</span>

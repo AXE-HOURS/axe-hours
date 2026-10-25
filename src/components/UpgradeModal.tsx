@@ -69,9 +69,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   const proFeatures = [
     'Unlimited AI scripts, extractions & blueprints',
     'Full Teleprompter Studio (Mirror + WakeLock)',
-    '15+ Neuro-linguistic viral hook formulas',
+    '15+ Proven viral hook formulas',
     'AI Audio Transcription Fallback',
-    'Real-time competitor tracking & velocity radar',
+    'Real-time competitor tracking & video radar',
     'Cloud-synchronized script & hook vault',
     'Priority high-throughput server processing'
   ];

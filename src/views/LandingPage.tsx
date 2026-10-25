@@ -343,19 +343,31 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             Axe Hours AI
           </span>
         </div>
-        <div id="landing-header-auth" className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0">
+        <div id="landing-header-auth" className="flex items-center gap-1.5 sm:gap-3 md:gap-4 shrink-0">
           <button 
             id="landing-guest-hdr-btn" 
             onClick={() => {
               playAudio(880, "sine", 0.15);
               onEnter({ email: 'guest@axe-hours.ai', name: 'Guest Creator', handle: 'guest_creator', avatar: '' });
             }} 
-            className="hidden sm:flex text-xs md:text-sm font-extrabold text-[#34d399] hover:text-[#6ee7b7] transition-colors py-2 px-3.5 items-center gap-1.5 cursor-pointer bg-emerald-500/10 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/20 shadow-md shadow-emerald-500/10 whitespace-nowrap"
+            className="text-[11px] sm:text-xs md:text-sm font-extrabold text-[#34d399] hover:text-[#6ee7b7] transition-colors py-1.5 px-2.5 sm:py-2 sm:px-3.5 flex items-center gap-1 cursor-pointer bg-emerald-500/10 border border-emerald-500/30 rounded-xl hover:bg-emerald-500/20 shadow-md shadow-emerald-500/10 whitespace-nowrap"
           >
-            Demo Workspace ⚡
+            Demo <span className="hidden sm:inline">Workspace</span> ⚡
           </button>
-          <button id="landing-login-btn" onClick={() => openModal('login')} className="hidden xs:block text-xs md:text-sm font-bold text-gray-200 hover:text-purple-300 transition-colors py-2 px-3 cursor-pointer whitespace-nowrap">Log In</button>
-          <PrimaryButton id="landing-signup-top-btn" onClick={() => openModal('signup')} className="py-2 px-4 md:px-5 text-xs md:text-sm font-bold cursor-pointer shadow-lg shadow-purple-500/20 border border-purple-500/40 shrink-0 whitespace-nowrap">Sign Up</PrimaryButton>
+          <button 
+            id="landing-login-btn" 
+            onClick={() => openModal('login')} 
+            className="text-xs sm:text-xs md:text-sm font-bold text-gray-200 hover:text-purple-300 transition-colors py-1.5 px-2 sm:py-2 sm:px-3 cursor-pointer whitespace-nowrap"
+          >
+            Log In
+          </button>
+          <PrimaryButton 
+            id="landing-signup-top-btn" 
+            onClick={() => openModal('signup')} 
+            className="py-1.5 px-3 sm:py-2 sm:px-4 md:px-5 text-xs sm:text-xs md:text-sm font-bold cursor-pointer shadow-lg shadow-purple-500/20 border border-purple-500/40 shrink-0 whitespace-nowrap"
+          >
+            Sign Up
+          </PrimaryButton>
         </div>
       </header>
 
@@ -386,9 +398,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             }} 
             className="px-7 py-3.5 text-sm md:text-base font-extrabold tracking-wider uppercase shadow-[0_0_30px_rgba(168,85,247,0.4)] cursor-pointer border border-purple-400/40 rounded-xl"
           >
-            Launch Creator Command Center
+            Launch Free Demo Workspace
             <ArrowRight size={18} />
           </PrimaryButton>
+          <button
+            onClick={() => openModal('login')}
+            className="text-xs sm:text-sm font-bold text-gray-300 hover:text-white transition-colors py-2 px-3 flex items-center gap-1.5 cursor-pointer sm:hidden"
+          >
+            Already have an account? <span className="text-purple-400 underline font-extrabold">Log In</span>
+          </button>
           <button 
             id="landing-scroll-demo-btn"
             onClick={() => openModal('signup')}

@@ -4364,8 +4364,8 @@ Key views:
 1. Dashboard: Audience metrics, creator activity analytics, recent content ideas, and quick actions.
 2. AI Generator: Complete video script generation with visual blueprints, retention beats, and CapCut b-roll/text overlay instructions.
 3. Script Fetcher: Extracts spoken dialogue transcripts and analyzes opening retention scores from YouTube, TikTok, or Instagram URLs.
-4. Viral Hooks: 15+ proven neuro-linguistic hook formulas (Negative Contrast, Curiosity Loop, etc.).
-5. Competitor Intel: Outlier video analysis and content velocity radar.
+4. Viral Hooks: 15+ proven viral hook formulas (Negative Contrast, Curiosity Loop, etc.).
+5. Competitor Intel: Outlier video analysis and competitor video radar.
 6. Analytics: Pre-posting hook retention ratings and drop-off simulation.
 7. Teleprompter: Full-screen teleprompter with auto-scroll and mirror modes.
 8. Settings: API key configuration, profile, and workspace preferences.

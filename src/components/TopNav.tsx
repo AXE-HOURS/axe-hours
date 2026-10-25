@@ -63,7 +63,7 @@ export const TopNav: React.FC<TopNavProps> = ({
 
   const [name, setName] = useState(user?.name || "");
   const [handle, setHandle] = useState(user?.handle || "@creator");
-  const [avatar, setAvatar] = useState(user?.avatar || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=100");
+  const [avatar, setAvatar] = useState(user?.avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Creator");
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const [supportQuery, setSupportQuery] = useState("");
@@ -116,7 +116,7 @@ export const TopNav: React.FC<TopNavProps> = ({
     if (user) {
       setName(user.name || "");
       setHandle(user.handle || "@creator");
-      setAvatar(user.avatar || "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=100");
+      setAvatar(user.avatar || "https://api.dicebear.com/7.x/bottts/svg?seed=Creator");
     }
   }, [user]);
 
@@ -198,9 +198,9 @@ export const TopNav: React.FC<TopNavProps> = ({
   };
 
   const avatars = [
-    { url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=100", label: "Tech Male" },
-    { url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=100", label: "Tech Female" },
-    { url: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=100", label: "Retro Creator" }
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=TechMale", label: "Tech Male" },
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=TechFemale", label: "Tech Female" },
+    { url: "https://api.dicebear.com/7.x/bottts/svg?seed=RetroCreator", label: "Retro Creator" }
   ];
 
   const askSupportAI = async (customQuery?: string) => {
