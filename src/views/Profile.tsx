@@ -600,7 +600,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                 <div className="flex items-center justify-center gap-2">
                   <h2 className="text-xl font-extrabold text-white tracking-widest uppercase">{name}</h2>
                   <span className="bg-cyan-950/80 border border-cyan-500/40 text-cyan-400 rounded-md px-2 py-0.5 font-mono text-[9px] font-black tracking-widest uppercase shadow-[0_0_10px_rgba(6,182,212,0.35)] select-none">
-                    LEVEL 4
+                    CREATOR
                   </span>
                 </div>
                 <div className="flex items-center justify-center gap-2 mt-2 select-none">
@@ -652,9 +652,9 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                 <div className="p-3 bg-black/40 border border-white/5 rounded-xl flex justify-between items-center group hover:bg-white/5 transition-all">
                   <div className="flex items-center gap-2">
                     <Users size={14} className="text-purple-400" />
-                    <span>Active Team Entities</span>
+                    <span>Active Workspaces / Groups</span>
                   </div>
-                  <span className="font-bold text-white pr-2">{displayedGroups.length} nodes</span>
+                  <span className="font-bold text-white pr-2">{displayedGroups.length} {displayedGroups.length === 1 ? 'group' : 'groups'}</span>
                 </div>
 
                 <div className="p-3 bg-black/50 border border-white/5 rounded-xl text-[10px] space-y-1 select-text">
@@ -665,7 +665,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
   "capabilities": ["Retuner", "Synth_API"],
   "groupsJoined": ${JSON.stringify(displayedGroups.filter(g => g.isMember).map(g => g.name.substring(0, 12) + "..."))},
   "creationRules": {
-    "engine": "gemini-2.5-flash",
+    "engine": "gemini-flash",
     "retentionThreshold": 0.85
   }
 }`}
@@ -741,7 +741,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
                             <Flame size={12} className="animate-pulse" /> Active Level: High
                           </span>
                           <span>•</span>
-                          <span>{grp.membersCount} active {grp.membersCount === 1 ? 'node' : 'nodes'}</span>
+                          <span>{grp.membersCount} active {grp.membersCount === 1 ? 'member' : 'members'}</span>
                         </div>
 
                         {grp.members && grp.members.length > 0 && (

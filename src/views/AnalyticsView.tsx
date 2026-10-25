@@ -1817,7 +1817,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
               </div>
               <div className="space-y-2">
                 <div className="text-xl font-bold text-white tracking-tight font-mono">
-                  Gemini 2.5 Flash
+                  Gemini Flash
                 </div>
                 <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs text-gray-400">
                   <span>Inference Streaming</span>

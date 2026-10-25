@@ -328,11 +328,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
     status: 'Draft' | 'Scheduled' | 'Published';
   }
 
-  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([
-    { id: 'sc-1', day: 'Mon', title: 'Why 99% of developers FAIL under launch 🤦‍♂️', platform: 'youtube', time: '12:00', status: 'Scheduled' },
-    { id: 'sc-2', day: 'Wed', title: '10-line microscopic prompt-engineered workflows ⚡', platform: 'tiktok', time: '17:30', status: 'Draft' },
-    { id: 'sc-3', day: 'Fri', title: 'Stop spending 6 months coding a SaaS that nobody wants! 🤫', platform: 'instagram', time: '10:15', status: 'Published' }
-  ]);
+  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
 
   const [newSchDay, setNewSchDay] = useState<string>('Mon');
   const [newSchTitle, setNewSchTitle] = useState<string>('');
@@ -473,43 +469,57 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
           <GlassCard id="panel-viral-trend" className="border-white/5 h-full flex flex-col justify-between">
             <div>
               <h2 className="text-lg font-bold text-white tracking-tight">Viral Expansion Trend</h2>
-              <div className="relative w-full h-[200px] min-h-[200px] bg-black/30 rounded-xl border border-white/5 p-2 overflow-hidden mt-4">
-                <svg viewBox="0 0 500 180" className="w-full h-full overflow-visible">
-                  <defs>
-                    <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#9d50bb" stopOpacity="0.4" />
-                      <stop offset="100%" stopColor="#9d50bb" stopOpacity="0.0" />
-                    </linearGradient>
-                  </defs>
-                  <path d={areaPath} fill="url(#chartGradient)" />
-                  <path d={linePath} fill="none" stroke="#9d50bb" strokeWidth="3.5" />
-                  {chartPoints.map((pt, index) => (
-                    <circle key={index} cx={pt.x} cy={pt.y} r="5" fill="#fff" stroke="#9d50bb" strokeWidth="2" />
-                  ))}
-                </svg>
-              </div>
+              {totalGens === 0 ? (
+                <div className="w-full h-[200px] min-h-[200px] bg-black/30 rounded-xl border border-white/5 p-4 flex flex-col items-center justify-center text-center mt-4">
+                  <TrendingUp className="text-gray-500 mb-2" size={24} />
+                  <p className="text-xs text-gray-400">Generate scripts to populate your retention curve.</p>
+                </div>
+              ) : (
+                <div className="relative w-full h-[200px] min-h-[200px] bg-black/30 rounded-xl border border-white/5 p-2 overflow-hidden mt-4">
+                  <svg viewBox="0 0 500 180" className="w-full h-full overflow-visible">
+                    <defs>
+                      <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#9d50bb" stopOpacity="0.4" />
+                        <stop offset="100%" stopColor="#9d50bb" stopOpacity="0.0" />
+                      </linearGradient>
+                    </defs>
+                    <path d={areaPath} fill="url(#chartGradient)" />
+                    <path d={linePath} fill="none" stroke="#9d50bb" strokeWidth="3.5" />
+                    {chartPoints.map((pt, index) => (
+                      <circle key={index} cx={pt.x} cy={pt.y} r="5" fill="#fff" stroke="#9d50bb" strokeWidth="2" />
+                    ))}
+                  </svg>
+                </div>
+              )}
             </div>
           </GlassCard>
         </div>
 
         <GlassCard id="panel-quality-projections" className="border-white/5 flex flex-col justify-between">
           <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-4">Quality Projections</h2>
-          <div className="grid grid-cols-2 gap-4 flex-1 items-center">
-            <div className="flex flex-col items-center">
-              <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
-                <circle cx="50" cy="50" r={radius} fill="none" stroke="#9d50bb" strokeWidth="8" strokeDasharray={circumference} strokeDashoffset={seoOffset} />
-              </svg>
-              <span className="text-xs text-gray-300 mt-2">SEO Strength</span>
+          {totalGens === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
+              <span className="text-2xl font-black text-gray-600 mb-2">--</span>
+              <p className="text-xs text-gray-400">Generate scripts to evaluate quality projections.</p>
             </div>
-            <div className="flex flex-col items-center">
-              <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
-                <circle cx="50" cy="50" r={radius} fill="none" stroke="#6e48aa" strokeWidth="8" strokeDasharray={circumference} strokeDashoffset={retentionOffset} />
-              </svg>
-              <span className="text-xs text-gray-300 mt-2">Retention Chance</span>
+          ) : (
+            <div className="grid grid-cols-2 gap-4 flex-1 items-center">
+              <div className="flex flex-col items-center">
+                <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                  <circle cx="50" cy="50" r={radius} fill="none" stroke="#9d50bb" strokeWidth="8" strokeDasharray={circumference} strokeDashoffset={seoOffset} />
+                </svg>
+                <span className="text-xs text-gray-300 mt-2">SEO Strength</span>
+              </div>
+              <div className="flex flex-col items-center">
+                <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
+                  <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+                  <circle cx="50" cy="50" r={radius} fill="none" stroke="#6e48aa" strokeWidth="8" strokeDasharray={circumference} strokeDashoffset={retentionOffset} />
+                </svg>
+                <span className="text-xs text-gray-300 mt-2">Retention Chance</span>
+              </div>
             </div>
-          </div>
+          )}
         </GlassCard>
       </div>
 
@@ -525,7 +535,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
                   <h2 className="text-lg font-black text-white tracking-tight flex items-center gap-2">
                     <DollarSign className="text-emerald-400" size={20} /> Profit & CPM Forecaster
                   </h2>
-                  <p className="text-[11px] text-gray-400 mt-0.5">Project organic monetization metrics of your creative blueprints</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">Example estimate based on average creator CPM ($4–$12). Illustrative only.</p>
                 </div>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono text-[9px] uppercase tracking-wider font-extrabold">
                   Sales Mode Active
@@ -780,7 +790,15 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
               {/* Scheduled Posts render stack */}
               <div className="space-y-2.5 max-h-[195px] overflow-y-auto custom-scrollbar pr-1">
                 {scheduledPosts.length === 0 ? (
-                  <p className="text-xs text-gray-500 text-center py-6 font-mono italic">No publications mapped. Click "Add Slot" to structure.</p>
+                  <div className="text-center py-6 flex flex-col items-center justify-center">
+                    <p className="text-xs text-gray-400 font-medium">No videos planned yet. Generate a script to add your first video.</p>
+                    <button
+                      onClick={onViewAllGens}
+                      className="mt-3 px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 text-xs font-semibold rounded-lg border border-purple-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Zap size={14} /> Go to Script Generator
+                    </button>
+                  </div>
                 ) : (
                   scheduledPosts.map(post => (
                     <div 
@@ -948,7 +966,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
                     thumbTheme === "cyan" ? "text-cyan-400" :
                     "text-amber-400"
                   }`}>
-                    VIRAL RATING AA+
+                    --
                   </span>
                 </div>
 

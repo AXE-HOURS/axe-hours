@@ -1003,15 +1003,15 @@ export const Analytics: React.FC<AnalyticsProps> = ({ recentGenerations = [] }) 
 
     return [
       {
-        factor: 'Hook Strength',
-        shortFactor: 'Hook',
+        factor: 'Hook Strength (Estimated)',
+        shortFactor: 'Hook (Est.)',
         weight: 30, // 30% AI weight
         score: hookScore,
         benchmark: 92,
         fill: '#ec4899',
         glowingBorder: 'border-[#ec4899]/30',
         glowColor: 'bg-[#ec4899]',
-        desc: 'Evaluates first 3 seconds for physical curiosity opens, high conversion triggers and optimal pacing.'
+        desc: 'Score estimated using viral hook pattern analysis, curiosity triggers and optimal pacing.'
       },
       {
         factor: 'Engagement Potential',

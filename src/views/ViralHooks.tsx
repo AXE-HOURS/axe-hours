@@ -258,7 +258,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
         { label: "Desired Result", key: "desiredResult" as const },
         { label: "Timeframe", key: "timeframe" as const }
       ],
-      ctr: "+7.4%",
+      tag: "Contrarian",
       potential: "96%",
       compile: () => `Stop doing ${inputs.commonAction}. Instead, do ${inputs.unconventionalStrategy} to achieve ${inputs.desiredResult} in just ${inputs.timeframe}.`
     },
@@ -271,7 +271,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
         { label: "Positive State", key: "positiveState" as const },
         { label: "Timeframe", key: "timeframe" as const }
       ],
-      ctr: "+6.8%",
+      tag: "Story Loop",
       potential: "94%",
       compile: () => `How I went from a ${inputs.negativeState} to ${inputs.positiveState} in just ${inputs.timeframe} using this one simple method.`
     },
@@ -283,7 +283,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
         { label: "Target Experts", key: "experts" as const },
         { label: "Hidden Topic", key: "topic" as const }
       ],
-      ctr: "+8.2%",
+      tag: "High Retention",
       potential: "98%",
       compile: () => `The underground secret top ${inputs.experts} don't want you to know about ${inputs.topic}.`
     }
@@ -1053,7 +1053,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
                   <div>
                     <div id="hook-item-header" className="flex justify-between items-start gap-4 mb-3 select-none">
                       <h3 id={`hook-item-title-${hook.id}`} className="text-sm font-black text-white tracking-wider uppercase leading-none">{hook.title}</h3>
-                      <span id={`hook-item-badge-${hook.id}`} className="px-2 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-md text-[9px] font-black font-mono">CTR {hook.ctr}</span>
+                      <span id={`hook-item-badge-${hook.id}`} className="px-2 py-0.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-md text-[9px] font-black font-mono">{hook.tag}</span>
                     </div>
                     <p id={`hook-item-desc-${hook.id}`} className="text-[11.5px] text-gray-400 mb-5 font-light leading-relaxed select-none">{hook.description}</p>
                     

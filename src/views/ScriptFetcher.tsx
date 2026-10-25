@@ -1151,7 +1151,7 @@ export const ScriptFetcher: React.FC = () => {
 
     try {
       const formattedContent = `### Platform: ${extractedData.platform.toUpperCase()} | Duration: ${extractedData.duration || 'N/A'} | Views: ${extractedData.views || 'N/A'}
-**Hook Score:** ${extractedData.hookScore}/100
+**Hook Score (Estimated):** ${extractedData.hookScore}/100
 **Pacing:** ${extractedData.pacingSpeed || 'N/A'}
 
 #### Isolated Hook:
@@ -1438,7 +1438,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                     <span className="text-white text-xs font-bold font-mono block mt-0.5">{extractedData.views}</span>
                   </div>
                   <div className="bg-black/50 border border-white/5 p-2 px-1 rounded-lg border-emerald-500/15 bg-emerald-500/5">
-                    <span className="text-emerald-400/70 text-[9px] uppercase font-mono block">Hook Grade</span>
+                    <span className="text-emerald-400/70 text-[9px] uppercase font-mono block">Hook Grade <span className="text-[8px] font-normal opacity-75">(Est.)</span></span>
                     <span className="text-emerald-300 text-xs font-black font-mono block mt-0.5">{extractedData.hookScore}/100</span>
                   </div>
                 </div>

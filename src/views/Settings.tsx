@@ -218,7 +218,7 @@ export const Settings: React.FC = () => {
                 <div className="space-y-1">
                   <p className="text-xs font-semibold text-white">Security & Sandboxing Protocol</p>
                   <p className="text-[11px] text-gray-400 leading-relaxed">
-                    Keys are processed directly via secure proxy headers; local storage is isolated within your client sandbox environment.
+                    Your API key is encrypted and stored locally in your browser. It is never stored on our database.
                   </p>
                 </div>
               </div>
@@ -255,27 +255,27 @@ export const Settings: React.FC = () => {
             </div>
           </GlassCard>
 
-          <GlassCard id="settings-firebase-override-card" className="border-white/5 space-y-4">
-            <h2 id="settings-firebase-heading" className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/5 pb-4">
-              <Database size={18} className="text-purple-400" /> Firebase Integration Override
-            </h2>
-            <p className="text-xs text-gray-400 leading-relaxed font-light">
-              Connect Google OAuth, channels, and creator dispatches directly to your own secure Firebase and Cloud project.
-            </p>
+          {import.meta.env.DEV && (
+            <GlassCard id="settings-firebase-override-card" className="border-white/5 space-y-4">
+              <h2 id="settings-firebase-heading" className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/5 pb-4">
+                <Database size={18} className="text-purple-400" /> Firebase Integration Override
+              </h2>
+              <p className="text-xs text-gray-400 leading-relaxed font-light">
+                Connect Google OAuth, channels, and creator dispatches directly to your own secure Firebase and Cloud project.
+              </p>
 
-            {/* Connection Status abstract toggle bar */}
-            <div className="p-3.5 bg-green-500/10 border border-green-500/20 text-green-300 rounded-xl flex items-center justify-between select-none">
-              <div className="flex items-center gap-2.5">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wider">Connection Status: Active</p>
-                  <p className="text-[9px] text-gray-400">Secure Firestore Cluster Sync Live</p>
+              {/* Connection Status abstract toggle bar */}
+              <div className="p-3.5 bg-green-500/10 border border-green-500/20 text-green-300 rounded-xl flex items-center justify-between select-none">
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                  </span>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider">Connection Status: Active</p>
+                    <p className="text-[9px] text-gray-400">Secure Firestore Cluster Sync Live</p>
+                  </div>
                 </div>
-              </div>
-              {import.meta.env.DEV && (
                 <button
                   type="button"
                   onClick={() => setShowAdvancedDbConfig(!showAdvancedDbConfig)}
@@ -283,55 +283,55 @@ export const Settings: React.FC = () => {
                 >
                   {showAdvancedDbConfig ? "Hide Config" : "Dev Config"}
                 </button>
-              )}
-            </div>
-
-            {import.meta.env.DEV && showAdvancedDbConfig && (
-              <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="space-y-2">
-                  <label className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Web SDK Configuration JSON</label>
-                  <textarea
-                    id="settings-firebase-config-textarea"
-                    rows={5}
-                    data-private="true"
-                    value={firebaseJson}
-                    onChange={(e) => {
-                      setFirebaseJson(e.target.value);
-                      setFbError("");
-                    }}
-                    placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "my-custom-app.firebaseapp.com",\n  "projectId": "my-custom-app",\n  "storageBucket": "my-custom-app.firebasestorage.app",\n  "messagingSenderId": "...",\n  "appId": "..."\n}`}
-                    className="w-full bg-black/40 border border-white/10 rounded-ax p-3 text-xs text-white focus:outline-none focus:border-primary font-mono placeholder:text-gray-600 resize-none ph-no-capture"
-                  />
-                  {fbError && (
-                    <p className="text-xs text-red-400 font-mono bg-red-950/20 border border-red-500/20 p-2.5 rounded-lg">
-                      ⚠️ {fbError}
-                    </p>
-                  )}
-                  {fbSuccess && (
-                    <p className="text-xs text-green-400 font-mono bg-green-950/20 border border-green-500/20 p-2.5 rounded-lg animate-pulse">
-                      ✅ Custom environment variables synced. Reloading applet...
-                    </p>
-                  )}
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={handleSaveFirebaseConfig}
-                    className="py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 hover:border-purple-500/50 text-purple-200 text-xs font-bold uppercase rounded-ax transition-all cursor-pointer text-center"
-                  >
-                    Apply Custom DB
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleResetFirebaseConfig}
-                    className="py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-xs font-bold uppercase rounded-ax transition-all cursor-pointer text-center"
-                  >
-                    Reset Default DB
-                  </button>
-                </div>
               </div>
-            )}
-          </GlassCard>
+
+              {showAdvancedDbConfig && (
+                <div className="space-y-4 pt-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] text-gray-400 uppercase tracking-wider font-bold">Web SDK Configuration JSON</label>
+                    <textarea
+                      id="settings-firebase-config-textarea"
+                      rows={5}
+                      data-private="true"
+                      value={firebaseJson}
+                      onChange={(e) => {
+                        setFirebaseJson(e.target.value);
+                        setFbError("");
+                      }}
+                      placeholder={`{\n  "apiKey": "AIzaSy...",\n  "authDomain": "my-custom-app.firebaseapp.com",\n  "projectId": "my-custom-app",\n  "storageBucket": "my-custom-app.firebasestorage.app",\n  "messagingSenderId": "...",\n  "appId": "..."\n}`}
+                      className="w-full bg-black/40 border border-white/10 rounded-ax p-3 text-xs text-white focus:outline-none focus:border-primary font-mono placeholder:text-gray-600 resize-none ph-no-capture"
+                    />
+                    {fbError && (
+                      <p className="text-xs text-red-400 font-mono bg-red-950/20 border border-red-500/20 p-2.5 rounded-lg">
+                        ⚠️ {fbError}
+                      </p>
+                    )}
+                    {fbSuccess && (
+                      <p className="text-xs text-green-400 font-mono bg-green-950/20 border border-green-500/20 p-2.5 rounded-lg animate-pulse">
+                        ✅ Custom environment variables synced. Reloading applet...
+                      </p>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveFirebaseConfig}
+                      className="py-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 hover:border-purple-500/50 text-purple-200 text-xs font-bold uppercase rounded-ax transition-all cursor-pointer text-center"
+                    >
+                      Apply Custom DB
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetFirebaseConfig}
+                      className="py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 text-xs font-bold uppercase rounded-ax transition-all cursor-pointer text-center"
+                    >
+                      Reset Default DB
+                    </button>
+                  </div>
+                </div>
+              )}
+            </GlassCard>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <button 

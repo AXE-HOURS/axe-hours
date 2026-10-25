@@ -137,7 +137,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
       color: "from-blue-500 to-cyan-500",
       glow: "shadow-cyan-500/20",
       description: "Lock dual script blueprints side-by-side. Compare curiosity loops, value bombs, and pattern breaks with automated comparative analysis.",
-      tech: "Gemini Pro / Local Ollama Duel"
+      tech: "Gemini Flash / Local Ollama Duel"
     },
     {
       id: 3,

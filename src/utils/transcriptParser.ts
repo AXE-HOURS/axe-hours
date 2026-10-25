@@ -315,26 +315,46 @@ export function formatSubtitles(lines: SubtitleLine[]): string {
 /**
  * Calculates hook quality score (0-100) based on linguistic triggers,
  * length density, retention framing (quantifiable numbers & contrarian cues), and delivery pacing speed.
+ * Recalibrated to provide honest evaluations:
+ * - Empty string -> 0
+ * - 1-3 words (no substance) -> < 40
+ * - Average script/hook -> 50-70
+ * - Strong hook (curiosity gap, pattern interrupt, specific numbers) -> 75-85
+ * - Exceptional multi-element viral hooks -> 85-96 (capped at 96)
  */
 export function calculateHookScore(hookText: string, wpm?: number, platform?: string): number {
-  let score = 50;
   const rawText = (hookText || '').trim();
+  if (!rawText) return 0;
+
   const words = rawText.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
 
-  // 1. Length density constraint (Optimal hook is dense but punchy, e.g. 6 to 14 words)
-  if (wordCount >= 6 && wordCount <= 14) {
-    score += 15;
-  } else if (wordCount > 0 && wordCount < 6) {
+  if (wordCount === 0) return 0;
+  if (wordCount <= 3) {
+    // 1-3 words (no substance) -> score < 40
+    return Math.min(35, Math.max(10, wordCount * 10));
+  }
+
+  // Base score for average hook
+  let score = 42;
+
+  // 1. Length density constraint (Optimal hook is 6 to 16 words)
+  if (wordCount >= 6 && wordCount <= 16) {
+    score += 12;
+  } else if (wordCount >= 4 && wordCount < 6) {
     score += 5;
-  } else if (wordCount > 20) {
+  } else if (wordCount > 25) {
     score -= 10;
-  } else {
-    score += 8;
+  } else if (wordCount > 16) {
+    score += 2;
   }
 
   // 2. Behavioral high retention linguistic triggers scan
-  const triggerWords = ["stop", "fail", "secret", "never", "hidden", "why", "how", "impossible", "hack", "mistake", "everyone", "wrong", "trap", "insane", "waste"];
+  const triggerWords = [
+    "stop", "fail", "secret", "never", "hidden", "why", "how", "impossible",
+    "hack", "mistake", "everyone", "wrong", "trap", "insane", "waste", "truth",
+    "nobody", "expose", "lie", "rules", "warning", "stealth"
+  ];
   let detectedTriggersCount = 0;
   words.forEach(w => {
     const cleaned = w.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -342,47 +362,52 @@ export function calculateHookScore(hookText: string, wpm?: number, platform?: st
       detectedTriggersCount++;
     }
   });
-  score += Math.min(25, detectedTriggersCount * 12);
+  score += Math.min(16, detectedTriggersCount * 6);
 
   // 3. Modern Retention Framing: Quantifiable metrics and contrarian cues
-  if (/\b\d+([kmb%]|x|\.\d+)?\b/i.test(rawText)) {
-    score += 8; // Specific numbers/timeframes anchor credibility
+  if (/\b\d+([kmb%]|x|\.\d+)?\b/i.test(rawText) || /\b(first|seconds?|minutes?|days?|hours?|years?)\b/i.test(rawText)) {
+    score += 6;
   }
-  if (/\b(stop|never|why|truth|myth|mistake|wrong|nobody|secret)\b/i.test(rawText)) {
-    score += 8; // Contrarian phrasing / open loop
+  if (/\b(stop|never|why|truth|myth|mistake|wrong|nobody|secret|don't|can't)\b/i.test(rawText)) {
+    score += 6;
+  }
+  if (/\b(this is|what happens|here's why|the reason|the real|i tried|we tested)\b/i.test(rawText)) {
+    score += 6;
+  }
+  if (/\b(you|your|creators?|everyone)\b/i.test(rawText)) {
+    score += 4;
   }
 
   // Penalize excessive punctuation (?! or multiple exclamation/question marks)
   if (/(\?!|!\?|!{2,}|\?{2,})/.test(rawText)) {
-    score -= 10;
-  } else if (/[.?!]/.test(rawText)) {
-    score += 5; // Clean, natural sentence termination
+    score -= 8;
+  } else if (/[.?!]$/.test(rawText)) {
+    score += 2;
   }
 
-  // Penalize emoji spam
+  // Penalize excessive emojis
   const emojiMatches = rawText.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]|\p{Emoji_Presentation}/gu);
-  if (emojiMatches && emojiMatches.length > 1) {
-    score -= 8;
+  if (emojiMatches && emojiMatches.length > 2) {
+    score -= 6;
   }
 
   // 4. Words per minute pacing check
-  const pace = wpm || 145;
-  if (platform === "tiktok") {
-    if (pace >= 155 && pace <= 180) score += 15;
-    else if (pace < 135) score -= 12;
-    else score += 5;
-  } else if (platform === "instagram") {
-    if (pace >= 145 && pace <= 165) score += 15;
-    else if (pace < 125) score -= 12;
-    else score += 6;
-  } else {
-    // YouTube
-    if (pace >= 135 && pace <= 155) score += 15;
-    else if (pace > 175) score -= 10;
-    else score += 6;
+  if (wpm) {
+    const pace = wpm;
+    if (platform === "tiktok") {
+      if (pace >= 155 && pace <= 180) score += 6;
+      else if (pace < 135 || pace > 195) score -= 6;
+    } else if (platform === "instagram") {
+      if (pace >= 145 && pace <= 165) score += 6;
+      else if (pace < 125 || pace > 185) score -= 6;
+    } else {
+      // YouTube
+      if (pace >= 135 && pace <= 155) score += 6;
+      else if (pace < 115 || pace > 180) score -= 6;
+    }
   }
 
-  return Math.min(100, Math.max(12, score));
+  return Math.min(96, Math.max(15, score));
 }
 
 /**
