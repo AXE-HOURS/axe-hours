@@ -17,6 +17,37 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const SERVER_SECRET = process.env.SERVER_SECRET || process.env.GUEST_TOKEN_SECRET || crypto.randomBytes(32).toString("hex");
 const GUEST_TOKEN_SECRET = process.env.GUEST_TOKEN_SECRET || SERVER_SECRET;
 
+function normalizeIp(ip: string): string {
+  if (!ip) return "unknown_ip";
+  let cleaned = ip.trim();
+  if (cleaned.startsWith("::ffff:")) {
+    cleaned = cleaned.slice(7);
+  }
+  return cleaned;
+}
+
+export function getClientIp(req: any): string {
+  if (!req) return "unknown_ip";
+  const cf = req.headers?.["cf-connecting-ip"];
+  if (cf && typeof cf === "string" && cf.trim()) {
+    return normalizeIp(cf.trim());
+  }
+  const trueClient = req.headers?.["true-client-ip"];
+  if (trueClient && typeof trueClient === "string" && trueClient.trim()) {
+    return normalizeIp(trueClient.trim());
+  }
+  const forwarded = req.headers?.["x-forwarded-for"];
+  if (forwarded) {
+    const rawForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded;
+    if (typeof rawForwarded === "string") {
+      const first = rawForwarded.split(",")[0]?.trim();
+      if (first) return normalizeIp(first);
+    }
+  }
+  const ip = req.ip || req.socket?.remoteAddress || "unknown_ip";
+  return normalizeIp(ip.toString());
+}
+
 function createGuestToken(ip: string): { token: string; exp: number } {
   const exp = Date.now() + 3600_000; // 1 hour expiration
   const payload = {
@@ -234,7 +265,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
     }
 
     const today = getTodayString();
-    const clientIp = (req.ip || req.socket?.remoteAddress || "unknown_ip").toString();
+    const clientIp = getClientIp(req);
     const isGuest = !req.userId || req.userId === "guest" || req.userId.startsWith("guest_") || req.user?.role === "guest";
 
     let tier: "guest" | "free" | "pro" | "agency" = "guest";
@@ -392,7 +423,7 @@ const apiPostLimiter = rateLimit({
     return !!(req.customApiKey || (req.headers && req.headers["x-custom-gemini-key"]));
   },
   keyGenerator: (req: any) => {
-    return req.userId && req.userId !== "guest" ? `user_${req.userId}` : (req.ip || "unknown_ip");
+    return req.userId && req.userId !== "guest" ? `user_${req.userId}` : getClientIp(req);
   },
   handler: (req, res) => {
     res.status(429).json({ ok: false, error: "Rate limit exceeded. Please wait a few minutes." });
@@ -408,6 +439,7 @@ const guestTokenLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req: any) => getClientIp(req),
   handler: (req, res) => {
     res.status(429).json({ ok: false, error: "Too many guest token requests. Please wait a few minutes." });
   }
@@ -447,7 +479,7 @@ function verifyAiAccess(req: any, res: any, next: any) {
     (typeof req.customApiKey === "string" && req.customApiKey.trim())
   );
 
-  const clientIp = (req.ip || req.socket.remoteAddress || "unknown_ip").toString();
+  const clientIp = getClientIp(req);
 
   // If request supplies custom key, user bypasses server quota and auth
   if (hasCustomKey) {
@@ -680,7 +712,7 @@ async function startServer() {
 
   // Guest Token Minting Route: Issues short-lived HMAC-signed guest token
   app.post("/api/auth/guest-token", guestTokenLimiter, (req, res) => {
-    const clientIp = (req.ip || req.socket.remoteAddress || "unknown_ip").toString();
+    const clientIp = getClientIp(req);
     const tokenData = createGuestToken(clientIp);
     res.json({
       ok: true,
@@ -3678,11 +3710,11 @@ RULES:
   // Secure Real-Time Analytics Ingestion Endpoint
   app.post("/api/analytics/ingest", async (req, res) => {
     const { channelId, videoId, isLive, customKey } = req.body;
-    const apiKey = customKey || process.env.VITE_YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY;
+    const apiKey = customKey || process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || process.env.VITE_YOUTUBE_API_KEY;
 
     if (isLive && !apiKey) {
       return res.status(401).json({
-        error: "YouTube Data API v3 API Key is missing. Configure VITE_YOUTUBE_API_KEY or YOUTUBE_DATA_API_KEY in the environment registry to unlock live insights."
+        error: "YouTube Data API v3 API Key is missing. Configure YOUTUBE_API_KEY in the environment registry to unlock live insights."
       });
     }
 
@@ -3755,10 +3787,222 @@ RULES:
     }
   });
 
+  // In-memory 10-minute cache for YouTube Data API proxy responses
+  const youtubeProxyCache = new Map<string, { data: any; expiresAt: number }>();
+  const YOUTUBE_PROXY_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
+  function getCachedYoutubeProxy(key: string): any | null {
+    const entry = youtubeProxyCache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      youtubeProxyCache.delete(key);
+      return null;
+    }
+    return entry.data;
+  }
+
+  function setCachedYoutubeProxy(key: string, data: any) {
+    youtubeProxyCache.set(key, { data, expiresAt: Date.now() + YOUTUBE_PROXY_CACHE_TTL });
+    if (youtubeProxyCache.size > 500) {
+      const oldest = youtubeProxyCache.keys().next().value;
+      if (oldest) youtubeProxyCache.delete(oldest);
+    }
+  }
+
+  const getYoutubeApiKey = () => process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || process.env.VITE_YOUTUBE_API_KEY || "";
+
+  const youtubeProxyLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 60,
+    statusCode: 429,
+    message: { ok: false, error: "Too many YouTube proxy requests. Please wait a few minutes." },
+    standardHeaders: true,
+    legacyHeaders: false,
+    validate: { keyGeneratorIpFallback: false },
+    keyGenerator: (req: any) => req.userId && req.userId !== "guest" ? `user_${req.userId}` : getClientIp(req),
+    handler: (req, res) => {
+      res.status(429).json({ ok: false, error: "Too many YouTube proxy requests. Please wait a few minutes." });
+    }
+  });
+
+  // GET /api/youtube/channel?handleOrId=
+  app.get("/api/youtube/channel", verifyAiAccess, youtubeProxyLimiter, async (req: any, res) => {
+    const handleOrId = req.query.handleOrId;
+    if (!handleOrId || typeof handleOrId !== "string" || handleOrId.trim().length === 0 || handleOrId.trim().length > 100) {
+      return res.status(400).json({ error: "handleOrId parameter is required (max 100 characters)." });
+    }
+    const clean = handleOrId.trim();
+    const cacheKey = `ch_${clean.toLowerCase()}`;
+    const cached = getCachedYoutubeProxy(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const apiKey = getYoutubeApiKey();
+    if (!apiKey) {
+      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+    }
+
+    try {
+      const isChannelId = clean.startsWith("UC") && clean.length === 24;
+      if (isChannelId) {
+        const url = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&id=${encodeURIComponent(clean)}&key=${apiKey}`;
+        const ytRes = await fetch(url);
+        if (!ytRes.ok) {
+          return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
+        }
+        const data = await ytRes.json();
+        setCachedYoutubeProxy(cacheKey, data);
+        return res.json(data);
+      }
+
+      // Handle search
+      const handleClean = clean.startsWith("@") ? clean.slice(1) : clean;
+      let handleUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&forHandle=${encodeURIComponent(handleClean)}&key=${apiKey}`;
+      let ytRes = await fetch(handleUrl);
+      let data = ytRes.ok ? await ytRes.json() : null;
+
+      if (!data?.items?.length) {
+        handleUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&forHandle=${encodeURIComponent('@' + handleClean)}&key=${apiKey}`;
+        ytRes = await fetch(handleUrl);
+        data = ytRes.ok ? await ytRes.json() : null;
+      }
+
+      if (!data?.items?.length) {
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(clean)}&maxResults=1&key=${apiKey}`;
+        const searchRes = await fetch(searchUrl);
+        if (searchRes.ok) {
+          const searchJson = await searchRes.json();
+          if (searchJson.items?.length) {
+            const foundId = searchJson.items[0].id?.channelId;
+            if (foundId) {
+              const detailUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&id=${encodeURIComponent(foundId)}&key=${apiKey}`;
+              const detailRes = await fetch(detailUrl);
+              if (detailRes.ok) {
+                data = await detailRes.json();
+              }
+            }
+          }
+        }
+      }
+
+      const result = data || { items: [] };
+      setCachedYoutubeProxy(cacheKey, result);
+      return res.json(result);
+    } catch (err: any) {
+      console.error("YouTube channel proxy error:", err);
+      return res.status(500).json({ error: "Failed to query YouTube Data API: " + (err.message || "Unknown error") });
+    }
+  });
+
+  // GET /api/youtube/uploads?playlistId=
+  app.get("/api/youtube/uploads", verifyAiAccess, youtubeProxyLimiter, async (req: any, res) => {
+    const playlistId = req.query.playlistId;
+    if (!playlistId || typeof playlistId !== "string" || playlistId.trim().length === 0 || playlistId.trim().length > 100) {
+      return res.status(400).json({ error: "playlistId parameter is required (max 100 characters)." });
+    }
+    const cleanId = playlistId.trim();
+    const maxResults = Math.min(20, Math.max(1, parseInt(req.query.maxResults as string || "8", 10)));
+    const cacheKey = `up_${cleanId}_${maxResults}`;
+    const cached = getCachedYoutubeProxy(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const apiKey = getYoutubeApiKey();
+    if (!apiKey) {
+      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+    }
+
+    try {
+      const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${encodeURIComponent(cleanId)}&maxResults=${maxResults}&key=${apiKey}`;
+      const ytRes = await fetch(url);
+      if (!ytRes.ok) {
+        return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
+      }
+      const data = await ytRes.json();
+      setCachedYoutubeProxy(cacheKey, data);
+      return res.json(data);
+    } catch (err: any) {
+      console.error("YouTube uploads proxy error:", err);
+      return res.status(500).json({ error: "Failed to query YouTube uploads: " + (err.message || "Unknown error") });
+    }
+  });
+
+  // GET /api/youtube/videos?ids=
+  app.get("/api/youtube/videos", verifyAiAccess, youtubeProxyLimiter, async (req: any, res) => {
+    const ids = req.query.ids;
+    if (!ids || typeof ids !== "string" || ids.trim().length === 0 || ids.trim().length > 500) {
+      return res.status(400).json({ error: "ids parameter is required (max 500 characters)." });
+    }
+    const validIds = ids.split(",").map(s => s.trim()).filter(s => /^[a-zA-Z0-9_-]{11}$/.test(s)).slice(0, 20);
+    if (validIds.length === 0) {
+      return res.json({ items: [] });
+    }
+    const joinedIds = validIds.join(",");
+    const cacheKey = `vid_${joinedIds}`;
+    const cached = getCachedYoutubeProxy(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const apiKey = getYoutubeApiKey();
+    if (!apiKey) {
+      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+    }
+
+    try {
+      const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${encodeURIComponent(joinedIds)}&key=${apiKey}`;
+      const ytRes = await fetch(url);
+      if (!ytRes.ok) {
+        return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
+      }
+      const data = await ytRes.json();
+      setCachedYoutubeProxy(cacheKey, data);
+      return res.json(data);
+    } catch (err: any) {
+      console.error("YouTube videos proxy error:", err);
+      return res.status(500).json({ error: "Failed to query YouTube videos: " + (err.message || "Unknown error") });
+    }
+  });
+
+  // GET /api/youtube/search?q=
+  app.get("/api/youtube/search", verifyAiAccess, youtubeProxyLimiter, async (req: any, res) => {
+    const q = req.query.q;
+    if (!q || typeof q !== "string" || q.trim().length === 0 || q.trim().length > 100) {
+      return res.status(400).json({ error: "q parameter is required (max 100 characters)." });
+    }
+    const cleanQ = q.trim();
+    const cacheKey = `srch_${cleanQ.toLowerCase()}`;
+    const cached = getCachedYoutubeProxy(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const apiKey = getYoutubeApiKey();
+    if (!apiKey) {
+      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+    }
+
+    try {
+      const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(cleanQ)}&maxResults=1&key=${apiKey}`;
+      const ytRes = await fetch(url);
+      if (!ytRes.ok) {
+        return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
+      }
+      const data = await ytRes.json();
+      setCachedYoutubeProxy(cacheKey, data);
+      return res.json(data);
+    } catch (err: any) {
+      console.error("YouTube search proxy error:", err);
+      return res.status(500).json({ error: "Failed to search YouTube: " + (err.message || "Unknown error") });
+    }
+  });
+
   // Secure Competitor Metrics Fetch Endpoint
   app.post("/api/competitors/metrics", async (req, res) => {
     const { handleOrId, accessToken } = req.body;
-    const apiKey = process.env.VITE_YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY;
+    const apiKey = process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || process.env.VITE_YOUTUBE_API_KEY;
 
     if (!handleOrId) {
       res.status(400).json({ error: "handleOrId parameter is required." });

@@ -41,6 +41,7 @@ import { useFirebase } from '../context/FirebaseContext';
 import { useToast } from '../context/ToastContext';
 import { signInWithGoogle } from '../lib/firebase';
 import { formatTelemetryTime } from '../utils/telemetryTime';
+import { getAuthOrGuestToken } from '../utils/authSession';
 
 export { formatTelemetryTime };
 
@@ -518,50 +519,28 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
     setInspectedVideoId(null);
     playAudioCue(523);
 
-    const apiKey = import.meta.env.VITE_YOUTUBE_API_KEY || '';
     const parsed = parseChannelInput(input);
 
     try {
       let channelItem: any = null;
       let channelId = '';
+      const token = await getAuthOrGuestToken();
+      const authHeaders: Record<string, string> = {};
+      if (token) authHeaders['Authorization'] = `Bearer ${token}`;
 
-      // 1. Direct YouTube API v3 attempt if API key is provided
-      if (apiKey) {
-        if (parsed.type === 'id') {
-          const res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&id=${encodeURIComponent(parsed.value)}&key=${apiKey}`);
-          if (res.ok) {
-            const json = await res.json();
-            if (json.items && json.items.length > 0) channelItem = json.items[0];
-          }
-        } else {
-          // Attempt 1: forHandle without leading @
-          let res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&forHandle=${encodeURIComponent(parsed.value)}&key=${apiKey}`);
-          let json = res.ok ? await res.json() : null;
-          
-          // Attempt 2: forHandle with leading @
-          if (!json?.items?.length) {
-            res = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&forHandle=${encodeURIComponent('@' + parsed.value)}&key=${apiKey}`);
-            json = res.ok ? await res.json() : null;
-          }
-
-          // Attempt 3: Search for channel by query if forHandle missed
-          if (!json?.items?.length) {
-            const searchRes = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(parsed.value)}&maxResults=1&key=${apiKey}`);
-            if (searchRes.ok) {
-              const searchJson = await searchRes.json();
-              if (searchJson.items && searchJson.items.length > 0) {
-                const foundId = searchJson.items[0].id.channelId;
-                const detailRes = await fetch(`https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&id=${encodeURIComponent(foundId)}&key=${apiKey}`);
-                if (detailRes.ok) {
-                  const detailJson = await detailRes.json();
-                  if (detailJson.items?.length) channelItem = detailJson.items[0];
-                }
-              }
-            }
-          } else {
+      // 1. YouTube Data API proxy attempt
+      try {
+        const res = await fetch(`/api/youtube/channel?handleOrId=${encodeURIComponent(parsed.value)}`, {
+          headers: authHeaders
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.items && json.items.length > 0) {
             channelItem = json.items[0];
           }
         }
+      } catch (proxyErr) {
+        console.warn('Backend YouTube proxy channel fetch failed:', proxyErr);
       }
 
       // 2. Server Proxy Fallback: If direct client fetch failed (or quota hit)
@@ -663,20 +642,24 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ recentGenerations:
       const bannerUrl = branding?.image?.bannerExternalUrl;
       const avatarUrl = snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=200';
 
-      // 4. Fetch Recent Uploads using uploads playlist (quota-efficient playlistItems API)
+      // 4. Fetch Recent Uploads using uploads playlist (quota-efficient playlistItems API via server proxy)
       const uploadsPlaylistId = contentDetails?.relatedPlaylists?.uploads || ('UU' + channelId.slice(2));
       let recentVideoItems: CompetitorVideoItem[] = [];
 
-      if (apiKey && uploadsPlaylistId) {
+      if (uploadsPlaylistId) {
         try {
-          const plRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=8&key=${apiKey}`);
+          const plRes = await fetch(`/api/youtube/uploads?playlistId=${encodeURIComponent(uploadsPlaylistId)}&maxResults=8`, {
+            headers: authHeaders
+          });
           if (plRes.ok) {
             const plJson = await plRes.json();
             const pItems = plJson.items || [];
             const videoIds = pItems.map((p: any) => p.contentDetails?.videoId || p.snippet?.resourceId?.videoId).filter(Boolean);
 
             if (videoIds.length > 0) {
-              const vRes = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds.join(',')}&key=${apiKey}`);
+              const vRes = await fetch(`/api/youtube/videos?ids=${encodeURIComponent(videoIds.join(','))}`, {
+                headers: authHeaders
+              });
               if (vRes.ok) {
                 const vJson = await vRes.json();
                 const vList = vJson.items || [];
