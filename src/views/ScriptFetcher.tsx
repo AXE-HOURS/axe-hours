@@ -1,5 +1,5 @@
 import VisualBlueprintParser from '../components/VisualBlueprintParser';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useFirebase } from '../context/FirebaseContext';
 import { GlassCard } from '../components/GlassCard';
 import { getSecureGeminiKey } from '../utils/secureStorage';
@@ -71,6 +71,20 @@ export const ScriptFetcher: React.FC = () => {
   const [progressVal, setProgressVal] = useState<number>(0);
   const [urlValidationError, setUrlValidationError] = useState<string>('');
   const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const checkPendingUrl = () => {
@@ -447,6 +461,22 @@ export const ScriptFetcher: React.FC = () => {
 
   const simMetricsResult = calculateSimulatedMetrics();
 
+  const handleCancelFetch = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setIsLoading(false);
+    setProgressVal(0);
+    setProgressText('');
+    setElapsedSeconds(0);
+    addToast('Extraction cancelled.', 'info');
+  };
+
   const handleFetchScript = async (e: React.FormEvent) => {
     e.preventDefault();
     const rawUrl = videoUrl.trim();
@@ -460,40 +490,19 @@ export const ScriptFetcher: React.FC = () => {
       setVideoUrl(cleanedUrl);
     }
 
-    // Client-Side Regex Pre-Check for YouTube URLs
-    const isYouTube = cleanedUrl.includes('youtube.com') || cleanedUrl.includes('youtu.be');
-    if (isYouTube) {
-      const ytMatch = cleanedUrl.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
-      let candidateId = '';
-      try {
-        const parsed = new URL(cleanedUrl);
-        if (parsed.searchParams.get('v')) {
-          candidateId = parsed.searchParams.get('v') || '';
-        } else if (parsed.pathname.startsWith('/shorts/')) {
-          candidateId = parsed.pathname.replace('/shorts/', '').split('/')[0].split('?')[0];
-        } else if (parsed.hostname.includes('youtu.be')) {
-          candidateId = parsed.pathname.replace(/^\//, '').split('/')[0].split('?')[0];
-        } else if (parsed.pathname.startsWith('/embed/')) {
-          candidateId = parsed.pathname.replace('/embed/', '').split('/')[0].split('?')[0];
-        } else if (parsed.pathname.startsWith('/live/')) {
-          candidateId = parsed.pathname.replace('/live/', '').split('/')[0].split('?')[0];
-        } else if (parsed.pathname.startsWith('/v/')) {
-          candidateId = parsed.pathname.replace('/v/', '').split('/')[0].split('?')[0];
-        }
-      } catch {
-        // Fallback
-      }
-
-      if (!ytMatch || (candidateId && candidateId.length !== 11)) {
-        const errorText = 'Invalid YouTube video link. YouTube video IDs must be exactly 11 characters (e.g. watch?v=dQw4w9WgXcQ)';
-        setUrlValidationError(errorText);
-        setIsLoading(false);
-        addToast('Invalid Video Link: YouTube video IDs must be exactly 11 characters.', 'warning');
-        return;
-      }
+    // 1. Client-Side URL Validation Guard (detects channels, non-video links, and invalid IDs)
+    const validation = validateVideoUrl(cleanedUrl);
+    if (!validation.isValid) {
+      const errHint = validation.errorMessage || 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)';
+      const toastHint = validation.toastMessage || errHint;
+      setUrlValidationError(errHint);
+      setIsLoading(false);
+      addToast(toastHint, 'warning');
+      return;
     }
+    setUrlValidationError('');
 
-    // Check in-memory session cache for repeat fetches
+    // 2. Check in-memory session cache for repeat fetches
     const localVideoId = extractYoutubeId(cleanedUrl);
     if (localVideoId && sessionTranscriptCache.has(localVideoId)) {
       const cached = sessionTranscriptCache.get(localVideoId);
@@ -507,23 +516,31 @@ export const ScriptFetcher: React.FC = () => {
       }
     }
 
-    // Client-Side URL Validation Guard
-    const validation = validateVideoUrl(cleanedUrl);
-    if (!validation.isValid) {
-      const errHint = validation.errorMessage || 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)';
-      const toastHint = validation.toastMessage || errHint;
-      setUrlValidationError(errHint);
-      setIsLoading(false);
-      addToast(toastHint, 'warning');
-      return;
-    }
-    setUrlValidationError('');
-
     setIsLoading(true);
     setExtractionDone(false);
     setProgressVal(20);
     setProgressText('Fetching video metadata & caption tracks...');
     playAudio(523);
+
+    // Setup AbortController and 150s client safety timeout
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    if (timerRef.current) clearInterval(timerRef.current);
+    setElapsedSeconds(0);
+    const startTs = Date.now();
+    timerRef.current = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startTs) / 1000);
+      setElapsedSeconds(elapsed);
+      if (elapsed >= 150) {
+        controller.abort();
+        if (timerRef.current) clearInterval(timerRef.current);
+        timerRef.current = null;
+        setIsLoading(false);
+        setProgressVal(0);
+        setProgressText('');
+        addToast("Request timed out. The video might be too long or captions are unavailable. Try a shorter video.", 'warning');
+      }
+    }, 1000);
 
     try {
       const savedKey = getSecureGeminiKey(uid);
@@ -540,6 +557,7 @@ export const ScriptFetcher: React.FC = () => {
       const response = await fetch("/api/fetch-script", {
         method: "POST",
         headers,
+        signal: controller.signal,
         body: JSON.stringify({
           videoUrl: cleanedUrl
         })
@@ -670,7 +688,7 @@ export const ScriptFetcher: React.FC = () => {
 
       if (shouldTriggerClientResolver && targetVideoId) {
         setIsResolvingClientSide(true);
-        setProgressText('Recovering caption tracks via residential network...');
+        setProgressText('Retrying caption fetch from your browser...');
         setProgressVal(45);
         try {
           const clientLines = await resolveTranscriptClientSide(
@@ -855,6 +873,9 @@ export const ScriptFetcher: React.FC = () => {
         }
       }
     } catch (error: any) {
+      if (error?.name === 'AbortError' || controller.signal.aborted) {
+        return;
+      }
       console.error("YouTube Data API / Script Fetcher error detected:", error);
       setProgressVal(0);
       setProgressText('');
@@ -874,6 +895,11 @@ export const ScriptFetcher: React.FC = () => {
         addToast(`YouTube API service error: ${errorMsg}`, 'error');
       } else {
         addToast(errorMsg, isInputError ? 'warning' : 'error');
+      }
+    } finally {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
     }
   };
@@ -1268,15 +1294,29 @@ ${extractedData.fullTranscript || 'N/A'}`;
               </button>
             </form>
 
-            {/* Simulated Loading Monitor Bar */}
+            {/* Extraction Loading Monitor Bar */}
             {isLoading && (
-              <div className="space-y-2 p-3 bg-black/40 border border-white/5 rounded-xl animate-pulse">
-                <div className="flex justify-between text-[10.5px] font-mono">
+              <div className="space-y-3 p-3 bg-black/40 border border-white/5 rounded-xl">
+                <div className="flex justify-between items-center text-[10.5px] font-mono">
                   <span className="text-gray-400 italic shrink-0">{progressText}</span>
                   <span className="text-emerald-400 font-bold">{progressVal}%</span>
                 </div>
                 <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
                   <div className="h-full bg-emerald-400 rounded-full transition-all duration-300" style={{ width: `${progressVal}%` }} />
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] text-gray-400 font-mono">
+                    {elapsedSeconds > 15
+                      ? `This can take 1–2 minutes for long videos. (Elapsed: ${elapsedSeconds}s)`
+                      : `Extracting... (Elapsed: ${elapsedSeconds}s)`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCancelFetch}
+                    className="px-2.5 py-1 text-xs font-semibold text-rose-400 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 rounded-lg transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
                 </div>
               </div>
             )}
@@ -1677,7 +1717,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
           </span>
           <h2 className="text-2xl font-extrabold text-white tracking-tight">Algorithmic Trust & Metrics Calibration Center</h2>
           <p className="text-on-surface-variant text-sm max-w-4xl font-light leading-relaxed">
-            Many tools show static or random fake scores. Our platform simulates **empirical viewer psychology, speech linguistics, and real-world platform recommendation vectors**. See exactly how your hook structure, vocal delivery speed, and film cuts mathematically dictate real retention before spending hours shooting.
+            Many tools show static or random fake scores. Our platform simulates <strong className="text-white font-medium">empirical viewer psychology, speech linguistics, and real-world platform recommendation vectors</strong>. See exactly how your hook structure, vocal delivery speed, and film cuts mathematically dictate real retention before spending hours shooting.
           </p>
         </div>
 

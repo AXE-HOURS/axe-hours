@@ -1722,7 +1722,8 @@ ${
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.9",
             "Cookie": standardConsentCookie
-          }
+          },
+          signal: AbortSignal.timeout(6000)
         });
         watchHttpStatus = probeRes.status;
         if (probeRes.ok) {
@@ -1784,6 +1785,7 @@ ${
             },
             videoId: videoId
           }),
+          signal: AbortSignal.timeout(6000),
           keepalive: true
         });
 
@@ -1840,6 +1842,7 @@ ${
                 },
                 videoId: videoId
               }),
+              signal: AbortSignal.timeout(6000),
               keepalive: true
             });
             if (altPlayerRes.ok) {
@@ -1918,6 +1921,7 @@ ${
             },
             videoId: videoId
           }),
+          signal: AbortSignal.timeout(6000),
           keepalive: true
         });
 
@@ -2145,6 +2149,39 @@ ${
   // Alias for compatibility
   const fetchYouTubeCaptions = fetchYoutubeSubtitles;
 
+  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 20000): Promise<{ 
+    lines: { text: string; start: number; duration: number }[] | null; 
+    hasTracks: boolean; 
+    errorCode?: string; 
+    errorDetails?: string; 
+    clientDelegationUrl?: string;
+    status?: string;
+  }> {
+    let timer: NodeJS.Timeout;
+    const timeoutPromise = new Promise<{
+      lines: null;
+      hasTracks: false;
+      errorCode: string;
+      errorDetails: string;
+    }>((resolve) => {
+      timer = setTimeout(() => {
+        console.warn(`[SubtitleFetcher] Subtitle extraction timed out after ${timeoutMs / 1000}s for video ${videoId}`);
+        resolve({
+          lines: null,
+          hasTracks: false,
+          errorCode: "TIMEOUT",
+          errorDetails: `Subtitle fetch timed out after ${timeoutMs / 1000} seconds.`
+        });
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([fetchYoutubeSubtitles(videoId), timeoutPromise]);
+    } finally {
+      clearTimeout(timer!);
+    }
+  }
+
   // Secure Script Fetcher and Analyzer with Google Search grounding
   app.post("/api/fetch-script", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const { videoUrl, isLive } = req.body || {};
@@ -2178,6 +2215,14 @@ ${
       return;
     }
 
+    if (/\/(@|channel\/|c\/|user\/)/i.test(videoUrl)) {
+      res.status(400).json({ 
+        error: "INVALID_VIDEO_URL", 
+        message: "That's a channel link. Paste a link to a specific video, Short or Reel." 
+      });
+      return;
+    }
+
     if (!apiKey) {
       res.status(401).json({
         ok: false,
@@ -2192,6 +2237,12 @@ ${
     let realAuthor = "";
     let platform: "youtube" | "tiktok" | "instagram" = "youtube";
     let scrapedData: any = null;
+    const reqStart = Date.now();
+    let step1Duration = 0;
+    let fallbackDuration = 0;
+    let geminiDuration = 0;
+    let subResult: any = null;
+    let fallbackLines: any[] = [];
 
     try {
       const isTikTok = videoUrl.toLowerCase().includes("tiktok.com");
@@ -2219,9 +2270,17 @@ ${
         }
 
         try {
-          const ytResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`, {
+          const step1Start = Date.now();
+          const subPromise = fetchYoutubeSubtitlesWithTimeout(videoId, 20000);
+          const ytPromise = fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`, {
             signal: AbortSignal.timeout(8000)
           });
+
+          let ytResponse: Response;
+          [subResult, ytResponse] = await Promise.all([subPromise, ytPromise]);
+          step1Duration = Date.now() - step1Start;
+          console.log(`[fetch-script] Step 1 (captions & metadata) took: ${(step1Duration / 1000).toFixed(2)}s`);
+
           if (!ytResponse.ok) {
             const errorText = await ytResponse.text();
             console.error(`YouTube Data API returned non-200 status: ${ytResponse.status}`, errorText);
@@ -2278,8 +2337,6 @@ ${
           realTitle = scrapedData.title;
           realAuthor = scrapedData.author;
 
-          // Attempt to extract public subtitles
-          const subResult = await fetchYoutubeSubtitles(videoId);
           scrapedData.hasTracks = subResult.hasTracks;
           scrapedData.transcriptErrorCode = subResult.errorCode || null;
           scrapedData.transcriptErrorDetails = subResult.errorDetails || null;
@@ -2287,12 +2344,12 @@ ${
           scrapedData.status = subResult.status || null;
           scrapedData.videoId = videoId;
 
-          let fallbackLines: any[] = [];
           if (subResult.lines && subResult.lines.length > 0) {
             console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
-            scrapedData.transcript = subResult.lines.map(line => line.text).join(" ");
+            scrapedData.transcript = subResult.lines.map((line: any) => line.text).join(" ");
             scrapedData.transcriptArray = subResult.lines;
           } else if (apiKey) {
+            const fallbackStart = Date.now();
             console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing native Gemini YouTube multimodal transcription fallback...`);
             try {
               const aiFallback = new GoogleGenAI({
@@ -2384,6 +2441,8 @@ Return ONLY a JSON array of dialogue objects:
               scrapedData.transcriptErrorCode = "NO_OFFICIAL_CAPTIONS";
               scrapedData.transcriptErrorDetails = "No spoken dialogue could be extracted (video may be non-verbal, music, or unavailable).";
             }
+            fallbackDuration = Date.now() - fallbackStart;
+            console.log(`[fetch-script] Fallback (audio transcription) took: ${(fallbackDuration / 1000).toFixed(2)}s`);
           }
         } catch (ytErr: any) {
           console.error("Failed to query YouTube Data API v3:", ytErr);
@@ -2561,6 +2620,7 @@ Return exactly this JSON schema:
       // Append Creative Director Visual Blueprint requirement
       prompt += `\n\n*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***\nYou are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.\n\nFor every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.\n\nStrictly format your output using this exact structure for every scene:\n\n[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]\n[TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]\n[AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]\nVOICEOVER: "The actual spoken dialogue goes here."\n\nEnsure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.`;
 
+      const geminiStart = Date.now();
       const response = await generateContentWithCascade(ai, {
         contents: prompt,
         config: {
@@ -2568,6 +2628,8 @@ Return exactly this JSON schema:
           temperature: 0.7,
         },
       });
+      geminiDuration = Date.now() - geminiStart;
+      console.log(`[fetch-script] Gemini call took: ${(geminiDuration / 1000).toFixed(2)}s`);
 
       const responseText = response.text || "";
       let parsedData;
@@ -2624,6 +2686,14 @@ Return exactly this JSON schema:
           if (oldestKey) transcriptCache.delete(oldestKey);
         }
       }
+
+      const totalDuration = Date.now() - reqStart;
+      console.log(`[fetch-script] Timing Summary for ${videoUrl}:
+  - Step 1 (captions): ${(step1Duration / 1000).toFixed(2)}s
+  - Fallback (audio transcription): ${(fallbackDuration / 1000).toFixed(2)}s
+  - Gemini call: ${(geminiDuration / 1000).toFixed(2)}s
+  - Total: ${(totalDuration / 1000).toFixed(2)}s
+  - Result: ${subResult?.lines ? 'Direct Captions Succeeded' : fallbackLines.length > 0 ? 'Fallback Audio Succeeded' : 'No Official Captions'}`);
 
       res.json(parsedData);
     } catch (error: any) {
@@ -3165,6 +3235,14 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
     if (!videoUrl) {
       res.status(400).json({ error: "videoUrl is required." });
+      return;
+    }
+
+    if (/\/(@|channel\/|c\/|user\/)/i.test(videoUrl)) {
+      res.status(400).json({ 
+        error: "INVALID_VIDEO_URL", 
+        message: "That's a channel link. Paste a link to a specific video, Short or Reel." 
+      });
       return;
     }
 

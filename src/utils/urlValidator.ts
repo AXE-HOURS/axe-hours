@@ -74,12 +74,13 @@ export function validateVideoUrl(rawUrl: string): VideoUrlValidationResult {
       pathname.startsWith('/results') ||
       pathname.startsWith('/feed/') ||
       pathname === '/' ||
-      pathname === ''
+      pathname === '' ||
+      /\/(?:@|channel\/|c\/|user\/)/i.test(trimmed)
     ) {
       return {
         isValid: false,
-        errorMessage: 'Please provide a direct YouTube video or Short URL (e.g., https://youtube.com/watch?v=dQw4w9WgXcQ or https://youtube.com/shorts/...)',
-        toastMessage: 'Invalid Video Link: Channel and profile links are not supported.'
+        errorMessage: "That's a channel link. Paste a link to a specific video, Short or Reel.",
+        toastMessage: "That's a channel link. Paste a link to a specific video, Short or Reel."
       };
     }
 
