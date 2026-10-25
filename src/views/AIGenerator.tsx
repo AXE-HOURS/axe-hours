@@ -815,6 +815,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   
   // Custom creator options
   const [engine, setEngine] = useState<"gemini" | "ollama">("gemini");
+  const [ollamaModel, setOllamaModel] = useState<string>(() => localStorage.getItem("axe_ollama_model") || "llama3.2");
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [brandVoice, setBrandVoice] = useState("Contrarian");
   const [hookTone, setHookTone] = useState<"Exciting" | "Professional" | "Suspenseful" | "Minimalist">("Exciting");
@@ -1564,16 +1565,15 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
           userPrompt: prompt,
           presetName: activePreset.name,
           presetPrompt: activePreset.anchor,
-          referenceHook: importedContext?.openingHook || null,
-          uid
+          referenceHook: importedContext?.openingHook || null
         })
       });
 
       clearInterval(logInterval);
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Mixer network response error");
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to amplify prompt structure");
       }
 
       const data = await response.json();
@@ -1586,11 +1586,8 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       }
     } catch (e: any) {
       console.error(e);
-      showToast("Applied smart prompt enhancement template.", "info");
-      
-      let boosted = `[HEURISTIC MIXED PROMPT]: ${activePreset.name} Preset\n\n`;
-      boosted += `Reinvent the traditional approach to "${prompt}". Here is how top creators achieve outsized engagement using unconventional angles. Break down why standard advice fails and outline the exact framework to stand out.`;
-      setPrompt(boosted);
+      const errMsg = e.message || "Failed to amplify prompt. Please verify your connection or Gemini key in Settings.";
+      showToast(errMsg, "error");
     } finally {
       setIsMixing(false);
       setMixLog("");
@@ -1613,13 +1610,29 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
 
 
     if (engine === 'ollama') {
+      const ollamaController = new AbortController();
+      let ollamaTimedOut = false;
+      let ollamaInactivityTimer: any = null;
+
+      const resetOllamaTimer = () => {
+        if (ollamaInactivityTimer) clearTimeout(ollamaInactivityTimer);
+        ollamaInactivityTimer = setTimeout(() => {
+          ollamaTimedOut = true;
+          try {
+            ollamaController.abort();
+          } catch {}
+        }, 30000);
+      };
+
       try {
-        setResult("📡 Initializing connection to local Ollama server (http://localhost:11434)...\n(Make sure 'ollama run llama3' is active in your terminal with CORS authorization enabled)\n\n");
+        resetOllamaTimer();
+        setResult(`📡 Initializing connection to local Ollama server (${ollamaModel || 'llama3.2'})...\n\n`);
         const response = await fetch("http://localhost:11434/api/generate", {
+          signal: ollamaController.signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "llama3",
+            model: ollamaModel || "llama3.2",
             prompt: `You are a high-performance content psychologist, scriptwriter, and viral growth analyst. Assemble a detailed markdown video script blueprint.
 Topic Challenge: "${prompt}"
 Niche Target: ${targetNiche}
@@ -1629,7 +1642,7 @@ Aesthetic Vibe: ${visualStyle}
 ${importedContext?.openingHook ? `Reference Hook Grounding: "${importedContext.openingHook}". Directly adapt its psychological triggers and pacing.\n` : ""}
 CRITICAL FORMATTING RULE: Every camera action, stage gesture, timestamp, and section marker MUST be enclosed in brackets (e.g., [Hook], [0:00 - 0:15], [Slight head tilt], [The Problem], [Call to Action]). Put all timestamps, section labels, and camera/gesture directions strictly inside brackets: e.g. [Hook], [0:00 - 0:15], [Slight head tilt], [Call to Action]. Spoken words must never be bracketed. Write spoken dialogue as pure sentences without headers so bracketed items can be removed cleanly.
 Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK SCRIPTS (3 VARIATIONS)], [CHOSEN HOOK RETENTION FORMULA], [SCENE-BY-SCENE VISUAL BLUEPRINT], and [THUMBNAIL STRATEGIST ASSIGNED PLAN] with beautiful details. Adhere to custom directives: ${customInstructions}`,
-            stream: false
+            stream: true
           })
         });
 
@@ -1637,22 +1650,56 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
           throw new Error("Local Ollama responded with error state: " + response.status);
         }
 
-        const data = await response.json();
-        const generatedText = data.response || "";
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let done = false;
+        let streamBuffer = "";
+        let generatedText = "";
+
+        while (!done) {
+          const { value, done: readerDone } = await reader!.read();
+          done = readerDone;
+          if (value) {
+            resetOllamaTimer();
+            streamBuffer += decoder.decode(value, { stream: !done });
+            const lines = streamBuffer.split("\n");
+            streamBuffer = lines.pop() || "";
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed.response) {
+                  generatedText += parsed.response;
+                  setResult(generatedText);
+                }
+                if (parsed.done) {
+                  done = true;
+                  break;
+                }
+              } catch (_) {}
+            }
+          }
+        }
+
+        if (ollamaInactivityTimer) clearTimeout(ollamaInactivityTimer);
         setIsLoading(false);
         if (generatedText) {
-          setResult(generatedText);
           saveToHistory(prompt, generatedText);
           parseScriptStructure(generatedText);
-          logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Ollama.`);
-          showToast("Local Ollama compiled script blueprint successfully! 🦾", "success");
+          logActivity('generate', prompt || 'Untitled Generation', `Generated video script blueprint (${generatedText.length} chars) using Ollama (${ollamaModel}).`);
+          showToast(`Local Ollama (${ollamaModel}) compiled script blueprint successfully! 🦾`, "success");
         } else {
           throw new Error("No payload found in local generation response.");
         }
         return;
       } catch (e: any) {
+        if (ollamaInactivityTimer) clearTimeout(ollamaInactivityTimer);
         console.warn("Local Ollama connection failed:", e);
-        const errMsg = "Local Ollama is offline or unreachable at http://localhost:11434. Please ensure Ollama is running ('ollama run llama3') with CORS enabled, or switch to Gemini Cloud.";
+        const errMsg = ollamaTimedOut
+          ? "Local Ollama generation timed out due to inactivity."
+          : `Local Ollama is offline or unreachable at http://localhost:11434. Please ensure Ollama is running ('ollama run ${ollamaModel || "llama3.2"}') with CORS enabled, or switch to Gemini Cloud.`;
         setGenerationError(errMsg);
         setIsLoading(false);
         showToast(errMsg, "error");
@@ -1665,12 +1712,19 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
 
     const controller = new AbortController();
     let isStreamTimedOut = false;
-    const timeoutId = setTimeout(() => {
-      isStreamTimedOut = true;
-      try {
-        controller.abort();
-      } catch {}
-    }, 45000);
+    let inactivityTimer: any = null;
+
+    const resetInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        isStreamTimedOut = true;
+        try {
+          controller.abort();
+        } catch {}
+      }, 30000); // 30s inactivity watchdog
+    };
+
+    resetInactivityTimer();
 
     try {
       const token = await getAuthOrGuestToken();
@@ -1682,9 +1736,6 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
       }
       if (activeKey) {
         headers["x-custom-gemini-key"] = activeKey;
-      }
-      if (dbUser?.tier) {
-        headers["x-user-tier"] = dbUser.tier;
       }
 
       const response = await fetch("/api/generate-stream", {
@@ -1700,13 +1751,12 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
           duration,
           customInstructions,
           referenceHook: importedContext?.openingHook || null,
-          sourceTitle: importedContext?.title || null,
-          tier: dbUser?.tier || "free",
-          uid
+          sourceTitle: importedContext?.title || null
         })
       });
 
       if (!response.ok) {
+        if (inactivityTimer) clearTimeout(inactivityTimer);
         const errJson = await response.json().catch(() => null);
         const errMsg = errJson?.error || (`Generation failed (HTTP ${response.status})`);
         setGenerationError(errMsg);
@@ -1725,6 +1775,7 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         const { value, done: readerDone } = await reader!.read();
         done = readerDone;
         if (value) {
+          resetInactivityTimer();
           streamBuffer += decoder.decode(value, { stream: !done });
           const lines = streamBuffer.split("\n");
           streamBuffer = lines.pop() || ""; // carry over partial line
@@ -1746,7 +1797,8 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
                   throw new Error(parsed.error);
                 }
               } catch (e: any) {
-                if (e.message) {
+                // Only rethrow explicit application errors, safely ignore partial syntax errors
+                if (e.message && !e.name?.includes("SyntaxError") && !e.message.includes("JSON")) {
                   throw e;
                 }
               }
@@ -1755,7 +1807,30 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         }
       }
 
-      clearTimeout(timeoutId);
+      // Flush any trailing buffer data
+      if (streamBuffer && streamBuffer.trim()) {
+        const trimmedLine = streamBuffer.trim();
+        if (trimmedLine.startsWith("data: ")) {
+          const dataStr = trimmedLine.slice(6);
+          if (dataStr !== "[DONE]") {
+            try {
+              const parsed = JSON.parse(dataStr);
+              if (parsed.text) {
+                generatedText += parsed.text;
+                setResult(generatedText);
+              } else if (parsed.error) {
+                throw new Error(parsed.error);
+              }
+            } catch (e: any) {
+              if (e.message && !e.name?.includes("SyntaxError") && !e.message.includes("JSON")) {
+                throw e;
+              }
+            }
+          }
+        }
+      }
+
+      if (inactivityTimer) clearTimeout(inactivityTimer);
       setIsLoading(false);
       if (generatedText) {
         saveToHistory(prompt, generatedText);
@@ -1770,11 +1845,11 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
         }));
       }
     } catch (error: any) {
-      clearTimeout(timeoutId);
+      if (inactivityTimer) clearTimeout(inactivityTimer);
       setIsLoading(false);
-      const errMsg = isStreamTimedOut || error.name === 'AbortError'
-        ? "Script synthesis timed out after 45 seconds. Please retry."
-        : (error.message || "Failed to generate video script with Gemini. Please retry.");
+      const errMsg = isStreamTimedOut
+        ? "Script synthesis timed out due to stream inactivity. Please retry."
+        : (error.name === 'AbortError' ? "Script generation request was aborted. Please retry." : (error.message || "Failed to generate video script with Gemini. Please retry."));
       setGenerationError(errMsg);
       showToast(errMsg, "error");
     }
@@ -1784,63 +1859,114 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
     if (!customTitle) return;
     playAudioCue(523.25); // C5
     const len = customTitle.length;
-    let score = 52;
-    const clickTriggers = [
-      "stop", "secret", "failed", "unbelievable", "how i", "99%", "0.1%", 
-      "oblique", "cheat code", "free", "viral", "$", "mrr", "hacks", "exposed"
+    let score = 50;
+
+    // 1. Length scoring (optimal YouTube/Shorts title is 45-65 characters)
+    if (len >= 45 && len <= 65) {
+      score += 25;
+    } else if (len >= 35 && len < 45) {
+      score += 15;
+    } else if (len > 65 && len <= 75) {
+      score += 10;
+    } else if (len < 25) {
+      score -= 15;
+    } else if (len > 80) {
+      score -= 12;
+    }
+
+    // 2. Psychological curiosity & clarity indicators
+    const curiosityKeywords = [
+      "how", "why", "what", "secret", "truth", "mistake", "never", "always",
+      "stop", "before", "proven", "guide", "framework", "revealed", "behind",
+      "real", "actually", "hidden", "unexpected", "simple", "step", "fast"
     ];
-    const matches = clickTriggers.filter(w => customTitle.toLowerCase().includes(w));
-    
-    if (len >= 30 && len <= 58) score += 20;
-    else if (len < 18) score -= 14;
-    else score += 6;
+    const words = customTitle.toLowerCase().split(/\s+/).filter(Boolean);
+    const matchedCuriosity = curiosityKeywords.filter(k => customTitle.toLowerCase().includes(k));
+    score += Math.min(24, matchedCuriosity.length * 8);
 
-    score += matches.length * 14;
-    if (/[!?]/.test(customTitle)) score += 10;
+    // 3. Specificity: presence of numbers, percentages, or data points
+    const hasNumbers = /\d+/.test(customTitle);
+    if (hasNumbers) {
+      score += 12;
+    }
 
-    const finalScore = Math.min(99, Math.max(12, score));
+    // 4. Clarity: balanced word count without all-caps yelling
+    if (words.length >= 4 && words.length <= 12) {
+      score += 10;
+    }
+    const isAllCaps = customTitle === customTitle.toUpperCase() && /[A-Z]/.test(customTitle);
+    if (isAllCaps) {
+      score -= 8;
+    }
+
+    const finalScore = Math.min(99, Math.max(15, score));
     let grade = "C-";
-    if (finalScore >= 92) grade = "A+";
-    else if (finalScore >= 84) grade = "A";
-    else if (finalScore >= 75) grade = "B+";
-    else if (finalScore >= 66) grade = "B";
+    if (finalScore >= 90) grade = "A+";
+    else if (finalScore >= 82) grade = "A";
+    else if (finalScore >= 74) grade = "B+";
+    else if (finalScore >= 65) grade = "B";
     else if (finalScore >= 55) grade = "C+";
 
     const suggestions: string[] = [];
-    if (len < 30) suggestions.push("Extend the title slightly to 35-50 characters to increase curiosity factors.");
-    if (len > 60) suggestions.push("Crop to under 58 characters to avoid ellipse clipping inside organic visual feeds.");
-    if (matches.length === 0) suggestions.push("Inject a high-CTR emotional click trigger (e.g. 'Stop', 'Failed', 'Secret', '$').");
-    if (!/[!?]/.test(customTitle)) suggestions.push("Deploy a curiosity-triggering double punctuation mark (e.g. '?!' or '!') to draw viewers.");
+    if (len < 40) {
+      suggestions.push("Title is on the shorter side. Consider expanding to 45–65 characters with more specific context.");
+    } else if (len > 68) {
+      suggestions.push("Title exceeds 68 characters and may get cut off on mobile screens. Trim filler words.");
+    }
+    if (!hasNumbers) {
+      suggestions.push("Add a specific number or timeframe (e.g., '3 Lessons', 'in 30 Days') to boost click-through rate.");
+    }
+    if (matchedCuriosity.length === 0) {
+      suggestions.push("Incorporate a strong curiosity or framing word (e.g., 'Why', 'How', 'The Real Truth About').");
+    }
+    if (isAllCaps) {
+      suggestions.push("Avoid writing entire titles in ALL CAPS. Use title case or sentence case for better legibility.");
+    }
 
-    setTitleAnalysis({ score: finalScore, grade, matches, suggestions });
+    setTitleAnalysis({ score: finalScore, grade, matches: matchedCuriosity, suggestions });
 
     const formattedTitle = customTitle.trim();
-    const mockDesc = `🚀 UNCOVERED: Special breakdown of "${formattedTitle.replace(/[!?]/g, "")}". 
 
-In this video, we expose how traditional strategies lead to sub-optimal outcomes, and detail the exact execution blueprint used by high-performance studios to optimize engagement profiles. 
+    // Derive dynamic hashtags and keywords from the actual words in the title
+    const stopWords = new Set([
+      "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+      "by", "is", "are", "was", "were", "this", "that", "these", "those", "how", "why",
+      "what", "who", "which", "when", "where", "my", "your", "our", "their", "it", "its"
+    ]);
+    const cleanWords = formattedTitle
+      .replace(/[^a-zA-Z0-9\s]/g, "")
+      .split(/\s+/)
+      .map(w => w.toLowerCase())
+      .filter(w => w.length > 2 && !stopWords.has(w));
 
-🎯 KEY TIMECODES:
-0:00 - The Psychological Hook Pattern
-0:15 - Breakdown of the Core System Framework
-0:45 - High-Retention Demonstration
-1:10 - Immediate Automation Execution Steps 
-
-Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straight to your inbox! #creatorsecrets #growthhacks #optimization`;
-
-    setSeoDescription(mockDesc);
-
-    const tags = ["#creators", "#saas", "#automation", "#viral"];
-    if (formattedTitle.toLowerCase().includes("node") || formattedTitle.toLowerCase().includes("script")) {
-      tags.push("#nodejs", "#javascript");
+    const dynamicHashtags = Array.from(new Set(cleanWords)).slice(0, 6).map(w => `#${w}`);
+    if (dynamicHashtags.length < 3) {
+      dynamicHashtags.push("#creator", "#viralvideo", "#insights");
     }
-    if (formattedTitle.toLowerCase().includes("developer") || formattedTitle.toLowerCase().includes("programmer")) {
-      tags.push("#development", "#programming");
-    }
-    if (formattedTitle.toLowerCase().includes("money") || formattedTitle.toLowerCase().includes("$") || formattedTitle.toLowerCase().includes("mrr")) {
-      tags.push("#solopreneur", "#income");
-    }
-    setSeoHashtags(tags);
-    setSeoKeywords(["click-rate scaling", "retention strategies", "high performance algorithm", "CTR optimizer", "developer productivity hack"]);
+
+    const dynamicKeywords = Array.from(new Set([
+      ...cleanWords,
+      `${cleanWords[0] || "video"} tutorial`,
+      `${cleanWords[1] || "creator"} guide`,
+      "audience retention",
+      "content strategy"
+    ])).slice(0, 5);
+
+    const dynamicDesc = `🔥 Deep-dive breakdown: "${formattedTitle}".
+
+In this video, we unpack the key insights, common misconceptions, and practical frameworks behind ${formattedTitle.toLowerCase()}.
+
+📌 CHAPTER TIMECODES:
+0:00 - The Core Hook & Big Idea
+0:25 - Breakdown of the Main Strategy
+0:55 - Real-World Examples & Implementation
+1:20 - Next Action Steps & Key Takeaways
+
+Drop your thoughts in the comments below! What angle would you take on this? ${dynamicHashtags.slice(0, 5).join(" ")}`;
+
+    setSeoDescription(dynamicDesc);
+    setSeoHashtags(dynamicHashtags);
+    setSeoKeywords(dynamicKeywords);
   };
 
   const handleSave = async () => {
@@ -1850,22 +1976,15 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
     }
 
     try {
+      const now = new Date();
+      const readableDate = `${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      const isoString = now.toISOString();
+
       if (user) {
         // Direct Firestore write to user subcollection matching firestore.rules
         const ideaId = Date.now().toString();
         const ideaRef = doc(db, "users", user.uid, "saved_ideas", ideaId);
-        console.log("Attempting to write to path:", ideaRef.path);
-        console.log("Saving data object:", {
-          title: prompt,
-          content: result,
-          id: ideaId,
-          userId: user.uid,
-          category: selectedCategory || "All",
-          niche: targetNiche || "General",
-          brandVoice: brandVoice || "Contrarian",
-          date: new Date().toLocaleTimeString(),
-          createdAt: new Date().toISOString()
-        });
+
         await setDoc(ideaRef, {
           id: ideaId,
           userId: user.uid,
@@ -1874,10 +1993,9 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
           category: selectedCategory || "All",
           niche: targetNiche || "General",
           brandVoice: brandVoice || "Contrarian",
-          date: new Date().toLocaleTimeString(),
-          createdAt: new Date().toISOString() // Rules expect a string!
+          date: readableDate,
+          createdAt: isoString
         });
-        console.log("Write operation successful.");
         setIsSaved(true);
         playAudioCue(880);
         showToast("Idea secured to your cloud vault! 🌌", "success");
@@ -1901,12 +2019,17 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
     }
   };
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (result) {
-      navigator.clipboard.writeText(result);
-      setIsCopied(true);
-      playAudioCue(987.77); // B5
-      setTimeout(() => setIsCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(result);
+        setIsCopied(true);
+        playAudioCue(987.77); // B5
+        setTimeout(() => setIsCopied(false), 2000);
+        showToast("Script copied to clipboard!", "success");
+      } catch {
+        showToast("Failed to copy to clipboard", "error");
+      }
     }
   };
 
@@ -2020,24 +2143,42 @@ Comment 'BLUEPRINT' down below, and we'll send the entire raw source file straig
         </div>
 
         {/* Engine switcher bar */}
-        <div id="ai-gen-engine-tabs-deck" className="bg-white/5 p-1 rounded-xl border border-white/10 flex items-center gap-1.5 text-xs font-bold font-mono">
-          {(["gemini", "ollama"] as const).map((engName) => (
-            <button
-              key={engName}
-              id={`engine-btn-${engName}`}
-              onClick={() => {
-                setEngine(engName);
-                playAudioCue(440); // A4
-              }}
-              className={`px-3 py-1.5 rounded-lg uppercase text-[10px] tracking-wider cursor-pointer font-bold transition-all ${
-                engine === engName 
-                  ? "bg-primary-gradient text-white shadow-md shadow-primary/20" 
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              {engName}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div id="ai-gen-engine-tabs-deck" className="bg-white/5 p-1 rounded-xl border border-white/10 flex items-center gap-1.5 text-xs font-bold font-mono">
+            {(["gemini", "ollama"] as const).map((engName) => (
+              <button
+                key={engName}
+                id={`engine-btn-${engName}`}
+                onClick={() => {
+                  setEngine(engName);
+                  playAudioCue(440); // A4
+                }}
+                className={`px-3 py-1.5 rounded-lg uppercase text-[10px] tracking-wider cursor-pointer font-bold transition-all ${
+                  engine === engName 
+                    ? "bg-primary-gradient text-white shadow-md shadow-primary/20" 
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {engName}
+              </button>
+            ))}
+          </div>
+          {engine === 'ollama' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white/5 border border-white/10 rounded-xl text-xs font-mono">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Model:</span>
+              <input
+                type="text"
+                value={ollamaModel}
+                onChange={(e) => {
+                  setOllamaModel(e.target.value);
+                  localStorage.setItem("axe_ollama_model", e.target.value);
+                }}
+                placeholder="llama3.2"
+                className="bg-transparent border-none text-white text-xs font-mono outline-none w-24 placeholder:text-gray-600"
+                title="Configurable local Ollama model name"
+              />
+            </div>
+          )}
         </div>
       </div>
 

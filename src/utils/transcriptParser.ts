@@ -266,7 +266,7 @@ export function parseWebVttSubtitles(vttText: string): SubtitleLine[] {
   if (!vttText || typeof vttText !== "string") return lines;
 
   const blocks = vttText.split(/\r?\n\s*\r?\n/);
-  const timeRegex = /((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?)/;
+  const timeRegex = /((?:\d{1,2}:)?(?:\d{1,2}:)?\d{2}(?:[.,]\d{1,3})?)\s*-->\s*((?:\d{1,2}:)?(?:\d{1,2}:)?\d{2}(?:[.,]\d{1,3})?)/;
 
   for (const block of blocks) {
     const match = block.match(timeRegex);
@@ -442,7 +442,6 @@ export function parseSubtitlesApiResponse(data: any, rawText?: string): Subtitle
 /**
  * Automated High-Availability Client-Side Transcript Resolver
  * Cascades across reliable residential client gateways:
- * - Native YouTube Timedtext (Direct browser + corsproxy.io)
  * - Tier 1: Lemnoslife Transcript Engine (yt.lemnoslife.com)
  * - Tier 2: Piped V1 Instances (api.piped.private.coffee, pipedapi.tokhmi.xyz, pipedapi.kavin.rocks)
  * - Tier 3: Subtitles API (subtitles-for-youtube.fly.dev)
@@ -454,372 +453,25 @@ export async function resolveTranscriptClientSide(
   onProgress?: (message: string) => void
 ): Promise<SubtitleLine[] | null> {
   if (!videoId && !clientDelegationUrl) {
-    console.warn('[resolveTranscriptClientSide] No videoId or clientDelegationUrl provided.');
     return null;
   }
-
-  // -------------------------------------------------------------
-  // NATIVE: Direct YouTube Timedtext Endpoint (Residential IP)
-  // -------------------------------------------------------------
-  if (videoId) {
-    const directUrl = 'https://www.youtube.com/api/timedtext?v=' + videoId + '&lang=en&fmt=json3';
-    const asrUrl = 'https://www.youtube.com/api/timedtext?v=' + videoId + '&lang=en&kind=asr&fmt=json3';
-
-    // 1. Direct browser fetch with mode: 'cors'
-    for (const url of [directUrl, asrUrl]) {
-      try {
-        onProgress?.('Querying native YouTube timedtext stream...');
-        console.log(`[resolveTranscriptClientSide] Direct native call: ${url}`);
-        const res = await fetch(url, { mode: 'cors', signal: AbortSignal.timeout(4500) });
-        if (res.ok) {
-          const text = await res.text();
-          try {
-            const data = JSON.parse(text);
-            const lines = parseJsonSubtitles(data);
-            if (lines.length > 0) {
-              console.log(`[resolveTranscriptClientSide] Direct call succeeded (${url}): ${lines.length} lines`);
-              return lines;
-            }
-          } catch (_) {
-            const lines = parseTimedTextXml(text);
-            if (lines.length > 0) return lines;
-          }
-        }
-      } catch (err) {
-        console.warn(`[resolveTranscriptClientSide] Direct fetch failed (${url}):`, err);
-      }
-    }
-
-    // 2. Cascade to corsproxy.io
-    for (const targetUrl of [directUrl, asrUrl]) {
-      try {
-        onProgress?.('Querying native timedtext via corsproxy.io...');
-        const proxyUrl = 'https://corsproxy.io/?url=' + encodeURIComponent(targetUrl);
-        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
-        if (res.ok) {
-          const text = await res.text();
-          try {
-            const data = JSON.parse(text);
-            const lines = parseJsonSubtitles(data);
-            if (lines.length > 0) {
-              console.log(`[resolveTranscriptClientSide] corsproxy.io succeeded: ${lines.length} lines`);
-              return lines;
-            }
-          } catch (_) {
-            const lines = parseTimedTextXml(text);
-            if (lines.length > 0) return lines;
-          }
-        }
-      } catch (err) {
-        console.warn(`[resolveTranscriptClientSide] corsproxy.io failed for ${targetUrl}:`, err);
-      }
-    }
-  }
-
-  if (!videoId) return null;
-
-  // -------------------------------------------------------------
-  // TIER 0: Prioritized Shorts Auto-Captions (kind=asr) & Direct TimedText
-  // -------------------------------------------------------------
-  const urls = [
-    `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&kind=asr&fmt=json3`,
-    `https://www.youtube.com/api/timedtext?v=${videoId}&lang=en&fmt=json3`
-  ];
-
-  for (const timedUrl of urls) {
-    const isAsr = timedUrl.includes('kind=asr');
-    onProgress?.(`Querying YouTube timedtext (${isAsr ? 'Shorts Auto-captions ASR' : 'Standard'})...`);
-    console.log(`[resolveTranscriptClientSide] Prioritized timedtext check: ${timedUrl}`);
-
-    const timedEndpoints = [
-      timedUrl,
-      `https://corsproxy.io/?url=${encodeURIComponent(timedUrl)}`
-    ];
-
-    for (const ep of timedEndpoints) {
-      try {
-        const res = await fetch(ep, { signal: AbortSignal.timeout(6000) });
-        if (res.ok) {
-          const text = await res.text();
-          if (text && text.trim().length > 0 && !text.includes('<error')) {
-            try {
-              const data = JSON.parse(text);
-              const lines = parseJsonSubtitles(data);
-              if (lines.length > 0) {
-                console.log(`[resolveTranscriptClientSide] Prioritized TimedText succeeded (${isAsr ? 'ASR' : 'Standard'}) via ${ep}: ${lines.length} lines`);
-                return lines;
-              }
-            } catch (_) {
-              const lines = parseTimedTextXml(text);
-              if (lines.length > 0) {
-                console.log(`[resolveTranscriptClientSide] Prioritized TimedText XML succeeded (${isAsr ? 'ASR' : 'Standard'}) via ${ep}: ${lines.length} lines`);
-                return lines;
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.warn(`[resolveTranscriptClientSide] Prioritized timedtext attempt failed (${ep}):`, err);
-      }
-    }
-  }
-
-  // -------------------------------------------------------------
-  // TIER 1: Lemnoslife Transcript Engine
-  // https://yt.lemnoslife.com/videos?part=transcript&id=${videoId}
-  // -------------------------------------------------------------
-  try {
-    onProgress?.('Tier 1: Querying Lemnoslife Transcript Engine...');
-    const lemnosUrl = `https://yt.lemnoslife.com/videos?part=transcript&id=${videoId}`;
-    console.log(`[resolveTranscriptClientSide] Tier 1 - Lemnoslife: ${lemnosUrl}`);
-
-    const lemnosEndpoints = [
-      lemnosUrl,
-      `https://corsproxy.io/?url=${encodeURIComponent(lemnosUrl)}`
-    ];
-
-    for (const ep of lemnosEndpoints) {
-      try {
-        const res = await fetch(ep, { signal: AbortSignal.timeout(6000) });
-        if (res.ok) {
-          const data = await res.json();
-          const lines = parseLemnoslifeResponse(data);
-          if (lines.length > 0) {
-            console.log(`[resolveTranscriptClientSide] Tier 1 (Lemnoslife) succeeded: ${lines.length} lines`);
-            return lines;
-          }
-        }
-      } catch (err) {
-        console.warn(`[resolveTranscriptClientSide] Lemnoslife attempt failed (${ep}):`, err);
-      }
-    }
-  } catch (err) {
-    console.warn('[resolveTranscriptClientSide] Tier 1 Lemnoslife failed:', err);
-  }
-
-  // -------------------------------------------------------------
-  // TIER 2: Piped V1 Instances
-  // api.piped.private.coffee, pipedapi.tokhmi.xyz, pipedapi.kavin.rocks
-  // Extract subtitles where code === 'en'
-  // -------------------------------------------------------------
-  const pipedInstances = [
-    `https://api.piped.private.coffee/streams/${videoId}`,
-    `https://pipedapi.tokhmi.xyz/streams/${videoId}`,
-    `https://pipedapi.kavin.rocks/streams/${videoId}`
-  ];
-
-  for (const endpoint of pipedInstances) {
-    try {
-      onProgress?.('Tier 2: Resolving transcript via Piped V1 Instances...');
-      console.log(`[resolveTranscriptClientSide] Tier 2 - Querying Piped: ${endpoint}`);
-      const res = await fetch(endpoint, { signal: AbortSignal.timeout(6000) });
-      if (res.ok) {
-        const data = await res.json();
-        const subtitles = data.subtitles;
-        if (Array.isArray(subtitles) && subtitles.length > 0) {
-          const enTrack = subtitles.find((s: any) => 
-            s.code === 'en' || 
-            s.code?.startsWith('en') || 
-            s.name?.toLowerCase().includes('english')
-          ) || subtitles[0];
-
-          if (enTrack?.url) {
-            const subRes = await fetch(enTrack.url, { signal: AbortSignal.timeout(5000) });
-            if (subRes.ok) {
-              const subText = await subRes.text();
-              let lines = parseWebVttSubtitles(subText);
-              if (lines.length === 0) {
-                try {
-                  const jsonData = JSON.parse(subText);
-                  lines = parseJsonSubtitles(jsonData);
-                } catch (_) {
-                  lines = parseTimedTextXml(subText);
-                }
-              }
-              if (lines.length > 0) {
-                console.log(`[resolveTranscriptClientSide] Tier 2 succeeded via ${endpoint}: ${lines.length} lines`);
-                return lines;
-              }
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.warn(`[resolveTranscriptClientSide] Tier 2 instance failed (${endpoint}):`, err);
-    }
-  }
-
-  // -------------------------------------------------------------
-  // TIER 3: Subtitles API
-  // https://subtitles-for-youtube.fly.dev/subtitles/${videoId}
-  // -------------------------------------------------------------
-  try {
-    onProgress?.('Tier 3: Querying Subtitles API...');
-    const flyUrl = `https://subtitles-for-youtube.fly.dev/subtitles/${videoId}`;
-    console.log(`[resolveTranscriptClientSide] Tier 3 - Subtitles API: ${flyUrl}`);
-
-    const flyEndpoints = [
-      flyUrl,
-      `https://corsproxy.io/?url=${encodeURIComponent(flyUrl)}`
-    ];
-
-    for (const ep of flyEndpoints) {
-      try {
-        const res = await fetch(ep, { signal: AbortSignal.timeout(6000) });
-        if (res.ok) {
-          const text = await res.text();
-          let parsedData: any = null;
-          try {
-            parsedData = JSON.parse(text);
-          } catch (_) {}
-
-          const lines = parseSubtitlesApiResponse(parsedData, text);
-          if (lines.length > 0) {
-            console.log(`[resolveTranscriptClientSide] Tier 3 (Subtitles API) succeeded: ${lines.length} lines`);
-            return lines;
-          }
-        }
-      } catch (err) {
-        console.warn(`[resolveTranscriptClientSide] Subtitles API attempt failed (${ep}):`, err);
-      }
-    }
-  } catch (err) {
-    console.warn('[resolveTranscriptClientSide] Tier 3 Subtitles API failed:', err);
-  }
-
-  // -------------------------------------------------------------
-  // DELEGATED TIMEDTEXT URL (from Innertube Watch Metadata)
-  // -------------------------------------------------------------
   if (clientDelegationUrl) {
     try {
-      onProgress?.('Attempting direct residential fetch from timedtext URL...');
-      let directUrl = clientDelegationUrl;
-      if (directUrl.includes('fmt=')) {
-        directUrl = directUrl.replace(/fmt=[^&]+/, 'fmt=json3');
-      } else {
-        directUrl += (directUrl.includes('?') ? '&' : '?') + 'fmt=json3';
-      }
-
-      try {
-        const directRes = await fetch(directUrl);
-        if (directRes.ok) {
-          const directText = await directRes.text();
-          try {
-            const data = JSON.parse(directText);
-            const lines = parseJsonSubtitles(data);
-            if (lines.length > 0) return lines;
-          } catch (_) {
-            const lines = parseTimedTextXml(directText);
-            if (lines.length > 0) return lines;
-          }
-        }
-      } catch (_) {}
-
-      // Fallback via corsproxy.io on delegation URL
-      try {
-        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}`;
-        const pRes = await fetch(proxyUrl, { signal: AbortSignal.timeout(5000) });
-        if (pRes.ok) {
-          const pText = await pRes.text();
-          try {
-            const data = JSON.parse(pText);
-            const lines = parseJsonSubtitles(data);
-            if (lines.length > 0) return lines;
-          } catch (_) {
-            const lines = parseTimedTextXml(pText);
-            if (lines.length > 0) return lines;
-          }
-        }
-      } catch (_) {}
-    } catch (err) {
-      console.warn('[resolveTranscriptClientSide] Direct delegation fetch failed:', err);
-    }
-  }
-
-  // -------------------------------------------------------------
-  // WATCH PAGE CORS SCRAPER (corsproxy.io only)
-  // -------------------------------------------------------------
-  try {
-    onProgress?.('Final Stage: Extracting caption tracks via Watch Page Proxy...');
-    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(watchUrl)}`;
-
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
-    if (res.ok) {
-      const html = await res.text();
-      if (html) {
-        const match = html.match(/"captionTracks"\s*:\s*(\[.*?\])/) || 
-                      html.match(/"captionTracks"\s*:\s*(\[[\s\S]*?\])/);
-        if (match) {
-          let tracks: any[] = [];
-          try {
-            tracks = JSON.parse(match[1]);
-          } catch (_) {
-            const startIdx = html.indexOf('"captionTracks"');
-            if (startIdx > -1) {
-              const openBracket = html.indexOf('[', startIdx);
-              const closeBracket = html.indexOf(']', openBracket);
-              if (openBracket > -1 && closeBracket > openBracket) {
-                tracks = JSON.parse(html.slice(openBracket, closeBracket + 1));
-              }
-            }
-          }
-
-          if (Array.isArray(tracks) && tracks.length > 0) {
-            const enTrack = tracks.find((t: any) => 
-              t.languageCode === 'en' || 
-              t.languageCode?.startsWith('en') || 
-              t.vssId?.includes('.en') || 
-              t.name?.simpleText?.toLowerCase().includes('english')
-            ) || tracks[0];
-
-            if (enTrack?.baseUrl) {
-              let jsonUrl = enTrack.baseUrl;
-              if (jsonUrl.includes('fmt=')) {
-                jsonUrl = jsonUrl.replace(/fmt=[^&]+/, 'fmt=json3');
-              } else {
-                jsonUrl += (jsonUrl.includes('?') ? '&' : '?') + 'fmt=json3';
-              }
-
-              // Direct browser fetch
-              try {
-                const subRes = await fetch(jsonUrl);
-                if (subRes.ok) {
-                  const subText = await subRes.text();
-                  try {
-                    const jsonData = JSON.parse(subText);
-                    const lines = parseJsonSubtitles(jsonData);
-                    if (lines.length > 0) return lines;
-                  } catch (_) {
-                    const lines = parseTimedTextXml(subText);
-                    if (lines.length > 0) return lines;
-                  }
-                }
-              } catch (_) {}
-
-              // Fallback via corsproxy.io on track URL
-              const subProxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(jsonUrl)}`;
-              const subProxyRes = await fetch(subProxyUrl, { signal: AbortSignal.timeout(6000) });
-              if (subProxyRes.ok) {
-                const subText = await subProxyRes.text();
-                try {
-                  const jsonData = JSON.parse(subText);
-                  const lines = parseJsonSubtitles(jsonData);
-                  if (lines.length > 0) return lines;
-                } catch (_) {
-                  const lines = parseTimedTextXml(subText);
-                  if (lines.length > 0) return lines;
-                }
-              }
-            }
-          }
+      onProgress?.('Resolving delegated caption stream...');
+      const res = await fetch(clientDelegationUrl, { signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          const lines = parseJsonSubtitles(data);
+          if (lines.length > 0) return lines;
+        } catch (_) {
+          const lines = parseTimedTextXml(text);
+          if (lines.length > 0) return lines;
         }
       }
-    }
-  } catch (err) {
-    console.warn('[resolveTranscriptClientSide] Watch page scraper failed:', err);
+    } catch (_) {}
   }
-
   return null;
 }
 

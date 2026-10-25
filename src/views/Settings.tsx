@@ -444,6 +444,16 @@ export const Settings: React.FC = () => {
                   <span className="text-sm font-medium">Local Ollama Server Instance (Port: 11434)</span>
                   <span id="diag-status-badge-ollama" className={`px-2 py-0.5 rounded text-[9px] font-bold ${testResults?.ollama.status === 'Online' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>{testResults ? testResults.ollama.status : 'Unchecked'}</span>
                 </div>
+                <div className="p-3 bg-black/30 border border-white/5 rounded-xl flex items-center justify-between text-xs">
+                  <span className="text-gray-400 font-mono text-[11px]">Local Model Tag</span>
+                  <input
+                    type="text"
+                    defaultValue={localStorage.getItem("axe_ollama_model") || "llama3.2"}
+                    onChange={(e) => localStorage.setItem("axe_ollama_model", e.target.value.trim() || "llama3.2")}
+                    placeholder="llama3.2, qwen2.5-coder, etc."
+                    className="bg-black/50 border border-white/10 rounded-lg px-2.5 py-1 text-white font-mono text-xs w-44 focus:border-primary focus:outline-none"
+                  />
+                </div>
                 {typeof window !== 'undefined' && window.location.protocol === 'https:' && (
                   <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl flex gap-2.5 items-start text-left">
                     <Info className="text-amber-400 mt-0.5 shrink-0" size={14} />

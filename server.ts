@@ -79,9 +79,55 @@ const transcriptCache = new Map<string, TranscriptCacheEntry>();
 
 function extractYoutubeVideoId(url: string): string | null {
   if (!url || typeof url !== "string") return null;
-  const regExp = new RegExp('^.*(?:youtu\\.be\\/|v\\/|u\\/\\w\\/|embed\\/|watch\\?v=|&v=|shorts\\/)([^#&?]{11})');
-  const match = url.match(regExp);
-  return (match && match[1] && match[1].length === 11) ? match[1] : null;
+  const trimmed = url.trim();
+  const regExp = /^(?:https?:\/\/)?(?:www\.|m\.)?(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/|live\/))([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/i;
+  const match = trimmed.match(regExp);
+  if (match && match[1] && match[1].length === 11) {
+    return match[1];
+  }
+  try {
+    const parsed = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+    const v = parsed.searchParams.get('v');
+    if (v && v.length === 11 && /^[a-zA-Z0-9_-]{11}$/.test(v)) {
+      return v;
+    }
+  } catch {}
+  return null;
+}
+
+function parseTimestampedDialogueText(text: string): Array<{ text: string; start: number; duration: number }> {
+  if (!text || typeof text !== "string") return [];
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const result: Array<{ text: string; start: number; duration: number }> = [];
+
+  for (const line of lines) {
+    const match = line.match(/(?:\[)?((?:\d{1,2}:)?\d{1,2}:\d{2})(?:\])?\s*[-–—:]?\s*(.+)/);
+    if (match) {
+      const tsStr = match[1];
+      const dialogue = match[2].trim();
+      const parts = tsStr.split(':').map(p => parseFloat(p) || 0);
+      let sec = 0;
+      if (parts.length === 3) {
+        sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      } else if (parts.length === 2) {
+        sec = parts[0] * 60 + parts[1];
+      }
+      if (dialogue && !dialogue.toLowerCase().startsWith('end') && dialogue.length > 1) {
+        result.push({ text: dialogue, start: sec, duration: 3.5 });
+      }
+    }
+  }
+
+  for (let i = 0; i < result.length; i++) {
+    if (i < result.length - 1) {
+      const nextStart = result[i + 1].start;
+      if (nextStart > result[i].start) {
+        result[i].duration = Math.min(15, Math.max(1, nextStart - result[i].start));
+      }
+    }
+  }
+
+  return result;
 }
 
 function persistQuotaRecord(docId: string, quota: PersistedQuota, authToken?: string) {
@@ -235,6 +281,21 @@ function enforceDailyQuota(type: "extraction" | "generation") {
     }
 
     if (type === "extraction") {
+      // Repeat requests for cached transcripts do not consume daily quota
+      const videoUrl = req.body?.videoUrl;
+      const normalizedVideoId = extractYoutubeVideoId(videoUrl);
+      if (normalizedVideoId && transcriptCache.has(normalizedVideoId)) {
+        const cached = transcriptCache.get(normalizedVideoId)!;
+        const isFresh = (Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL;
+        const hasValidData = cached.data && (
+          cached.data.hasTranscript === true || 
+          (cached.data.fullTranscript && !cached.data.fullTranscript.startsWith("[Notice:"))
+        );
+        if (isFresh && hasValidData) {
+          return next();
+        }
+      }
+
       if (quota.extractions >= limits.extractions) {
         const errorMsg = tier === "guest"
           ? "Daily guest demo limit reached (3 extractions / 3 scripts per day). Please sign in or provide a custom Gemini API key in Settings."
@@ -2170,35 +2231,103 @@ ${
           scrapedData.status = subResult.status || null;
           scrapedData.videoId = videoId;
 
+          let fallbackLines: any[] = [];
           if (subResult.lines && subResult.lines.length > 0) {
             console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
             scrapedData.transcript = subResult.lines.map(line => line.text).join(" ");
             scrapedData.transcriptArray = subResult.lines;
-          } else {
-            // Video metadata (title, views) was found, so the video is publicly live.
-            // NEVER return status: 'VIDEO_UNAVAILABLE' when metadata exists.
-            // If caption tracks are 0 because of datacenter 403 blocks, return status: OK with DATACENTER_IP_BLOCKED.
-            console.log(`[fetch-script] Caption tracks 0 or datacenter IP blocked for video ${videoId} ("${scrapedData.title}"). Returning status: OK with DATACENTER_IP_BLOCKED.`);
-            res.status(200).json({
-              status: "OK",
-              hasTranscript: false,
-              transcriptErrorCode: "DATACENTER_IP_BLOCKED",
-              title: scrapedData.title,
-              viewCount: viewCount,
-              views: scrapedData.views,
-              author: scrapedData.author,
-              duration: scrapedData.duration,
-              platform: "youtube",
-              videoId: videoId,
-              clientDelegationUrl: subResult.clientDelegationUrl || null,
-              fullTranscript: "[Notice: Datacenter IP blocked. Client residential fetch required for captions.]",
-              hookText: "N/A",
-              hookScore: 90,
-              pacingSpeed: "N/A",
-              suggestedTags: scrapedData.tags || [],
-              metadataDesc: scrapedData.description || ""
-            });
-            return;
+          } else if (apiKey) {
+            console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing native Gemini YouTube multimodal transcription fallback...`);
+            try {
+              const aiFallback = new GoogleGenAI({
+                apiKey: apiKey,
+                httpOptions: {
+                  headers: { "User-Agent": "aistudio-build" }
+                }
+              });
+              const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+              const multimodalRes = await generateContentWithCascade(aiFallback, {
+                preferredModel: "gemini-2.5-flash",
+                contents: [
+                  {
+                    fileData: {
+                      fileUri: watchUrl,
+                      mimeType: "video/mp4"
+                    }
+                  },
+                  {
+                    text: `You are an expert audio-visual dialogue transcriber. Transcribe the verbatim spoken dialogue from this YouTube video with accurate chronological timestamps.
+Title: "${realTitle || 'YouTube Video'}"
+Channel: "${realAuthor || 'Creator'}"
+
+Instructions:
+1. Extract the verbatim chronological spoken dialogue line by line.
+2. Format each line as:
+[MM:SS] Spoken dialogue sentence here
+3. If the video is longer than 1 hour, use [HH:MM:SS].
+4. Capture all spoken words from opening hook to conclusion.
+5. If the video contains NO spoken words (purely instrumental background music, sound effects, or silent), respond with "[NON-VERBAL VIDEO]".`
+                  }
+                ]
+              });
+
+              const textOut = multimodalRes.text || "";
+              if (textOut && !textOut.includes("[NON-VERBAL VIDEO]")) {
+                fallbackLines = parseTimestampedDialogueText(textOut);
+              }
+            } catch (fallbackErr: any) {
+              console.warn(`[fetch-script] Native multimodal video understanding attempt failed:`, fallbackErr?.message || fallbackErr);
+              // Fallback to Google Search Grounding for speech reconstruction
+              try {
+                const aiGrounding = new GoogleGenAI({
+                  apiKey: apiKey,
+                  httpOptions: { apiVersion: 'v1alpha' }
+                });
+                const groundingPrompt = `Search the web and reconstruct/transcribe the authentic chronological spoken dialogue for this YouTube video:
+URL: https://www.youtube.com/watch?v=${videoId}
+Title: "${realTitle || 'YouTube Video'}"
+Channel: "${realAuthor || 'Creator'}"
+
+Return ONLY a JSON array of dialogue objects:
+[
+  { "start": 0, "duration": 3.5, "text": "First spoken dialogue..." },
+  { "start": 3.5, "duration": 4.0, "text": "Second spoken dialogue..." }
+]`;
+                const groundingRes = await generateContentWithCascade(aiGrounding, {
+                  contents: groundingPrompt,
+                  config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
+                });
+                const gText = groundingRes.text || "";
+                const jsonMatch = gText.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                  const parsed = JSON.parse(jsonMatch[0]);
+                  if (Array.isArray(parsed)) {
+                    fallbackLines = parsed.map((item: any, idx: number) => ({
+                      text: (item.text || item.content || "").trim(),
+                      start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
+                      duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
+                    })).filter(l => l.text.length > 0);
+                  }
+                }
+              } catch (gErr) {
+                console.warn(`[fetch-script] Search grounding fallback also failed:`, gErr);
+              }
+            }
+
+            if (fallbackLines.length > 0) {
+              console.log(`[fetch-script] Gemini YouTube fallback successfully recovered ${fallbackLines.length} spoken dialogue lines!`);
+              scrapedData.transcript = fallbackLines.map(l => l.text).join(" ");
+              scrapedData.transcriptArray = fallbackLines;
+              scrapedData.hasTracks = true;
+              scrapedData.transcriptErrorCode = null;
+              scrapedData.transcriptErrorDetails = null;
+            } else {
+              scrapedData.transcript = "";
+              scrapedData.transcriptArray = [];
+              scrapedData.hasTracks = false;
+              scrapedData.transcriptErrorCode = "NO_OFFICIAL_CAPTIONS";
+              scrapedData.transcriptErrorDetails = "No spoken dialogue could be extracted (video may be non-verbal, music, or unavailable).";
+            }
           }
         } catch (ytErr: any) {
           console.error("Failed to query YouTube Data API v3:", ytErr);
@@ -2449,24 +2578,6 @@ Return exactly this JSON schema:
         res.status(500).json({ error: "Fallback failure: " + (fallbackError.message || "Unknown error") });
       }
     }
-  });
-
-
-  // Endpoint to cache transcripts resolved client-side or via audio transcription
-  app.post("/api/cache-transcript", (req, res) => {
-    const { videoId, payload } = req.body || {};
-    if (videoId && typeof videoId === "string" && videoId.length === 11 && payload) {
-      transcriptCache.set(videoId, {
-        data: payload,
-        cachedAt: Date.now()
-      });
-      if (transcriptCache.size > 500) {
-        const oldestKey = transcriptCache.keys().next().value;
-        if (oldestKey) transcriptCache.delete(oldestKey);
-      }
-      return res.json({ ok: true, cached: true });
-    }
-    return res.status(400).json({ ok: false, error: "Invalid videoId or payload" });
   });
 
   // Unique high-fidelity script fallback builder
@@ -2989,8 +3100,8 @@ When analyzing how this exact sequence unfolds, we find that the leading example
     return rawResult;
   }
 
-  // AI Audio Transcription / Speech-to-Text Fallback Pipeline
-  app.post("/api/transcribe-audio", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
+  // AI Audio Transcription / Speech-to-Text Fallback Pipeline (Consolidated with extraction quota)
+  app.post("/api/transcribe-audio", verifyAiAccess, async (req: any, res) => {
     const { videoUrl, title, author } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
@@ -3012,14 +3123,76 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
     try {
       const videoId = extractYoutubeVideoId(videoUrl);
+
+      // Check cache first
+      if (videoId && transcriptCache.has(videoId)) {
+        const cached = transcriptCache.get(videoId)!;
+        const isFresh = (Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL;
+        if (isFresh && cached.data?.hasTranscript) {
+          return res.json({
+            success: true,
+            hasTranscript: true,
+            transcript: cached.data.transcript || [],
+            fullTranscript: cached.data.fullTranscript,
+            hookText: cached.data.hookText || "Extracted spoken hook.",
+            pacingSpeed: cached.data.pacingSpeed || "N/A",
+            calculatedWpm: 145,
+            method: "SERVER_CACHE_HIT"
+          });
+        }
+      }
+
       const ai = new GoogleGenAI({
         apiKey: apiKey,
-        httpOptions: { apiVersion: 'v1alpha' }
+        httpOptions: { headers: { "User-Agent": "aistudio-build" } }
       });
 
       console.log(`[/api/transcribe-audio] Running AI Speech Fallback for: ${videoUrl} (ID: ${videoId})`);
 
-      const prompt = `You are a high-fidelity speech-to-text and spoken dialogue transcription model.
+      let lines: any[] = [];
+
+      // 1. Try Native Gemini Multimodal YouTube URL understanding
+      if (videoId) {
+        try {
+          const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+          const multimodalRes = await generateContentWithCascade(ai, {
+            preferredModel: "gemini-2.5-flash",
+            contents: [
+              {
+                fileData: {
+                  fileUri: watchUrl,
+                  mimeType: "video/mp4"
+                }
+              },
+              {
+                text: `Extract the verbatim chronological spoken dialogue from this YouTube video with timestamps.
+Title: "${title || 'YouTube Video'}"
+Channel: "${author || 'Creator'}"
+
+Output format:
+[MM:SS] Spoken dialogue sentence
+If non-verbal or instrumental music, output [NON-VERBAL VIDEO].`
+              }
+            ]
+          });
+
+          const mText = multimodalRes.text || "";
+          if (mText && !mText.includes("[NON-VERBAL VIDEO]")) {
+            lines = parseTimestampedDialogueText(mText);
+          }
+        } catch (mErr) {
+          console.warn("[/api/transcribe-audio] Multimodal attempt failed, trying search grounding:", mErr);
+        }
+      }
+
+      // 2. Fallback to Search Grounding Speech Reconstruction
+      if (lines.length === 0) {
+        const aiGrounding = new GoogleGenAI({
+          apiKey: apiKey,
+          httpOptions: { apiVersion: 'v1alpha' }
+        });
+
+        const prompt = `You are a high-fidelity speech-to-text and spoken dialogue transcription model.
 Task: Search the web and reconstruct/transcribe the authentic chronological spoken dialogue and subtitles for this YouTube video:
 URL: ${videoUrl}
 Video ID: ${videoId || 'N/A'}
@@ -3040,32 +3213,31 @@ OUTPUT REQUIREMENTS:
 5. Provide at least 10-30 sequential lines covering the opening hook, core discussion, and conclusion.
 6. Return ONLY the raw JSON array. Do not enclose in backticks or markdown fences.`;
 
-      const response = await generateContentWithCascade(ai, {
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          temperature: 0.2,
-        },
-      });
+        const response = await generateContentWithCascade(aiGrounding, {
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.2,
+          },
+        });
 
-      const responseText = response.text || "";
-      let lines: any[] = [];
-
-      try {
-        const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed)) {
-            lines = parsed.map((item: any, idx: number) => ({
-              text: (item.text || item.content || "").trim(),
-              start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-              duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-            })).filter(l => l.text.length > 0);
+        const responseText = response.text || "";
+        try {
+          const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+          const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(parsed)) {
+              lines = parsed.map((item: any, idx: number) => ({
+                text: (item.text || item.content || "").trim(),
+                start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
+                duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
+              })).filter(l => l.text.length > 0);
+            }
           }
+        } catch (parseErr) {
+          console.warn("[/api/transcribe-audio] JSON parse error:", parseErr, responseText);
         }
-      } catch (parseErr) {
-        console.warn("[/api/transcribe-audio] JSON parse error:", parseErr, responseText);
       }
 
       if (lines.length > 0) {
@@ -3078,6 +3250,28 @@ OUTPUT REQUIREMENTS:
         const pacingSpeed = `${calculatedWpm} words/min (Authentic Audio Transcription)`;
 
         console.log(`[/api/transcribe-audio] Successfully extracted ${lines.length} lines via AI Speech Grounding!`);
+
+        // Cache in server transcriptCache
+        if (videoId) {
+          transcriptCache.set(videoId, {
+            data: {
+              hasTranscript: true,
+              transcript: lines,
+              fullTranscript,
+              hookText: hookText || "Extracted spoken hook.",
+              pacingSpeed,
+              calculatedWpm,
+              title: title || "YouTube Video",
+              author: author || "Creator",
+              platform: "youtube"
+            },
+            cachedAt: Date.now()
+          });
+          if (transcriptCache.size > 500) {
+            const oldestKey = transcriptCache.keys().next().value;
+            if (oldestKey) transcriptCache.delete(oldestKey);
+          }
+        }
 
         res.json({
           success: true,

@@ -45,8 +45,18 @@ import {
   getClientFriendlyDiagnosisCode,
   cleanTranscriptForPrompter
 } from '../utils/transcriptParser';
+import { validateVideoUrl, extractYoutubeVideoId } from '../utils/urlValidator';
 
 const sessionTranscriptCache = new Map<string, any>();
+
+async function parseSafeJsonResponse(res: Response): Promise<any> {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Server is waking up or temporarily unavailable (HTTP ${res.status}). Please try again in a few seconds.`);
+  }
+  return res.json();
+}
 
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
@@ -60,6 +70,7 @@ export const ScriptFetcher: React.FC = () => {
   const [progressText, setProgressText] = useState<string>('');
   const [progressVal, setProgressVal] = useState<number>(0);
   const [urlValidationError, setUrlValidationError] = useState<string>('');
+  const [quotaError, setQuotaError] = useState<string | null>(null);
 
   useEffect(() => {
     const checkPendingUrl = () => {
@@ -108,130 +119,7 @@ export const ScriptFetcher: React.FC = () => {
 
   const [isResolvingClientSide, setIsResolvingClientSide] = useState<boolean>(false);
 
-  const validateVideoUrl = (rawUrl: string): { isValid: boolean; platform?: 'youtube' | 'instagram' | 'tiktok'; errorMessage?: string; toastMessage?: string } => {
-    let trimmed = rawUrl.trim();
-    if (!trimmed) {
-      return { 
-        isValid: false, 
-        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)' 
-      };
-    }
-
-    if (!/^https?:\/\//i.test(trimmed)) {
-      trimmed = `https://${trimmed}`;
-    }
-
-    let parsed: URL;
-    try {
-      parsed = new URL(trimmed);
-    } catch {
-      return {
-        isValid: false,
-        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
-      };
-    }
-
-    const hostname = parsed.hostname.toLowerCase().replace(/^(www\.|m\.)/, '');
-    const pathname = parsed.pathname;
-    const searchParams = parsed.searchParams;
-
-    // 1. YouTube Validation
-    if (hostname === 'youtube.com' || hostname.endsWith('.youtube.com') || hostname === 'youtu.be') {
-      // Explicitly reject non-video links: channels, handles, search, feed
-      if (
-        pathname.startsWith('/channel/') ||
-        pathname.startsWith('/c/') ||
-        pathname.startsWith('/user/') ||
-        pathname.startsWith('/@') ||
-        pathname.startsWith('/results') ||
-        pathname.startsWith('/feed/') ||
-        pathname === '/' ||
-        pathname === ''
-      ) {
-        return {
-          isValid: false,
-          errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
-        };
-      }
-
-      // Extract candidate video ID
-      let candidateId = '';
-      if (searchParams.get('v')) {
-        candidateId = searchParams.get('v') || '';
-      } else if (pathname.startsWith('/shorts/')) {
-        candidateId = pathname.replace('/shorts/', '').split('/')[0].split('?')[0];
-      } else if (hostname === 'youtu.be') {
-        candidateId = pathname.replace(/^\//, '').split('/')[0].split('?')[0];
-      } else if (pathname.startsWith('/embed/')) {
-        candidateId = pathname.replace('/embed/', '').split('/')[0].split('?')[0];
-      } else if (pathname.startsWith('/live/')) {
-        candidateId = pathname.replace('/live/', '').split('/')[0].split('?')[0];
-      } else if (pathname.startsWith('/v/')) {
-        candidateId = pathname.replace('/v/', '').split('/')[0].split('?')[0];
-      }
-
-      // Candidate ID must be strictly 11 characters
-      const ytMatch = trimmed.match(/(?:youtu\.be\/|v=|\/embed\/|\/shorts\/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])/);
-
-      if (!candidateId || candidateId.length !== 11 || !ytMatch) {
-        return {
-          isValid: false,
-          errorMessage: 'Invalid YouTube video link. YouTube video IDs must be exactly 11 characters (e.g. watch?v=dQw4w9WgXcQ)',
-          toastMessage: 'Invalid Video Link: YouTube video IDs must be exactly 11 characters.'
-        };
-      }
-
-      return { isValid: true, platform: 'youtube' };
-    }
-
-    // 2. Instagram Validation
-    if (hostname === 'instagram.com' || hostname.endsWith('.instagram.com')) {
-      if (
-        pathname.includes('/reel/') ||
-        pathname.includes('/reels/') ||
-        pathname.includes('/p/')
-      ) {
-        return { isValid: true, platform: 'instagram' };
-      }
-      return {
-        isValid: false,
-        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
-      };
-    }
-
-    // 3. TikTok Validation
-    if (
-      hostname === 'tiktok.com' ||
-      hostname.endsWith('.tiktok.com') ||
-      hostname === 'vm.tiktok.com' ||
-      hostname === 'vt.tiktok.com'
-    ) {
-      if (
-        pathname.includes('/video/') ||
-        hostname === 'vm.tiktok.com' ||
-        hostname === 'vt.tiktok.com' ||
-        pathname.startsWith('/t/') ||
-        (pathname.includes('/@') && pathname.length > 5)
-      ) {
-        return { isValid: true, platform: 'tiktok' };
-      }
-      return {
-        isValid: false,
-        errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
-      };
-    }
-
-    return {
-      isValid: false,
-      errorMessage: 'Please provide a direct video, Short, or Reel URL (e.g., https://youtube.com/watch?v=...)'
-    };
-  };
-
-  const extractYoutubeId = (url: string): string => {
-    if (!url) return '';
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|v\/|shorts\/))([\w-]{11})/);
-    return match ? match[1] : '';
-  };
+  const extractYoutubeId = (url: string): string => extractYoutubeVideoId(url) || '';
 
   const handleManualClientFallbackFetch = async () => {
     const targetVid = extractedData.videoId || (videoUrl ? extractYoutubeId(videoUrl) : '');
@@ -240,7 +128,7 @@ export const ScriptFetcher: React.FC = () => {
       return;
     }
     setIsResolvingClientSide(true);
-    addToast("Executing residential gateway transcript resolver...", "info");
+    addToast("Resolving transcript from media source...", "info");
     try {
       const lines = await resolveTranscriptClientSide(
         targetVid,
@@ -267,7 +155,7 @@ export const ScriptFetcher: React.FC = () => {
           transcriptErrorDetails: ''
         }));
         playAudio(880);
-        addToast(`Bypassed block! Recovered authentic transcript (${lines.length} lines) 🚀`, "success");
+        addToast(`Recovered spoken transcript (${lines.length} lines) 🚀`, "success");
         logActivity('fetch_script', extractedData.title || 'Client Transcript Fallback', 'Recovered full transcript via client delegation.');
       } else {
         setExtractedData(prev => ({
@@ -317,28 +205,32 @@ export const ScriptFetcher: React.FC = () => {
       if (savedKey) {
         headers["x-custom-gemini-key"] = savedKey;
       }
-      if (dbUser?.tier) {
-        headers["x-user-tier"] = dbUser.tier;
-      }
-
       const res = await fetch("/api/transcribe-audio", {
         method: "POST",
         headers,
         body: JSON.stringify({
           videoUrl: targetUrl,
           title: extractedData.title,
-          author: extractedData.author,
-          tier: dbUser?.tier || "free",
-          uid
+          author: extractedData.author
         })
       });
 
       if (!res.ok) {
-        const errData = await res.json();
+        let errData: any = {};
+        try {
+          errData = await parseSafeJsonResponse(res);
+        } catch (_) {}
+        if (res.status === 429 || errData.code === 'QUOTA_EXCEEDED') {
+          const msg = errData.error || 'Daily extraction limit reached.';
+          setQuotaError(msg);
+          addToast(msg, 'warning');
+          window.dispatchEvent(new CustomEvent('open-upgrade-modal'));
+          return;
+        }
         throw new Error(errData.error || "Audio transcription pipeline failed");
       }
 
-      const data = await res.json();
+      const data = await parseSafeJsonResponse(res);
       if (data.hasTranscript && data.fullTranscript) {
         const calculatedWpm = data.calculatedWpm || 145;
         const hookText = data.hookText || extractedData.hookText;
@@ -488,7 +380,7 @@ export const ScriptFetcher: React.FC = () => {
         pacingBonus = -12;
         pacingDesc = "Slow speed for Reels attention span";
       } else {
-        pacingBonus = 65;
+        pacingBonus = 5;
         pacingDesc = "Acceptable pacing";
       }
     }
@@ -634,30 +526,43 @@ export const ScriptFetcher: React.FC = () => {
       if (savedKey) {
         headers["x-custom-gemini-key"] = savedKey;
       }
-      if (dbUser?.tier) {
-        headers["x-user-tier"] = dbUser.tier;
-      }
-
       const response = await fetch("/api/fetch-script", {
         method: "POST",
         headers,
         body: JSON.stringify({
-          videoUrl: cleanedUrl,
-          tier: dbUser?.tier || "free",
-          uid
+          videoUrl: cleanedUrl
         })
       });
 
       clearInterval(progressInterval);
 
       if (!response.ok) {
-        const errData = await response.json();
-        if (errData.code === 'QUOTA_EXCEEDED') {
+        let errData: any = {};
+        try {
+          errData = await parseSafeJsonResponse(response);
+        } catch (parseErr: any) {
+          errData = { error: parseErr.message };
+        }
+
+        if (response.status === 429 || errData.code === 'QUOTA_EXCEEDED') {
           setIsLoading(false);
           setProgressText('');
-          addToast(errData.error || 'Daily free limit reached.', 'warning');
+          const msg = errData.error || 'Daily extraction limit reached. Unlock Beta Access or add your Gemini API key in Settings.';
+          setQuotaError(msg);
+          addToast(msg, 'warning');
+          window.dispatchEvent(new CustomEvent('open-upgrade-modal'));
           return;
         }
+
+        if (response.status === 401) {
+          setIsLoading(false);
+          setProgressText('');
+          const msg = errData.error || 'Authentication required. Please sign in or provide a Gemini API key in Settings.';
+          setQuotaError(msg);
+          addToast(msg, 'error');
+          return;
+        }
+
         if (
           errData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
           errData.transcriptErrorCode === 'VIDEO_UNAVAILABLE' || 
@@ -698,7 +603,7 @@ export const ScriptFetcher: React.FC = () => {
         return;
       }
 
-      const data = await response.json();
+      const data = await parseSafeJsonResponse(response);
 
       let isUnavailable = 
         data.status === 'VIDEO_UNAVAILABLE' ||
@@ -717,7 +622,13 @@ export const ScriptFetcher: React.FC = () => {
 
       let fullTranscript = data.fullTranscript || (isUnavailable ? '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
       let hookText = data.hookText || 'N/A';
-      let hookScore = Number(data.hookScore) || (isUnavailable ? 50 : 90);
+      let hookScore = Number(data.hookScore) || 0;
+      if (!hookScore && hookText && hookText !== 'N/A') {
+        hookScore = calculateHookScore(hookText, undefined, data.platform || 'youtube');
+      }
+      if (!hookScore) {
+        hookScore = isUnavailable ? 50 : 65;
+      }
       let pacingSpeed = data.pacingSpeed || 'N/A';
       let transcriptErrorCode = isUnavailable ? 'VIDEO_PRIVATE_OR_REMOVED' : (data.transcriptErrorCode || (hasTranscript ? '' : 'DATACENTER_IP_BLOCKED'));
       let transcriptErrorDetails = isUnavailable 
@@ -744,14 +655,14 @@ export const ScriptFetcher: React.FC = () => {
 
       if (shouldTriggerClientResolver && targetVideoId) {
         setIsResolvingClientSide(true);
-        setProgressText('Datacenter throttled — Resolving transcript via residential gateway...');
+        setProgressText('Connecting to media source & recovering transcript...');
         setProgressVal(94);
         try {
           const clientLines = await resolveTranscriptClientSide(
             targetVideoId,
             data.clientDelegationUrl,
             (statusMsg) => {
-              setProgressText(`Datacenter throttled — ${statusMsg}`);
+              setProgressText(`Connecting — ${statusMsg}`);
             }
           );
           if (clientLines && clientLines.length > 0) {
@@ -770,27 +681,8 @@ export const ScriptFetcher: React.FC = () => {
             hookScore = calculateHookScore(hookText, calculatedWpm, data.platform || 'youtube');
             transcriptErrorCode = '';
             transcriptErrorDetails = '';
-            addToast(`Bypassed datacenter block! Recovered authentic transcript (${clientLines.length} lines) 🚀`, 'success');
-            // Asynchronously populate server transcriptCache
-            fetch('/api/cache-transcript', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                videoId: targetVideoId,
-                payload: {
-                  ...data,
-                  hasTranscript: true,
-                  fullTranscript,
-                  transcript: clientLines,
-                  hookText,
-                  pacingSpeed,
-                  hookScore,
-                  transcriptErrorCode: '',
-                  transcriptErrorDetails: '',
-                  status: 'OK'
-                }
-              })
-            }).catch(() => {});
+            addToast(`Recovered authentic transcript (${clientLines.length} lines) 🚀`, 'success');
+
           } else {
             // Auto-Fallback to Audio Transcription: If all caption services fail or captions disabled, trigger AI audio transcription
             setProgressText('Captions restricted — Auto-triggering AI Audio Transcription Pipeline...');
@@ -805,9 +697,6 @@ export const ScriptFetcher: React.FC = () => {
               if (savedKey) {
                 audioHeaders["x-custom-gemini-key"] = savedKey;
               }
-              if (dbUser?.tier) {
-                audioHeaders["x-user-tier"] = dbUser.tier;
-              }
 
               const audioRes = await fetch("/api/transcribe-audio", {
                 method: "POST",
@@ -815,13 +704,25 @@ export const ScriptFetcher: React.FC = () => {
                 body: JSON.stringify({
                   videoUrl: cleanedUrl,
                   title: data.title,
-                  author: data.author,
-                  tier: dbUser?.tier || "free",
-                  uid
+                  author: data.author
                 })
               });
-              if (audioRes.ok) {
-                const audioData = await audioRes.json();
+              if (!audioRes.ok) {
+                let audioErrData: any = {};
+                try {
+                  audioErrData = await parseSafeJsonResponse(audioRes);
+                } catch (_) {}
+                if (audioRes.status === 429 || audioErrData.code === 'QUOTA_EXCEEDED') {
+                  setIsLoading(false);
+                  setProgressText('');
+                  const msg = audioErrData.error || 'Daily extraction limit reached.';
+                  setQuotaError(msg);
+                  addToast(msg, 'warning');
+                  window.dispatchEvent(new CustomEvent('open-upgrade-modal'));
+                  return;
+                }
+              } else {
+                const audioData = await parseSafeJsonResponse(audioRes);
                 if (audioData.hasTranscript && audioData.fullTranscript) {
                   hasTranscript = true;
                   fullTranscript = audioData.fullTranscript;
@@ -831,25 +732,6 @@ export const ScriptFetcher: React.FC = () => {
                   transcriptErrorCode = '';
                   transcriptErrorDetails = '';
                   addToast("Recovered spoken dialogue via AI Audio Transcription Pipeline! 🎙️🚀", "success");
-                  // Asynchronously populate server transcriptCache
-                  fetch('/api/cache-transcript', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      videoId: targetVideoId,
-                      payload: {
-                        ...data,
-                        hasTranscript: true,
-                        fullTranscript,
-                        hookText,
-                        pacingSpeed,
-                        hookScore,
-                        transcriptErrorCode: '',
-                        transcriptErrorDetails: '',
-                        status: 'OK'
-                      }
-                    })
-                  }).catch(() => {});
                 }
               }
             } catch (audioErr) {
@@ -974,10 +856,14 @@ export const ScriptFetcher: React.FC = () => {
     }
   };
 
-  const copyText = (text: string) => {
-    navigator.clipboard.writeText(text);
-    playAudio(659);
-    addToast('Extracted element copied to clipboard!', 'success');
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      playAudio(659);
+      addToast('Extracted element copied to clipboard!', 'success');
+    } catch {
+      addToast('Failed to copy to clipboard', 'error');
+    }
   };
 
   const downloadTextFile = () => {
@@ -1081,18 +967,29 @@ export const ScriptFetcher: React.FC = () => {
     } else {
       const rawLines = extractedData.fullTranscript.split('\n').filter((l: string) => l.trim().length > 0);
       let currentTime = 0;
+      const parseTsToSec = (ts: string): number => {
+        if (!ts) return 0;
+        const parts = ts.trim().replace(',', '.').split(':').map(p => parseFloat(p) || 0);
+        if (parts.length === 3) {
+          return parts[0] * 3600 + parts[1] * 60 + parts[2];
+        } else if (parts.length === 2) {
+          return parts[0] * 60 + parts[1];
+        }
+        return parts[0] || 0;
+      };
+
       srtContent = rawLines.map((line: string, idx: number) => {
-        const match = line.match(/(?:\[)?(\d{1,2}):(\d{2})(?:\s*-\s*(\d{1,2}):(\d{2}))?(?:\])?/);
+        const match = line.match(/(?:\[)?((?:\d{1,2}:)?\d{1,2}:\d{2})(?:\s*[-–—]\s*((?:\d{1,2}:)?\d{1,2}:\d{2}))?(?:\])?/);
         let startSec = currentTime;
         let durSec = 3.5;
         let cleanText = line;
         if (match) {
-          startSec = parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
-          if (match[3] && match[4]) {
-            const endSec = parseInt(match[3], 10) * 60 + parseInt(match[4], 10);
+          startSec = parseTsToSec(match[1]);
+          if (match[2]) {
+            const endSec = parseTsToSec(match[2]);
             durSec = Math.max(1, endSec - startSec);
           }
-          cleanText = line.replace(/(?:\[)?\d{1,2}:\d{2}(?:\s*-\s*\d{1,2}:\d{2})?(?:\])?/g, '').trim();
+          cleanText = line.replace(/(?:\[)?(?:\d{1,2}:)?\d{1,2}:\d{2}(?:\s*[-–—]\s*(?:\d{1,2}:)?\d{1,2}:\d{2})?(?:\])?\s*[-–—:]?\s*/, '').trim();
         }
         currentTime = startSec + durSec;
         return `${idx + 1}\n${formatSrtTimestamp(startSec)} --> ${formatSrtTimestamp(startSec + durSec)}\n${cleanText}\n`;
@@ -1256,6 +1153,33 @@ ${extractedData.fullTranscript || 'N/A'}`;
               <span className="text-[9px] font-mono px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full">ACTIVE EXTRACTOR</span>
             </div>
 
+            {quotaError && (
+              <div className="flex items-start gap-3 p-3.5 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs animate-in fade-in slide-in-from-top-1 duration-200">
+                <AlertTriangle size={16} className="shrink-0 text-red-400 mt-0.5" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="font-bold text-white flex items-center justify-between">
+                    <span>Daily Extraction Cap Reached</span>
+                    <button
+                      type="button"
+                      onClick={() => setQuotaError(null)}
+                      className="text-gray-400 hover:text-white"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                  <p className="text-gray-300 leading-relaxed">{quotaError}</p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('open-upgrade-modal'))}
+                      className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-black font-bold rounded-lg text-[10px] uppercase tracking-wider transition-all"
+                    >
+                      Unlock Beta Access
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
             <form onSubmit={handleFetchScript} className="space-y-4">
               <div className="space-y-2">
                 <label className="text-[10px] text-gray-400 font-bold uppercase tracking-wider font-mono select-none">Video or Reel URL Link</label>
@@ -1502,7 +1426,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                         {isResolvingClientSide && (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono text-[10.5px] font-bold animate-pulse">
                             <RefreshCw size={11} className="animate-spin text-amber-400" />
-                            <span>Datacenter throttled — Resolving transcript via residential gateway...</span>
+                            <span>Connecting to media source & recovering transcript...</span>
                           </span>
                         )}
                       </div>
@@ -2030,10 +1954,14 @@ ${extractedData.fullTranscript || 'N/A'}`;
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(`yt-dlp -x --audio-format mp3 "${videoUrl}" && whisper audio.mp3 --model base --output_format txt`);
-                      playAudio(659);
-                      addToast("CLI command copied to clipboard!", "success");
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(`yt-dlp -x --audio-format mp3 "${videoUrl}" && whisper audio.mp3 --model base --output_format txt`);
+                        playAudio(659);
+                        addToast("CLI command copied to clipboard!", "success");
+                      } catch {
+                        addToast("Failed to copy to clipboard", "error");
+                      }
                     }}
                     className="text-[10px] text-purple-400 hover:text-purple-300 font-mono flex items-center gap-1 cursor-pointer"
                   >

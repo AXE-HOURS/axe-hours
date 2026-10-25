@@ -540,11 +540,13 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const saveIdeaDB = async (idea: { title: string; content: string }) => {
     const id = Date.now();
-    const date = new Date().toLocaleTimeString();
+    const now = new Date();
+    const date = `${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    const createdAt = now.toISOString();
 
     if (user) {
       const path = 'saved_ideas';
-      const newItem = { ...idea, id, date };
+      const newItem = { ...idea, id, date, createdAt };
       const updated = [newItem, ...getLocalIdeas(user.uid)];
       localStorage.setItem(`axe_hours_saved_ideas_${user.uid}`, JSON.stringify(updated));
       try {
@@ -555,7 +557,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           title: idea.title,
           content: idea.content,
           date,
-          createdAt: new Date().toISOString()
+          createdAt
         });
       } catch (e) {
         handleFirestoreError(e, OperationType.WRITE, path);
@@ -566,7 +568,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (current.length >= 5) {
         throw new Error("Free Sandbox limit exceeded (5 ideas). Register for a free account to unlock infinite Cloud database storage!");
       }
-      const newItem = { ...idea, id, date };
+      const newItem = { ...idea, id, date, createdAt };
       const updated = [newItem, ...current];
       setSavedIdeas(updated);
       localStorage.setItem("axe_hours_saved_ideas", JSON.stringify(updated));
