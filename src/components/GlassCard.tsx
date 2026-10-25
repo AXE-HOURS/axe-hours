@@ -6,6 +6,7 @@ interface GlassCardProps {
   id?: string;
   glowColor?: 'purple' | 'green' | 'amber' | 'cyan' | 'emerald' | 'gold' | 'none';
   interactive?: boolean;
+  onClick?: (e: React.MouseEvent<HTMLDivElement>) => void;
 }
 
 export const GlassCard: React.FC<GlassCardProps> = ({ 
@@ -13,7 +14,8 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   className = '', 
   id, 
   glowColor = 'none',
-  interactive = true 
+  interactive = true,
+  onClick
 }) => {
   const glowStyles: Record<string, string> = {
     purple: 'hover:shadow-[0_0_25px_rgba(157,80,187,0.15)] hover:border-purple-500/30',
@@ -35,6 +37,7 @@ export const GlassCard: React.FC<GlassCardProps> = ({
   return (
     <div 
       id={id || "glass-card"} 
+      onClick={onClick}
       className={`relative bg-black/40 border border-white/5 rounded-2xl p-6 transition-all duration-300 md:duration-500 backdrop-blur-xl group overflow-hidden ${
         interactive ? 'hover:bg-white/5 hover:translate-y-[-2px] ' + glowStyles[glowColor] : ''
       } ${outerClasses}`}

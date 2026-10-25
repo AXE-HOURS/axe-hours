@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, FileText, X, Check, Lock, Globe, Server, UserCheck, Scale, AlertOctagon, Mail } from 'lucide-react';
 import { GlassCard } from './GlassCard';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export type LegalDocType = 'privacy' | 'terms' | 'dmca';
 
@@ -13,6 +14,8 @@ interface LegalModalProps {
 export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: initialType }) => {
   const [activeType, setActiveType] = useState<LegalDocType>(initialType);
 
+  useEscapeKey(isOpen, onClose);
+
   useEffect(() => {
     setActiveType(initialType);
   }, [initialType]);
@@ -20,8 +23,14 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: i
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-hidden animate-in fade-in duration-200">
-      <GlassCard className="w-full max-w-3xl h-[85vh] p-0 flex flex-col overflow-hidden border-white/15 shadow-[0_25px_65px_-12px_rgba(168,85,247,0.3)] relative font-sans">
+    <div 
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-hidden animate-in fade-in duration-200 cursor-pointer"
+      onClick={onClose}
+    >
+      <GlassCard 
+        className="w-full max-w-3xl h-[85vh] p-0 flex flex-col overflow-hidden border-white/15 shadow-[0_25px_65px_-12px_rgba(168,85,247,0.3)] relative font-sans cursor-default"
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      >
         
         {/* Modal Header */}
         <div className="flex border-b border-white/10 p-5 justify-between items-center bg-[#0d0e12]/90 shrink-0">

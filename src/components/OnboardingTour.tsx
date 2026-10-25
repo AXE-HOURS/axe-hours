@@ -6,6 +6,7 @@ import {
 import { playAudioCue as playAudio } from '../utils/audio';
 import { useToast } from '../context/ToastContext';
 import { LegalModal, LegalDocType } from './LegalModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface OnboardingTourProps {
   onClose?: () => void;
@@ -19,13 +20,26 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
   const [legalModalType, setLegalModalType] = useState<LegalDocType | null>(null);
   const { addToast } = useToast();
 
+  const handleCloseTrigger = () => {
+    soundEffect(400);
+    localStorage.setItem('quick_tour_completed', 'true');
+    localStorage.setItem('axe_hours_completed_tour', 'true');
+    setIsOpen(false);
+    if (onClose) onClose();
+  };
+
+  useEscapeKey(isOpen, handleCloseTrigger);
+
   // Check if tour should auto-trigger on first load
   useEffect(() => {
     if (propIsOpen !== undefined) {
       setIsOpen(propIsOpen);
       return;
     }
-    const hasCompletedTour = localStorage.getItem('axe_hours_completed_tour') || localStorage.getItem('completed_onboarding_v1');
+    const hasCompletedTour = 
+      localStorage.getItem('quick_tour_completed') === 'true' ||
+      localStorage.getItem('axe_hours_completed_tour') === 'true' || 
+      localStorage.getItem('completed_onboarding_v1') === 'true';
     if (!hasCompletedTour) {
       // Small timeout to allow the site layout to fully settle
       const timer = setTimeout(() => {
@@ -54,30 +68,6 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
           <p>
             Welcome, Creator! Let's align your production pipeline with high-retention mechanics.
           </p>
-          <div className="p-3 bg-purple-500/10 border border-purple-500/25 rounded-xl text-[11px] text-purple-200/90 leading-relaxed select-none">
-            By continuing, you confirm that you are at least 13 years of age and agree to our{' '}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLegalModalType('terms');
-              }}
-              className="text-[#a8c7fa] underline hover:text-white font-medium cursor-pointer"
-            >
-              Terms of Service
-            </button>{' '}
-            and{' '}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setLegalModalType('privacy');
-              }}
-              className="text-[#a8c7fa] underline hover:text-white font-medium cursor-pointer"
-            >
-              Privacy Policy
-            </button>.
-          </div>
           <p>
             The <span className="font-bold text-purple-400">Data Bridge button</span> allows you to extract and decode short-form speech transcripts from raw reference videos, map hook density, and seamlessly transfer the raw text script data straight across your workspace.
           </p>
@@ -193,15 +183,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
 
   const handleComplete = () => {
     soundEffect(1200);
+    localStorage.setItem('quick_tour_completed', 'true');
     localStorage.setItem('axe_hours_completed_tour', 'true');
     localStorage.setItem('completed_onboarding_v1', 'true');
     addToast("Welcome to the Axe Hours Production Suite! Your onboard setup is complete. 🚀", "success");
-    setIsOpen(false);
-    if (onClose) onClose();
-  };
-
-  const handleCloseTrigger = () => {
-    soundEffect(400);
     setIsOpen(false);
     if (onClose) onClose();
   };
@@ -212,12 +197,14 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
 
   return (
     <div 
-      className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300"
+      className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[100] flex items-center justify-center p-4 animate-in fade-in duration-300 cursor-pointer"
       id="onboarding-tour-modal-overlay"
+      onClick={handleCloseTrigger}
     >
       <div 
-        className="w-full max-w-2xl bg-[#08080c] border border-white/10 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.9),0_0_50px_rgba(168,85,247,0.15)] flex flex-col max-h-[90vh] overflow-hidden"
+        className="w-full max-w-2xl bg-[#08080c] border border-white/10 rounded-2xl shadow-[0_25px_60px_rgba(0,0,0,0.9),0_0_50px_rgba(168,85,247,0.15)] flex flex-col max-h-[90vh] overflow-hidden cursor-default"
         id="onboarding-tour-card-container"
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Header bar */}
         <div className="p-5 border-b border-white/5 flex justify-between items-center bg-black/40">

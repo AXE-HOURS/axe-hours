@@ -9,6 +9,7 @@ import { useToast } from '../context/ToastContext';
 import { GlassCard } from '../components/GlassCard';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import { formatTelemetryTime } from '../utils/telemetryTime';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export const ActivityLog: React.FC = () => {
   const { userActivities, clearActivitiesDB } = useFirebase();
@@ -17,6 +18,8 @@ export const ActivityLog: React.FC = () => {
   const [category, setCategory] = useState<string>('all');
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+
+  useEscapeKey(showConfirmClear, () => setShowConfirmClear(false));
 
   // Statistics Calculation
   const totalCount = userActivities.length;
@@ -435,8 +438,16 @@ export const ActivityLog: React.FC = () => {
 
       {/* 3. CONFIRM PURGE MODAL OVERLAY */}
       {showConfirmClear && (
-        <div id="purge-modal-overlay" className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[999] animate-in fade-in duration-200">
-          <GlassCard id="purge-modal-container" className="max-w-md w-full p-6 border-red-500/30 shadow-[0_25px_60px_-15px_rgba(239,68,68,0.22)] animate-in zoom-in-95 duration-200">
+        <div 
+          id="purge-modal-overlay" 
+          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[999] animate-in fade-in duration-200 cursor-pointer"
+          onClick={() => setShowConfirmClear(false)}
+        >
+          <GlassCard 
+            id="purge-modal-container" 
+            className="max-w-md w-full p-6 border-red-500/30 shadow-[0_25px_60px_-15px_rgba(239,68,68,0.22)] animate-in zoom-in-95 duration-200 cursor-default"
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+          >
             <div className="flex items-center gap-3 text-red-400 mb-4 pb-1 border-b border-white/5">
               <ShieldAlert size={22} className="animate-bounce" />
               <h3 className="text-lg font-bold">Relational Purge Security Check</h3>

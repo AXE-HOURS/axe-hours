@@ -7,6 +7,7 @@ import { GlassCard } from './GlassCard';
 import { useFirebase } from '../context/FirebaseContext';
 import { getSecureGeminiKey } from '../utils/secureStorage';
 import { getAuthOrGuestToken } from '../utils/authSession';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface AIPopoutAssistantProps {
   currentView: string;
@@ -82,31 +83,7 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
   }, [isOpen]);
 
   // Close on Escape key press
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) {
-      window.addEventListener('keydown', handleKeyDown);
-    }
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  // Proactively pop up after a pleasant 1.5s brand landing delay (only once per session)
-  useEffect(() => {
-    const hasWelcomeOpened = sessionStorage.getItem("axe_hours_welcome_chat_opened");
-    if (!hasWelcomeOpened) {
-      const timer = setTimeout(() => {
-        setIsOpen(true);
-        sessionStorage.setItem("axe_hours_welcome_chat_opened", "true");
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, []);
+  useEscapeKey(isOpen, () => setIsOpen(false));
 
   // Soft scroll to bottom on new messages
   useEffect(() => {
@@ -115,18 +92,30 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
     }
   }, [messages, isOpen]);
 
-  // Handle support route mapping based on input text or quick payload codes
+  // Handle support route mapping based on input text (ONLY if user explicitly asks to navigate)
   const handleActionRedirection = (text: string) => {
-    const q = text.toLowerCase();
+    const q = text.toLowerCase().trim();
     
+    // Explicit user navigation request required (do not hijack user view otherwise)
+    const isExplicitNav = 
+      q.startsWith("take me to") || 
+      q.startsWith("go to") || 
+      q.startsWith("open ") || 
+      q.startsWith("switch to") || 
+      q.startsWith("navigate to") ||
+      q.includes("take me to") ||
+      q.includes("go to the") ||
+      q.includes("switch to the");
+
+    if (!isExplicitNav) {
+      return null;
+    }
+
     if (q.includes("script") || q.includes("write") || q.includes("generate") || q.includes("draft") || q.includes("generator")) {
-      setCurrentView('generator');
       return { view: 'generator', desc: "AI Generator Dashboard" };
     } else if (q.includes("hook") || q.includes("viral") || q.includes("tension") || q.includes("title")) {
-      setCurrentView('viral');
       return { view: 'viral', desc: "Viral Hooks library" };
     } else if (q.includes("competitor") || q.includes("spy") || q.includes("stats") || q.includes("channel")) {
-      setCurrentView('competitor-intel');
       return { view: 'competitor-intel', desc: "Competitor Intelligence station" };
     } else if (q.includes("simulator") || q.includes("pacing") || q.includes("pace")) {
       window.dispatchEvent(new CustomEvent('open-playbook', { detail: { tab: 'simulator' } }));
@@ -135,16 +124,12 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
       window.dispatchEvent(new CustomEvent('open-playbook', { detail: { tab: 'secrets' } }));
       return { playbookTab: 'secrets', desc: "Retention Secrets Blueprint" };
     } else if (q.includes("key") || q.includes("settings") || q.includes("gemini") || q.includes("api")) {
-      setCurrentView('settings');
       return { view: 'settings', desc: "Workspace Settings" };
     } else if (q.includes("analytics") || q.includes("ctr") || q.includes("charts")) {
-      setCurrentView('analytics');
       return { view: 'analytics', desc: "Analytics Forecast View" };
     } else if (q.includes("log") || q.includes("history") || q.includes("activity")) {
-      setCurrentView('activity-log');
       return { view: 'activity-log', desc: "Workspace Activity Log" };
     } else if (q.includes("saved") || q.includes("vault") || q.includes("idea")) {
-      setCurrentView('saved');
       return { view: 'saved', desc: "Saved Blueprint Vault" };
     }
     return null;

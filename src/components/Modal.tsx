@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ModalProps {
   isOpen: boolean;
@@ -8,20 +9,21 @@ interface ModalProps {
   title?: string;
   children: React.ReactNode;
   maxWidthClass?: string;
+  triggerRef?: React.RefObject<HTMLElement | null>;
 }
 
-export const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, maxWidthClass = 'max-w-3xl' }) => {
+export const Modal: React.FC<ModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  title, 
+  children, 
+  maxWidthClass = 'max-w-3xl',
+  triggerRef 
+}) => {
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Close on Escape key press
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  // Close on Escape key press and restore focus on close
+  useEscapeKey(isOpen, onClose, triggerRef);
 
   if (!isOpen) return null;
 

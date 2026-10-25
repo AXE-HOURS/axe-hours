@@ -10,28 +10,8 @@ export const Footer: React.FC = () => {
   const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'dmca' | null>(null);
   const [activeTab, setActiveTab] = useState<string>('getting-started');
 
-  // Auto-open if first-time use or new account creation
+  // Support global triggers for opening playbook tabs (never auto-open on launch)
   useEffect(() => {
-    const uid = user?.uid || dbUser?.uid || "guest";
-    const key = `axe_hours_playbook_seen_${uid}`;
-    const hasSeen = localStorage.getItem(key);
-    
-    let isNewAccount = false;
-    if (dbUser && dbUser.createdAt) {
-      const createdTime = new Date(dbUser.createdAt).getTime();
-      const now = Date.now();
-      // If the account was created in the last 20 seconds, we show the playbook
-      if (now - createdTime < 20000) {
-        isNewAccount = true;
-      }
-    }
-
-    if (!hasSeen || isNewAccount) {
-      setIsOpen(true);
-      localStorage.setItem(key, "true");
-    }
-
-    // Support global triggers for navigation inside playbook tabs
     const handleOpenPlaybook = (e: Event) => {
       const customEvent = e as CustomEvent;
       setIsOpen(true);
@@ -41,7 +21,7 @@ export const Footer: React.FC = () => {
     };
     window.addEventListener('open-playbook', handleOpenPlaybook);
     return () => window.removeEventListener('open-playbook', handleOpenPlaybook);
-  }, [dbUser?.uid, dbUser?.createdAt, user?.uid]);
+  }, []);
 
   return (
     <>

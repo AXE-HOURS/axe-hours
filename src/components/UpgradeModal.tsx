@@ -4,6 +4,7 @@ import { GlassCard } from './GlassCard';
 import { useToast } from '../context/ToastContext';
 import { useFirebase } from '../context/FirebaseContext';
 import { auth } from '../lib/firebase';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface UpgradeModalProps {
   isOpen: boolean;
@@ -20,6 +21,8 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const { addToast } = useToast();
   const { user, dbUser, updateProfile } = useFirebase();
+
+  useEscapeKey(isOpen, onClose);
 
   if (!isOpen) return null;
 
@@ -83,8 +86,15 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   ];
 
   return (
-    <div id="upgrade-modal-portal" className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-hidden animate-in fade-in duration-200">
-      <GlassCard className="w-full max-w-3xl max-h-[92vh] p-0 flex flex-col overflow-hidden border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.25)] relative font-sans">
+    <div 
+      id="upgrade-modal-portal" 
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/85 backdrop-blur-md p-4 overflow-hidden animate-in fade-in duration-200 cursor-pointer"
+      onClick={onClose}
+    >
+      <GlassCard 
+        className="w-full max-w-3xl max-h-[92vh] p-0 flex flex-col overflow-hidden border-purple-500/30 shadow-[0_0_50px_rgba(168,85,247,0.25)] relative font-sans cursor-default"
+        onClick={(e: React.MouseEvent) => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className="flex border-b border-white/10 p-5 justify-between items-center bg-[#0d0e12]/90 shrink-0">
