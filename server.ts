@@ -598,7 +598,7 @@ function isRetryableGeminiError(error: any): boolean {
 }
 
 function cleanGeminiErrorMessage(error: any): string {
-  if (!error) return "An unexpected error occurred while communicating with the AI service.";
+  if (!error) return "AI is busy, try again in a minute.";
   const msg = String(error.message || error);
   const status = error.status || error.statusCode || error.code;
 
@@ -610,9 +610,10 @@ function cleanGeminiErrorMessage(error: any): string {
     msg.includes("RESOURCE_EXHAUSTED") ||
     msg.includes("quota") ||
     msg.includes("overloaded") ||
-    msg.includes("high traffic")
+    msg.includes("high traffic") ||
+    msg.includes("busy")
   ) {
-    return "The AI model is temporarily experiencing high traffic. Please retry in a moment.";
+    return "AI is busy, try again in a minute.";
   }
 
   if (msg.includes("API_KEY_INVALID") || msg.includes("API key not valid") || (status === 400 && msg.includes("key"))) {
@@ -625,7 +626,12 @@ function cleanGeminiErrorMessage(error: any): string {
       if (match) {
         const parsed = JSON.parse(match[0]);
         if (parsed.error && parsed.error.message) {
-          return parsed.error.message;
+          const innerMsg = String(parsed.error.message);
+          const innerCode = parsed.error.code || parsed.error.status;
+          if (innerCode === 429 || innerCode === 503 || innerMsg.includes("quota") || innerMsg.includes("RESOURCE_EXHAUSTED")) {
+            return "AI is busy, try again in a minute.";
+          }
+          return innerMsg;
         }
       }
     } catch {
@@ -641,7 +647,7 @@ function cleanGeminiErrorMessage(error: any): string {
 
   return clean.length > 0 && clean.length < 250
     ? clean
-    : "The AI model is temporarily experiencing high traffic. Please retry in a moment.";
+    : "AI is busy, try again in a minute.";
 }
 
 async function generateContentWithCascade(
@@ -681,14 +687,17 @@ async function generateContentWithCascade(
           break;
         }
         if (!isRetryableGeminiError(err)) {
-          throw err;
+          // Model capability or request error: advance to next model in cascade
+          break;
         }
         if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 600));
+          console.log(`[Gemini Cascade] Overload hit on ${model}. Retrying once after 2s...`);
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
     }
     if (mIdx < models.length - 1) {
+      console.log(`[Gemini Cascade] Advancing from ${model} to next model ${models[mIdx + 1]}...`);
       await new Promise((r) => setTimeout(r, 500));
     }
   }
@@ -733,14 +742,16 @@ async function generateContentStreamWithCascade(
           break;
         }
         if (!isRetryableGeminiError(err)) {
-          throw err;
+          break;
         }
         if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 600));
+          console.log(`[Gemini Stream Cascade] Overload hit on ${model}. Retrying once after 2s...`);
+          await new Promise((r) => setTimeout(r, 2000));
         }
       }
     }
     if (mIdx < models.length - 1) {
+      console.log(`[Gemini Stream Cascade] Advancing from ${model} to next model ${models[mIdx + 1]}...`);
       await new Promise((r) => setTimeout(r, 500));
     }
   }
@@ -1275,6 +1286,50 @@ ${
       const sec = Math.floor(line.start % 60).toString().padStart(2, "0");
       return `${min}:${sec} - ${line.text}`;
     }).join("\n");
+  }
+
+  function parseDialogueLines(responseText: string): { text: string; start: number; duration: number }[] {
+    let lines: { text: string; start: number; duration: number }[] = [];
+    try {
+      const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+      let rawParsed: any = null;
+      const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+      if (arrayMatch) {
+        rawParsed = JSON.parse(arrayMatch[0]);
+      } else {
+        const objMatch = cleaned.match(/\{[\s\S]*\}/);
+        if (objMatch) {
+          const obj = JSON.parse(objMatch[0]);
+          rawParsed = obj.transcript || obj.lines || obj.subtitles || obj.dialogue || null;
+        }
+      }
+      if (Array.isArray(rawParsed)) {
+        lines = rawParsed.map((item: any, idx: number) => ({
+          text: (item.text || item.content || item.line || "").trim(),
+          start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
+          duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
+        })).filter((l: any) => l.text.length > 0);
+      }
+    } catch (parseErr) {
+      console.warn("[parseDialogueLines] JSON parse error:", parseErr);
+    }
+
+    const isRefusal = /cannot fulfill|capabilities do not include|do not provide the actual transcript|unable to access|cannot directly access|no transcript (found|available)/i.test(responseText);
+    if (!isRefusal && lines.length === 0 && responseText && responseText.trim().length > 30) {
+      const cleanedText = responseText.replace(/```[\s\S]*?```/g, "").replace(/[\*\#\_]/g, "").trim();
+      const sentences = cleanedText.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 5);
+      if (sentences.length > 0) {
+        let currStart = 0;
+        lines = sentences.map((sentence) => {
+          const duration = Math.min(6, Math.max(2, sentence.split(/\s+/).length * 0.4));
+          const entry = { text: sentence.trim(), start: parseFloat(currStart.toFixed(1)), duration: parseFloat(duration.toFixed(1)) };
+          currStart += duration;
+          return entry;
+        });
+      }
+    }
+
+    return lines;
   }
 
   // Rotating pool of modern user-agents for cloud / Render scraping resilience
@@ -2453,15 +2508,51 @@ ${
           scrapedData.transcriptArray = subResult.lines;
         } else if (apiKey) {
           const fallbackStart = Date.now();
-          console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing Gemini search grounding transcription fallback...`);
+          console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing Gemini native video transcription...`);
+          const durationSec = metadata.duration ? getDurationSeconds(metadata.duration) : 0;
+          const isClipped = durationSec > 600;
+
+          // Strategy 1: Native YouTube Video Input
           try {
-            const aiGrounding = new GoogleGenAI({
+            const aiGen = new GoogleGenAI({
               apiKey: apiKey,
-              httpOptions: {
-                headers: { "User-Agent": "aistudio-build" }
-              }
+              httpOptions: { headers: { "User-Agent": "aistudio-build" } }
             });
-            const groundingPrompt = `Search the web and reconstruct or transcribe the authentic chronological spoken dialogue for this YouTube video:
+            const videoPart: any = {
+              fileData: {
+                fileUri: `https://www.youtube.com/watch?v=${videoId}`,
+                mimeType: "video/*"
+              }
+            };
+            if (isClipped) {
+              videoPart.videoMetadata = { startOffset: "0s", endOffset: "600s" };
+            }
+            const promptPart = {
+              text: `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`
+            };
+
+            const nativeRes = await generateContentWithCascade(aiGen, {
+              preferredModel: activeModelCascade[0],
+              contents: [{ role: "user", parts: [videoPart, promptPart] }]
+            });
+            fallbackLines = parseDialogueLines(nativeRes.text || "");
+            if (fallbackLines.length > 0) {
+              scrapedData.transcriptionMethod = "NATIVE_VIDEO_INPUT";
+              scrapedData.isClipped = isClipped;
+              console.log(`[fetch-script] Native YouTube video input successfully transcribed ${fallbackLines.length} spoken dialogue lines!`);
+            }
+          } catch (nativeErr: any) {
+            console.warn(`[fetch-script] Native YouTube video input failed for video ${videoId} (${Date.now() - fallbackStart}ms):`, nativeErr?.message || nativeErr);
+          }
+
+          // Strategy 2: Google Search Grounding (Last Resort)
+          if (fallbackLines.length === 0) {
+            try {
+              const aiGrounding = new GoogleGenAI({
+                apiKey: apiKey,
+                httpOptions: { headers: { "User-Agent": "aistudio-build" } }
+              });
+              const groundingPrompt = `Search the web and reconstruct or transcribe the authentic chronological spoken dialogue for this YouTube video:
 URL: https://www.youtube.com/watch?v=${videoId}
 Title: "${realTitle || 'YouTube Video'}"
 Channel: "${realAuthor || 'Creator'}"
@@ -2471,29 +2562,28 @@ Return ONLY a JSON array of dialogue objects:
   { "start": 0, "duration": 3.5, "text": "First spoken dialogue..." },
   { "start": 3.5, "duration": 4.0, "text": "Second spoken dialogue..." }
 ]`;
-            const groundingPromise = generateContentWithCascade(aiGrounding, {
-              preferredModel: activeModelCascade[0],
-              contents: groundingPrompt,
-              config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
-            });
-            const groundingTimeout = new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("Grounding transcription timed out after 8s")), 8000)
-            );
-            const groundingRes: any = await Promise.race([groundingPromise, groundingTimeout]);
-            const gText = groundingRes.text || "";
-            const jsonMatch = gText.match(/\[[\s\S]*\]/);
-            if (jsonMatch) {
-              const parsed = JSON.parse(jsonMatch[0]);
-              if (Array.isArray(parsed)) {
-                fallbackLines = parsed.map((item: any, idx: number) => ({
-                  text: (item.text || item.content || "").trim(),
-                  start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-                  duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-                })).filter(l => l.text.length > 0);
+              const groundingPromise = generateContentWithCascade(aiGrounding, {
+                preferredModel: activeModelCascade[0],
+                contents: groundingPrompt,
+                config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
+              });
+              const groundingTimeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error("Grounding transcription timed out after 8s")), 8000)
+              );
+              const groundingRes: any = await Promise.race([groundingPromise, groundingTimeout]);
+              const gText = groundingRes.text || "";
+              const isRefusal = /cannot fulfill|capabilities do not include|do not provide the actual transcript|unable to access/i.test(gText);
+              if (!isRefusal) {
+                fallbackLines = parseDialogueLines(gText);
+                if (fallbackLines.length > 0) {
+                  scrapedData.transcriptionMethod = "SEARCH_GROUNDING";
+                  scrapedData.warningLabel = "Found online (may not match the video)";
+                  console.log(`[fetch-script] Gemini search grounding fallback recovered ${fallbackLines.length} lines.`);
+                }
               }
+            } catch (gErr: any) {
+              console.warn(`[fetch-script] Search grounding fallback failed (${Date.now() - fallbackStart}ms):`, gErr?.message || gErr);
             }
-          } catch (gErr: any) {
-            console.warn(`[fetch-script] Search grounding fallback failed (${Date.now() - fallbackStart}ms):`, gErr?.message || gErr);
           }
 
           if (fallbackLines.length > 0) {
@@ -3336,7 +3426,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
   app.post("/api/transcribe-audio", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const rawUrl = req.body?.videoUrl || req.body?.url;
     const videoUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
-    const { title, author } = req.body || {};
+    const { title, author, duration } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
@@ -3374,11 +3464,16 @@ When analyzing how this exact sequence unfolds, we find that the leading example
           return res.json({
             success: true,
             hasTranscript: true,
+            isAiGenerated: true,
+            transcriptionMethod: cached.data.transcriptionMethod || "SERVER_CACHE_HIT",
+            warningLabel: cached.data.warningLabel || null,
+            isClipped: cached.data.isClipped || false,
             transcript: cached.data.transcript || [],
             fullTranscript: cached.data.fullTranscript,
             hookText: cached.data.hookText || "Extracted spoken hook.",
+            hookScore: cached.data.hookScore || 50,
             pacingSpeed: cached.data.pacingSpeed || "N/A",
-            calculatedWpm: 145,
+            calculatedWpm: cached.data.calculatedWpm || 145,
             method: "SERVER_CACHE_HIT"
           });
         }
@@ -3389,12 +3484,63 @@ When analyzing how this exact sequence unfolds, we find that the leading example
         httpOptions: { headers: { "User-Agent": "aistudio-build" } }
       });
 
-      console.log(`[/api/transcribe-audio] Running AI Speech Fallback for: ${videoUrl} (ID: ${videoId})`);
+      console.log(`[/api/transcribe-audio] Running AI Speech Transcription for: ${videoUrl} (ID: ${videoId})`);
 
       let lines: any[] = [];
+      let transcriptionMethod = "NATIVE_VIDEO_INPUT";
+      let warningLabel = "";
+      let isClipped = false;
 
-      // 1. Search Grounding Speech Reconstruction
-      const prompt = `You are a high-fidelity speech-to-text and spoken dialogue transcription model.
+      const durationSec = duration ? getDurationSeconds(duration) : 0;
+      if (durationSec > 600) {
+        isClipped = true;
+      }
+
+      // 1. PRIMARY STRATEGY: Gemini Native YouTube Video Input
+      try {
+        console.log(`[/api/transcribe-audio] [Strategy 1] Attempting native YouTube video input for ${videoId} (isClipped: ${isClipped})...`);
+        const videoPart: any = {
+          fileData: {
+            fileUri: `https://www.youtube.com/watch?v=${videoId}`,
+            mimeType: "video/*"
+          }
+        };
+        if (isClipped) {
+          videoPart.videoMetadata = {
+            startOffset: "0s",
+            endOffset: "600s"
+          };
+        }
+
+        const promptPart = {
+          text: `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`
+        };
+
+        const response = await generateContentWithCascade(ai, {
+          preferredModel: activeModelCascade[0],
+          contents: [{
+            role: "user",
+            parts: [videoPart, promptPart]
+          }]
+        });
+
+        const responseText = response.text || "";
+        lines = parseDialogueLines(responseText);
+        if (lines.length > 0) {
+          console.log(`[/api/transcribe-audio] [Strategy 1 Success] Native YouTube input transcribed ${lines.length} dialogue lines!`);
+          transcriptionMethod = "NATIVE_VIDEO_INPUT";
+        } else {
+          console.log(`[/api/transcribe-audio] [Strategy 1] Native YouTube input returned 0 lines or empty array. Response snippet: ${responseText.slice(0, 150)}`);
+        }
+      } catch (nativeErr: any) {
+        console.warn(`[/api/transcribe-audio] [Strategy 1 Failed] Native YouTube video input failed for ${videoId}:`, nativeErr?.message || nativeErr);
+      }
+
+      // 2. LAST RESORT FALLBACK: Google Search Grounding
+      if (lines.length === 0) {
+        console.log(`[/api/transcribe-audio] [Strategy 2] Falling back to Search Grounding for ${videoId}...`);
+        try {
+          const groundingPrompt = `You are a high-fidelity speech-to-text and spoken dialogue transcription model.
 Task: Search the web and reconstruct/transcribe the authentic chronological spoken dialogue and subtitles for this YouTube video:
 URL: ${videoUrl}
 Video ID: ${videoId || 'N/A'}
@@ -3402,68 +3548,36 @@ Title: "${title || 'YouTube Video'}"
 Channel/Author: "${author || 'Creator'}"
 
 Perform Google Search Grounding to find the actual spoken words, dialogue lines, interview quotes, or subtitles spoken in this video.
-
-OUTPUT REQUIREMENTS:
-1. Return ONLY a valid JSON array of dialogue objects.
-2. Structure:
+Return ONLY a valid JSON array of dialogue objects:
 [
   { "start": 0, "duration": 3.5, "text": "The first spoken dialogue sentence..." },
-  { "start": 3.5, "duration": 4.0, "text": "The second spoken dialogue sentence..." }
-]
-3. "start" and "duration" must be numbers in seconds.
-4. "text" must be the clean spoken dialogue.
-5. Provide at least 10-30 sequential lines covering the opening hook, core discussion, and conclusion.
-6. Return ONLY the raw JSON array. Do not enclose in backticks or markdown fences.`;
+  { "start": 3.5, "duration": 4.0, "text": "Second spoken dialogue sentence..." }
+]`;
 
-      const response = await generateContentWithCascade(ai, {
-        preferredModel: activeModelCascade[0],
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          temperature: 0.2,
-        },
-      });
-
-      const responseText = response.text || "";
-      try {
-        const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-        let rawParsed: any = null;
-        const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
-        if (arrayMatch) {
-          rawParsed = JSON.parse(arrayMatch[0]);
-        } else {
-          const objMatch = cleaned.match(/\{[\s\S]*\}/);
-          if (objMatch) {
-            const obj = JSON.parse(objMatch[0]);
-            rawParsed = obj.transcript || obj.lines || obj.subtitles || obj.dialogue || null;
-          }
-        }
-        if (Array.isArray(rawParsed)) {
-          lines = rawParsed.map((item: any, idx: number) => ({
-            text: (item.text || item.content || item.line || "").trim(),
-            start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-            duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-          })).filter((l: any) => l.text.length > 0);
-        }
-      } catch (parseErr) {
-        console.warn("[/api/transcribe-audio] JSON parse error:", parseErr, responseText);
-      }
-
-      // If Gemini returned a refusal or disclaimer, do NOT treat it as dialogue lines
-      const isRefusal = /cannot fulfill|capabilities do not include|do not provide the actual transcript|unable to access|cannot directly access|no transcript (found|available)/i.test(responseText);
-      if (isRefusal) {
-        lines = [];
-      } else if (lines.length === 0 && responseText && responseText.trim().length > 20) {
-        const cleanedText = responseText.replace(/```[\s\S]*?```/g, "").replace(/[\*\#\_]/g, "").trim();
-        const sentences = cleanedText.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 5);
-        if (sentences.length > 0) {
-          let currStart = 0;
-          lines = sentences.map((sentence) => {
-            const duration = Math.min(6, Math.max(2, sentence.split(/\s+/).length * 0.4));
-            const entry = { text: sentence.trim(), start: parseFloat(currStart.toFixed(1)), duration: parseFloat(duration.toFixed(1)) };
-            currStart += duration;
-            return entry;
+          const response = await generateContentWithCascade(ai, {
+            preferredModel: activeModelCascade[0],
+            contents: groundingPrompt,
+            config: {
+              tools: [{ googleSearch: {} }],
+              temperature: 0.2
+            }
           });
+
+          const responseText = response.text || "";
+          const isRefusal = /cannot fulfill|capabilities do not include|do not provide the actual transcript|unable to access|cannot directly access|no transcript (found|available)/i.test(responseText);
+          if (!isRefusal) {
+            lines = parseDialogueLines(responseText);
+            if (lines.length > 0) {
+              transcriptionMethod = "SEARCH_GROUNDING";
+              warningLabel = "Found online (may not match the video)";
+              console.log(`[/api/transcribe-audio] [Strategy 2 Success] Search Grounding recovered ${lines.length} lines.`);
+            }
+          }
+        } catch (groundingErr: any) {
+          console.warn(`[/api/transcribe-audio] [Strategy 2 Failed] Search Grounding failed:`, groundingErr?.message || groundingErr);
+          if (isRetryableGeminiError(groundingErr)) {
+            throw groundingErr;
+          }
         }
       }
 
@@ -3472,12 +3586,10 @@ OUTPUT REQUIREMENTS:
         const hookText = lines.slice(0, 4).map(l => l.text).join(' ');
         const totalWords = lines.reduce((sum, l) => sum + l.text.split(/\s+/).filter(Boolean).length, 0);
         const lastLine = lines[lines.length - 1];
-        const totalSec = (lastLine ? lastLine.start + lastLine.duration : 0) || 60;
+        const totalSec = (lastLine ? lastLine.start + (lastLine.duration || 3) : 0) || 60;
         const calculatedWpm = Math.round(totalWords / (totalSec / 60));
-        const pacingSpeed = `${calculatedWpm} words/min (Authentic Audio Transcription)`;
+        const pacingSpeed = `${calculatedWpm} words/min (${transcriptionMethod === 'NATIVE_VIDEO_INPUT' ? 'Native Video Transcription' : 'Online Transcript Recovery'})`;
         const computedHookScore = calculateHookScore(hookText, calculatedWpm, "youtube");
-
-        console.log(`[/api/transcribe-audio] Successfully extracted ${lines.length} lines via AI Speech Grounding!`);
 
         // Cache in server transcriptCache
         if (videoId) {
@@ -3485,6 +3597,9 @@ OUTPUT REQUIREMENTS:
             data: {
               hasTranscript: true,
               isAiGenerated: true,
+              transcriptionMethod,
+              warningLabel,
+              isClipped,
               transcript: lines,
               fullTranscript,
               hookText: hookText || "Extracted spoken hook.",
@@ -3503,21 +3618,22 @@ OUTPUT REQUIREMENTS:
           }
         }
 
-        if (lines.length > 0) {
-          req.consumeExtractionQuota?.(videoId);
-        }
+        req.consumeExtractionQuota?.(videoId);
 
         res.json({
           success: true,
           hasTranscript: true,
           isAiGenerated: true,
+          transcriptionMethod,
+          warningLabel,
+          isClipped,
           transcript: lines,
           fullTranscript,
           hookText: hookText || "Extracted spoken hook.",
           hookScore: computedHookScore,
           pacingSpeed,
           calculatedWpm,
-          method: "AI_AUDIO_SPEECH_RECONSTRUCTION"
+          method: transcriptionMethod
         });
       } else {
         res.status(404).json({

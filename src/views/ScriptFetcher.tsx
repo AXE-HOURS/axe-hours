@@ -126,6 +126,9 @@ export const ScriptFetcher: React.FC = () => {
     suggestedTags: [] as string[],
     hasTranscript: false,
     isAiGenerated: false,
+    transcriptionMethod: '',
+    warningLabel: '',
+    isClipped: false,
     transcriptErrorCode: '',
     transcriptErrorDetails: '',
     transcript: [] as Array<{ text: string; start: number; duration: number }>,
@@ -228,7 +231,8 @@ export const ScriptFetcher: React.FC = () => {
         body: JSON.stringify({
           videoUrl: targetUrl,
           title: extractedData.title,
-          author: extractedData.author
+          author: extractedData.author,
+          duration: extractedData.duration
         })
       });
 
@@ -257,6 +261,9 @@ export const ScriptFetcher: React.FC = () => {
           ...prev,
           hasTranscript: true,
           isAiGenerated: true,
+          transcriptionMethod: data.transcriptionMethod || '',
+          warningLabel: data.warningLabel || '',
+          isClipped: data.isClipped || false,
           fullTranscript: data.fullTranscript,
           hookText,
           hookScore: hookScore || prev.hookScore,
@@ -274,8 +281,13 @@ export const ScriptFetcher: React.FC = () => {
       }
     } catch (err: any) {
       console.warn("[ScriptFetcher] Audio transcription error:", err);
-      addToast(`Audio transcription error: ${err.message || 'Pipeline failed'}. Opening Whisper tool...`, "error");
-      setIsWhisperModalOpen(true);
+      const msg = err.message || 'Pipeline failed';
+      if (msg.includes("busy") || msg.includes("minute")) {
+        addToast(msg, "error");
+      } else {
+        addToast(`Audio transcription error: ${msg}. Opening Whisper tool...`, "error");
+        setIsWhisperModalOpen(true);
+      }
     } finally {
       setIsTranscribingAudio(false);
     }
@@ -689,6 +701,9 @@ export const ScriptFetcher: React.FC = () => {
         : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:')));
 
       let isAiGenerated = Boolean(data.isAiGenerated);
+      let transcriptionMethod = data.transcriptionMethod || '';
+      let warningLabel = data.warningLabel || '';
+      let isClipped = Boolean(data.isClipped);
       let fullTranscript = data.fullTranscript || (isUnavailable ? '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
       let hookText = data.hookText || 'N/A';
       let hookScore = 0;
@@ -776,7 +791,8 @@ export const ScriptFetcher: React.FC = () => {
                 body: JSON.stringify({
                   videoUrl: cleanedUrl,
                   title: data.title,
-                  author: data.author
+                  author: data.author,
+                  duration: data.duration
                 })
               });
               if (!audioRes.ok) {
@@ -798,6 +814,9 @@ export const ScriptFetcher: React.FC = () => {
                 if (audioData.hasTranscript && audioData.fullTranscript) {
                   hasTranscript = true;
                   isAiGenerated = true;
+                  transcriptionMethod = audioData.transcriptionMethod || '';
+                  warningLabel = audioData.warningLabel || '';
+                  isClipped = Boolean(audioData.isClipped);
                   fullTranscript = audioData.fullTranscript;
                   hookText = audioData.hookText || hookText;
                   pacingSpeed = audioData.pacingSpeed || pacingSpeed;
@@ -844,6 +863,9 @@ export const ScriptFetcher: React.FC = () => {
         suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
         hasTranscript: hasTranscript,
         isAiGenerated: isAiGenerated,
+        transcriptionMethod: transcriptionMethod,
+        warningLabel: warningLabel,
+        isClipped: isClipped,
         transcriptErrorCode: finalErrorCode,
         transcriptErrorDetails: finalErrorDetails,
         transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
@@ -868,6 +890,9 @@ export const ScriptFetcher: React.FC = () => {
           suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
           hasTranscript: hasTranscript,
           isAiGenerated: isAiGenerated,
+          transcriptionMethod: transcriptionMethod,
+          warningLabel: warningLabel,
+          isClipped: isClipped,
           transcriptErrorCode: finalErrorCode,
           transcriptErrorDetails: finalErrorDetails,
           transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
@@ -1506,7 +1531,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                           extractedData.isAiGenerated ? (
                             <span className="text-[10px] text-amber-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded">
                               <AlertTriangle size={11} className="text-amber-400" />
-                              AI-generated transcript (may be inaccurate)
+                              {extractedData.warningLabel || "AI-generated transcript (may be inaccurate)"}
                             </span>
                           ) : (
                             <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
@@ -1603,7 +1628,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                             className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99] disabled:opacity-50"
                           >
                             <Mic size={14} className={isTranscribingAudio ? "animate-pulse" : ""} />
-                            <span>{isTranscribingAudio ? "Transcribing Audio Track..." : "Run AI Audio Transcription (Instant Fallback)"}</span>
+                            <span>{isTranscribingAudio ? "Transcribing with AI (30–60 s)..." : "Transcribe with AI (30–60 s)"}</span>
                           </button>
 
                           <button
@@ -1619,9 +1644,17 @@ ${extractedData.fullTranscript || 'N/A'}`;
                     ) : (
                       <>
                         {extractedData.isAiGenerated && (
-                          <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono flex items-center gap-2">
-                            <AlertTriangle size={14} className="text-amber-400 shrink-0" />
-                            <span>AI-generated transcript (may be inaccurate)</span>
+                          <div className="space-y-2 mb-3">
+                            <div className="px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono flex items-center gap-2">
+                              <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                              <span>{extractedData.warningLabel || "AI-generated transcript (may be inaccurate)"}</span>
+                            </div>
+                            {extractedData.isClipped && (
+                              <div className="px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono flex items-center gap-2">
+                                <Info size={14} className="text-blue-400 shrink-0" />
+                                <span>Video clipped to first 10 minutes for AI transcription.</span>
+                              </div>
+                            )}
                           </div>
                         )}
                         <p className="text-xs leading-relaxed whitespace-pre-line font-light text-white">
