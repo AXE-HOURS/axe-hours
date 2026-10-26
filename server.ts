@@ -2399,7 +2399,7 @@ ${
         const captionsStart = Date.now();
         const [metaSettled, captionsSettled] = await Promise.allSettled([
           fetchYoutubeMetadataSafe(videoId, ytApiKey),
-          fetchYoutubeSubtitlesWithTimeout(videoId, 15000)
+          fetchYoutubeSubtitlesWithTimeout(videoId, 8000)
         ]);
         metaDuration = Date.now() - metaStart;
         captionsDuration = Date.now() - captionsStart;
@@ -2477,7 +2477,7 @@ Return ONLY a JSON array of dialogue objects:
               config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
             });
             const groundingTimeout = new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("Grounding transcription timed out after 10s")), 10000)
+              setTimeout(() => reject(new Error("Grounding transcription timed out after 8s")), 8000)
             );
             const groundingRes: any = await Promise.race([groundingPromise, groundingTimeout]);
             const gText = groundingRes.text || "";
