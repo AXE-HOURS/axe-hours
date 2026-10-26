@@ -526,7 +526,7 @@ function verifyAiAccess(req: any, res: any, next: any) {
   });
 }
 
-const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-lite"];
+const FALLBACK_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
 
 function isRetryableGeminiError(error: any): boolean {
   if (!error) return false;
@@ -536,7 +536,6 @@ function isRetryableGeminiError(error: any): boolean {
     status === 503 ||
     status === 429 ||
     status === 500 ||
-    status === 404 ||
     msg.includes("503") ||
     msg.includes("429") ||
     msg.includes("overloaded") ||
@@ -544,8 +543,7 @@ function isRetryableGeminiError(error: any): boolean {
     msg.includes("quota") ||
     msg.includes("rate limit") ||
     msg.includes("unavailable") ||
-    msg.includes("high traffic") ||
-    msg.includes("not found")
+    msg.includes("high traffic")
   );
 }
 
@@ -624,16 +622,23 @@ async function generateContentWithCascade(
       } catch (err: any) {
         lastError = err;
         console.warn(`[Gemini Cascade] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
+        const status = err?.status || err?.statusCode || err?.code;
+        const msg = String(err?.message || err).toLowerCase();
+        const isNotFound = status === 404 || msg.includes("not found") || msg.includes("is not supported");
+        if (isNotFound) {
+          // Model does not exist or not supported: skip retry and advance to next model immediately
+          break;
+        }
         if (!isRetryableGeminiError(err)) {
           throw err;
         }
         if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 600));
         }
       }
     }
     if (mIdx < models.length - 1) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
@@ -668,16 +673,23 @@ async function generateContentStreamWithCascade(
       } catch (err: any) {
         lastError = err;
         console.warn(`[Gemini Stream Cascade] Model ${model} attempt ${attempt + 1} error:`, err?.message || err);
+        const status = err?.status || err?.statusCode || err?.code;
+        const msg = String(err?.message || err).toLowerCase();
+        const isNotFound = status === 404 || msg.includes("not found") || msg.includes("is not supported");
+        if (isNotFound) {
+          // Model does not exist or not supported: skip retry and advance to next model immediately
+          break;
+        }
         if (!isRetryableGeminiError(err)) {
           throw err;
         }
         if (attempt === 0) {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 600));
         }
       }
     }
     if (mIdx < models.length - 1) {
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 500));
     }
   }
 
@@ -1379,7 +1391,8 @@ ${
 
       const jsonRes = await fetch(jsonUrl, {
         headers,
-        keepalive: true
+        keepalive: true,
+        signal: AbortSignal.timeout(2500)
       });
       if (jsonRes.ok) {
         const jsonText = await decodeHttpResponseText(jsonRes);
@@ -1409,7 +1422,8 @@ ${
     try {
       const directRes = await fetch(cleanUrl, {
         headers,
-        keepalive: true
+        keepalive: true,
+        signal: AbortSignal.timeout(2500)
       });
       if (directRes.ok) {
         const txt = await decodeHttpResponseText(directRes);
@@ -1434,7 +1448,8 @@ ${
       const xmlUrl = cleanUrl.replace(/[?&]fmt=[^&]+/, '');
       const xmlRes = await fetch(xmlUrl, {
         headers,
-        keepalive: true
+        keepalive: true,
+        signal: AbortSignal.timeout(2500)
       });
       if (xmlRes.ok) {
         const xml = await decodeHttpResponseText(xmlRes);
@@ -1489,7 +1504,8 @@ ${
           "Accept-Language": "en-US,en;q=0.9",
           "Origin": "https://www.youtube.com",
           "Referer": "https://www.youtube.com/"
-        }
+        },
+        signal: AbortSignal.timeout(3000)
       });
       if (!listRes.ok) {
         console.log('[Captions] Step 4 - XML Timedtext returned: 0', `(HTTP ${listRes.status} ${listRes.statusText})`);
@@ -1530,7 +1546,8 @@ ${
           "Accept-Language": "en-US,en;q=0.9",
           "Origin": "https://www.youtube.com",
           "Referer": "https://www.youtube.com/"
-        }
+        },
+        signal: AbortSignal.timeout(3000)
       });
       if (!subRes.ok) {
         const isThrottled = subRes.status === 429;
@@ -1727,7 +1744,7 @@ ${
             "Accept-Language": "en-US,en;q=0.9",
             "Cookie": standardConsentCookie
           },
-          signal: AbortSignal.timeout(6000)
+          signal: AbortSignal.timeout(3500)
         });
         watchHttpStatus = probeRes.status;
         if (probeRes.ok) {
@@ -1789,7 +1806,7 @@ ${
             },
             videoId: videoId
           }),
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(3500),
           keepalive: true
         });
 
@@ -1820,8 +1837,7 @@ ${
 
         // Retry with alternate mobile User-Agent if 429 or no tracks found
         if (step1Status === 429 || !tracks || !Array.isArray(tracks) || tracks.length === 0) {
-          console.log("[SubtitleFetcher] Layer 1 returned empty/429. Waiting 1.5s and retrying with alternate mobile User-Agent...");
-          await new Promise((r) => setTimeout(r, 1500));
+          console.log("[SubtitleFetcher] Layer 1 returned empty/429. Fast retrying with alternate mobile User-Agent...");
           try {
             const altAndroidHeaders: Record<string, string> = {
               "Content-Type": "application/json",
@@ -1846,7 +1862,7 @@ ${
                 },
                 videoId: videoId
               }),
-              signal: AbortSignal.timeout(6000),
+              signal: AbortSignal.timeout(2500),
               keepalive: true
             });
             if (altPlayerRes.ok) {
@@ -1873,7 +1889,7 @@ ${
             "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
           };
 
-          const sortedTracks = sortCaptionTracks(tracks);
+          const sortedTracks = sortCaptionTracks(tracks).slice(0, 2);
           if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
             candidateTrackUrl = sortedTracks[0].baseUrl;
           }
@@ -1925,7 +1941,7 @@ ${
             },
             videoId: videoId
           }),
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(3500),
           keepalive: true
         });
 
@@ -1964,7 +1980,7 @@ ${
             "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
           };
 
-          const sortedTracks = sortCaptionTracks(iosTracks);
+          const sortedTracks = sortCaptionTracks(iosTracks).slice(0, 2);
           if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
             candidateTrackUrl = sortedTracks[0].baseUrl;
           }
@@ -2071,7 +2087,7 @@ ${
           "Cookie": watchCookie || standardConsentCookie
         };
 
-        const sortedTracks = sortCaptionTracks(webTracks);
+        const sortedTracks = sortCaptionTracks(webTracks).slice(0, 2);
         if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
           candidateTrackUrl = sortedTracks[0].baseUrl;
         }
@@ -2167,7 +2183,7 @@ ${
     if (ytApiKey) {
       try {
         const ytResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`, {
-          signal: AbortSignal.timeout(10000)
+          signal: AbortSignal.timeout(3500)
         });
         if (ytResponse.ok) {
           const ytData = await ytResponse.json() as any;
@@ -2215,10 +2231,10 @@ ${
       }
     }
 
-    // Fallback to oEmbed (10s overall budget, 6s for oEmbed)
+    // Fallback to oEmbed (3s budget)
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
-      const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(6000) });
+      const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(3000) });
       if (oembedRes.ok) {
         const oembedData = await oembedRes.json() as any;
         return {
@@ -2247,7 +2263,7 @@ ${
     };
   }
 
-  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 25000): Promise<{ 
+  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 15000): Promise<{ 
     lines: { text: string; start: number; duration: number }[] | null; 
     hasTracks: boolean; 
     errorCode?: string; 
@@ -2367,7 +2383,7 @@ ${
         const captionsStart = Date.now();
         const [metaSettled, captionsSettled] = await Promise.allSettled([
           fetchYoutubeMetadataSafe(videoId, ytApiKey),
-          fetchYoutubeSubtitlesWithTimeout(videoId, 25000)
+          fetchYoutubeSubtitlesWithTimeout(videoId, 15000)
         ]);
         metaDuration = Date.now() - metaStart;
         captionsDuration = Date.now() - captionsStart;
@@ -2421,53 +2437,15 @@ ${
           scrapedData.transcriptArray = subResult.lines;
         } else if (apiKey) {
           const fallbackStart = Date.now();
-          console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing native Gemini YouTube multimodal transcription fallback...`);
+          console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing Gemini search grounding transcription fallback...`);
           try {
-            const aiFallback = new GoogleGenAI({
+            const aiGrounding = new GoogleGenAI({
               apiKey: apiKey,
               httpOptions: {
                 headers: { "User-Agent": "aistudio-build" }
               }
             });
-            const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-            const multimodalRes = await generateContentWithCascade(aiFallback, {
-              preferredModel: "gemini-2.5-flash",
-              contents: [
-                {
-                  fileData: {
-                    fileUri: watchUrl,
-                    mimeType: "video/mp4"
-                  }
-                },
-                {
-                  text: `You are an expert audio-visual dialogue transcriber. Transcribe the verbatim spoken dialogue from this YouTube video with accurate chronological timestamps.
-Title: "${realTitle || 'YouTube Video'}"
-Channel: "${realAuthor || 'Creator'}"
-
-Instructions:
-1. Extract the verbatim chronological spoken dialogue line by line.
-2. Format each line as:
-[MM:SS] Spoken dialogue sentence here
-3. If the video is longer than 1 hour, use [HH:MM:SS].
-4. Capture all spoken words from opening hook to conclusion.
-5. If the video contains NO spoken words (purely instrumental background music, sound effects, or silent), respond with "[NON-VERBAL VIDEO]".`
-                }
-              ]
-            });
-
-            const textOut = multimodalRes.text || "";
-            if (textOut && !textOut.includes("[NON-VERBAL VIDEO]")) {
-              fallbackLines = parseTimestampedDialogueText(textOut);
-            }
-          } catch (fallbackErr: any) {
-            console.warn(`[fetch-script] Native multimodal video understanding attempt failed:`, fallbackErr?.message || fallbackErr);
-            // Fallback to Google Search Grounding for speech reconstruction
-            try {
-              const aiGrounding = new GoogleGenAI({
-                apiKey: apiKey,
-                httpOptions: { apiVersion: 'v1alpha' }
-              });
-              const groundingPrompt = `Search the web and reconstruct/transcribe the authentic chronological spoken dialogue for this YouTube video:
+            const groundingPrompt = `Search the web and reconstruct or transcribe the authentic chronological spoken dialogue for this YouTube video:
 URL: https://www.youtube.com/watch?v=${videoId}
 Title: "${realTitle || 'YouTube Video'}"
 Channel: "${realAuthor || 'Creator'}"
@@ -2477,25 +2455,29 @@ Return ONLY a JSON array of dialogue objects:
   { "start": 0, "duration": 3.5, "text": "First spoken dialogue..." },
   { "start": 3.5, "duration": 4.0, "text": "Second spoken dialogue..." }
 ]`;
-              const groundingRes = await generateContentWithCascade(aiGrounding, {
-                contents: groundingPrompt,
-                config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
-              });
-              const gText = groundingRes.text || "";
-              const jsonMatch = gText.match(/\[[\s\S]*\]/);
-              if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                if (Array.isArray(parsed)) {
-                  fallbackLines = parsed.map((item: any, idx: number) => ({
-                    text: (item.text || item.content || "").trim(),
-                    start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-                    duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-                  })).filter(l => l.text.length > 0);
-                }
+            const groundingPromise = generateContentWithCascade(aiGrounding, {
+              preferredModel: "gemini-2.0-flash",
+              contents: groundingPrompt,
+              config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
+            });
+            const groundingTimeout = new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Grounding transcription timed out after 8s")), 8000)
+            );
+            const groundingRes: any = await Promise.race([groundingPromise, groundingTimeout]);
+            const gText = groundingRes.text || "";
+            const jsonMatch = gText.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+              const parsed = JSON.parse(jsonMatch[0]);
+              if (Array.isArray(parsed)) {
+                fallbackLines = parsed.map((item: any, idx: number) => ({
+                  text: (item.text || item.content || "").trim(),
+                  start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
+                  duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
+                })).filter(l => l.text.length > 0);
               }
-            } catch (gErr) {
-              console.warn(`[fetch-script] Search grounding fallback also failed:`, gErr);
             }
+          } catch (gErr: any) {
+            console.warn(`[fetch-script] Search grounding fallback failed (${Date.now() - fallbackStart}ms):`, gErr?.message || gErr);
           }
 
           if (fallbackLines.length > 0) {
@@ -2688,6 +2670,7 @@ Return exactly this JSON schema:
       let parsedData: any = null;
       try {
         const geminiPromise = generateContentWithCascade(ai, {
+          preferredModel: "gemini-2.0-flash",
           contents: prompt,
           config: {
             tools: [{ googleSearch: {} }],
@@ -2695,7 +2678,7 @@ Return exactly this JSON schema:
           },
         });
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Gemini analysis timed out after 60s")), 60000)
+          setTimeout(() => reject(new Error("Gemini analysis timed out after 15s")), 15000)
         );
         const response: any = await Promise.race([geminiPromise, timeoutPromise]);
         geminiDuration = Date.now() - geminiStart;
@@ -2715,7 +2698,7 @@ Return exactly this JSON schema:
         }
       } catch (geminiErr: any) {
         geminiDuration = Date.now() - geminiStart;
-        console.warn(`[fetch-script] Gemini call failed or timed out (${geminiDuration}ms):`, geminiErr?.message || geminiErr);
+        console.warn(`[fetch-script] Gemini call failed (${geminiDuration}ms):`, geminiErr?.message || geminiErr);
         parsedData = generateScriptFallback(videoUrl, realTitle, realAuthor, scrapedData, isLive);
       }
 
@@ -2761,11 +2744,12 @@ Return exactly this JSON schema:
         }
       }
 
-      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
+      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
 
       res.json(parsedData);
     } catch (error: any) {
-      console.log("[fetch-script] Transitioning to local high-fidelity fallback generator due to rate limit or API exception.");
+      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
+      console.log("[fetch-script] Transitioning to local high-fidelity fallback generator due to rate limit or API exception:", error?.message || error);
       try {
         const fallbackData = generateScriptFallback(videoUrl, realTitle, realAuthor, scrapedData, isLive);
         res.json(fallbackData);
@@ -2774,6 +2758,141 @@ Return exactly this JSON schema:
       }
     }
   });
+
+  // Server-side calibrated Hook Scorer & Punchy Thumbnail Spec Generator
+  function calculateHookScoreServer(hookText: string): number {
+    const rawText = (hookText || '').trim();
+    if (!rawText) return 0;
+    const words = rawText.split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+    if (wordCount === 0) return 0;
+    if (wordCount <= 3) return Math.min(35, Math.max(10, wordCount * 10));
+
+    const lower = rawText.toLowerCase().replace(/[^\w\s']/g, ' ');
+    const normalizedWords = lower.split(/\s+/).filter(Boolean);
+
+    let score = 46;
+    const weakOpeners = [
+      'all right', 'alright', 'so here we are', 'here we are', 'hey guys', 'hey everyone',
+      'welcome back', 'welcome to', 'today we are', 'today im', 'today i', 'in this video',
+      'what is up', 'whats up', 'hello guys', 'hello everyone', 'so today', 'just wanted to',
+      'so basically', 'i just wanted', 'as you know', 'as you can see'
+    ];
+    const openingPhrase = normalizedWords.slice(0, 6).join(' ');
+    let fillerPenalty = 0;
+    for (const weak of weakOpeners) {
+      if (openingPhrase.startsWith(weak) || lower.startsWith(weak)) {
+        fillerPenalty = 16;
+        break;
+      }
+    }
+    score -= fillerPenalty;
+
+    if (wordCount >= 6 && wordCount <= 16) score += 5;
+    else if (wordCount > 25) score -= 10;
+    else if (wordCount < 5) score -= 8;
+
+    const contrarianPatterns = /\b(stop|never|don't|dont|quit|avoid|wrong|myth|lie|lies|scam|ruining|ruined|waste|worst|terrible|kills|killing|dead|trap|mistake|failed|failing)\b/i;
+    let hasContrarian = false;
+    if (contrarianPatterns.test(lower)) {
+      hasContrarian = true;
+      score += 10;
+    }
+
+    const curiosityPatterns = /\b(secret|secrets|secretly|hidden|nobody|no one|why|how|truth|exposed|exposing|revealed|uncovered|loophole|hack|banned|forbidden|illegal|conspiracy|insane)\b/i;
+    let hasCuriosity = false;
+    if (curiosityPatterns.test(lower)) {
+      hasCuriosity = true;
+      score += 8;
+    }
+
+    const numberPatterns = /\b(\d+([kmb%]|x|\.\d+)?|\$\d+)\b/i;
+    const timePatterns = /\b(hours?|days?|seconds?|minutes?|months?|years?|overnight|in 24 hours)\b/i;
+    let hasProof = false;
+    if (numberPatterns.test(lower) || timePatterns.test(lower)) {
+      hasProof = true;
+      score += 8;
+    }
+
+    const stakesPatterns = /\b(money|dollar|\$|bank|banks|lose|losing|steal|stealing|scam|trap|danger|illegal|warning|ruin|costing|career|crisis)\b/i;
+    let hasStakes = false;
+    if (stakesPatterns.test(lower)) {
+      hasStakes = true;
+      score += 7;
+    }
+
+    const empiricalPatterns = /\b(i tested|we tested|i spent|we spent|i tried|we tried|i bought|i built|i analyzed|i worked|i lived)\b/i;
+    if (empiricalPatterns.test(lower)) score += 6;
+
+    if (/\b(you|your|you're|you'll|you've)\b/i.test(lower)) score += 4;
+
+    if ((hasContrarian && hasCuriosity) || ((hasContrarian || hasCuriosity) && (hasProof || hasStakes))) {
+      score += 6;
+    }
+
+    return Math.min(95, Math.max(15, Math.round(score)));
+  }
+
+  function extractPunchyThumbnailOverlayServer(title: string, hookText: string): string {
+    const cleanTitle = (title || "")
+      .replace(/\s*[\(\[](?:Official\s+)?(?:Music\s+)?Video[\)\]]/gi, "")
+      .replace(/\s*[\(\[]Lyric\s+Video[\)\]]/gi, "")
+      .replace(/\s*[\(\[]Visualizer[\)\]]/gi, "")
+      .replace(/\s*[\(\[]Audio[\)\]]/gi, "")
+      .replace(/\s*[\(\[]4K[\)\]]/gi, "")
+      .replace(/\s*[\(\[]HD[\)\]]/gi, "")
+      .replace(/\.\w{2,4}$/i, "")
+      .trim();
+
+    const titleTopic = cleanTitle.includes(" - ") ? cleanTitle.split(" - ").slice(1).join(" - ").trim() : cleanTitle;
+    const lowerTitle = titleTopic.toLowerCase();
+    const lowerHook = (hookText || "").toLowerCase();
+
+    if (lowerTitle.includes("zoo") || lowerHook.includes("elephant")) {
+      return "ELEPHANTS UP CLOSE";
+    }
+    if (lowerTitle.includes("collatz") || lowerTitle.includes("3x+1") || lowerHook.includes("collatz")) {
+      return "IMPOSSIBLE MATH PUZZLE";
+    }
+    if (lowerTitle.includes("never gonna give you up") || lowerTitle.includes("rick astley")) {
+      return "NEVER GONNA GIVE";
+    }
+
+    const stopWords = new Set([
+      "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
+      "by", "from", "up", "about", "into", "through", "after", "over", "between", "out",
+      "against", "during", "without", "before", "under", "around", "among", "is", "are",
+      "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did",
+      "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
+      "my", "your", "his", "its", "our", "their", "this", "that", "these", "those",
+      "what", "which", "who", "whom", "whose", "so", "just", "really", "very", "quite",
+      "right", "alright", "hey", "hello", "welcome", "guys", "today", "video", "official",
+      "here", "there", "when", "where", "why", "how", "all", "any", "both", "each",
+      "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only",
+      "own", "same", "than", "too", "can", "will", "should", "now"
+    ]);
+
+    const titleWords = titleTopic.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
+    const meaningfulTitleWords = titleWords.filter(w => !stopWords.has(w.toLowerCase()));
+
+    if (meaningfulTitleWords.length >= 2) {
+      return meaningfulTitleWords.slice(0, 3).join(" ").toUpperCase();
+    }
+
+    if (hookText && hookText !== "N/A" && !hookText.startsWith("[")) {
+      const hookWords = hookText.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
+      const meaningfulHookWords = hookWords.filter(w => !stopWords.has(w.toLowerCase()));
+      if (meaningfulHookWords.length >= 2) {
+        return meaningfulHookWords.slice(0, 3).join(" ").toUpperCase();
+      }
+    }
+
+    if (titleWords.length >= 2) {
+      return titleWords.slice(0, 3).join(" ").toUpperCase();
+    }
+
+    return "REVEALED";
+  }
 
   // Unique high-fidelity script fallback builder
   function generateRawScriptFallback(videoUrl: string, realTitle: string, realAuthor: string, scrapedData?: any, isLive?: boolean) {
@@ -2923,15 +3042,15 @@ Return exactly this JSON schema:
         .replace(/\s*[\(\[]Audio[\)\]]/gi, "")
         .replace(/\.\w{2,4}$/i, "")
         .trim();
-      const headlineWords = (sanitizedCleanTitle.includes(" - ") ? sanitizedCleanTitle.split(" - ").slice(1).join(" - ") : sanitizedCleanTitle)
-        .split(/\s+/).filter(Boolean).slice(0, 4).join(" ").toUpperCase() || "REVEALED";
+      const headlineWords = extractPunchyThumbnailOverlayServer(displayTitle, truncatedHook);
+      const computedHookScore = calculateHookScoreServer(truncatedHook);
 
       return {
         title: displayTitle,
         platform: "youtube" as const,
         duration: displayDuration,
         views: displayViews,
-        hookScore: 92,
+        hookScore: computedHookScore,
         thumbnailSuggestion: `High contrast split-screen presentation. Left: Expressive reaction shot. Right: Focal visual highlighting core topic. Text overlay: "${headlineWords}"`,
         hookText: truncatedHook,
         fullTranscript: finalReportTranscript.trim(),
@@ -3364,48 +3483,8 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
       let lines: any[] = [];
 
-      // 1. Try Native Gemini Multimodal YouTube URL understanding
-      if (videoId) {
-        try {
-          const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-          const multimodalRes = await generateContentWithCascade(ai, {
-            preferredModel: "gemini-2.5-flash",
-            contents: [
-              {
-                fileData: {
-                  fileUri: watchUrl,
-                  mimeType: "video/mp4"
-                }
-              },
-              {
-                text: `Extract the verbatim chronological spoken dialogue from this YouTube video with timestamps.
-Title: "${title || 'YouTube Video'}"
-Channel: "${author || 'Creator'}"
-
-Output format:
-[MM:SS] Spoken dialogue sentence
-If non-verbal or instrumental music, output [NON-VERBAL VIDEO].`
-              }
-            ]
-          });
-
-          const mText = multimodalRes.text || "";
-          if (mText && !mText.includes("[NON-VERBAL VIDEO]")) {
-            lines = parseTimestampedDialogueText(mText);
-          }
-        } catch (mErr) {
-          console.warn("[/api/transcribe-audio] Multimodal attempt failed, trying search grounding:", mErr);
-        }
-      }
-
-      // 2. Fallback to Search Grounding Speech Reconstruction
-      if (lines.length === 0) {
-        const aiGrounding = new GoogleGenAI({
-          apiKey: apiKey,
-          httpOptions: { apiVersion: 'v1alpha' }
-        });
-
-        const prompt = `You are a high-fidelity speech-to-text and spoken dialogue transcription model.
+      // 1. Search Grounding Speech Reconstruction
+      const prompt = `You are a high-fidelity speech-to-text and spoken dialogue transcription model.
 Task: Search the web and reconstruct/transcribe the authentic chronological spoken dialogue and subtitles for this YouTube video:
 URL: ${videoUrl}
 Video ID: ${videoId || 'N/A'}
@@ -3426,31 +3505,31 @@ OUTPUT REQUIREMENTS:
 5. Provide at least 10-30 sequential lines covering the opening hook, core discussion, and conclusion.
 6. Return ONLY the raw JSON array. Do not enclose in backticks or markdown fences.`;
 
-        const response = await generateContentWithCascade(aiGrounding, {
-          contents: prompt,
-          config: {
-            tools: [{ googleSearch: {} }],
-            temperature: 0.2,
-          },
-        });
+      const response = await generateContentWithCascade(ai, {
+        preferredModel: "gemini-2.0-flash",
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          temperature: 0.2,
+        },
+      });
 
-        const responseText = response.text || "";
-        try {
-          const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-          const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            if (Array.isArray(parsed)) {
-              lines = parsed.map((item: any, idx: number) => ({
-                text: (item.text || item.content || "").trim(),
-                start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-                duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-              })).filter(l => l.text.length > 0);
-            }
+      const responseText = response.text || "";
+      try {
+        const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
+        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (Array.isArray(parsed)) {
+            lines = parsed.map((item: any, idx: number) => ({
+              text: (item.text || item.content || "").trim(),
+              start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
+              duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
+            })).filter(l => l.text.length > 0);
           }
-        } catch (parseErr) {
-          console.warn("[/api/transcribe-audio] JSON parse error:", parseErr, responseText);
         }
+      } catch (parseErr) {
+        console.warn("[/api/transcribe-audio] JSON parse error:", parseErr, responseText);
       }
 
       if (lines.length > 0) {

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
+import { calculateHookScore } from '../utils/transcriptParser';
 
 interface GenerationItem {
   id: number;
@@ -337,8 +338,8 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       lenScore = Math.max(35, 100 - (charLen - 70) * 2.5); // Mobile ellipsis truncate penalty
     }
 
-    // Weighting for organic CTR prediction representation
-    const total = Math.round((tension * 0.32) + (curiosity * 0.28) + (payoff * 0.25) + (lenScore * 0.15));
+    // Harmonized with central calibrated hook engine
+    const total = calculateHookScore(analyzedTitle);
 
     return { total, tension, curiosity, payoff, length: lenScore };
   }, [analyzedTitle]);

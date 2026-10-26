@@ -17,6 +17,7 @@ import { useCalibrationBridge } from '../context/CalibrationBridgeContext';
 import { getSecureGeminiKey } from '../utils/secureStorage';
 import { getAuthOrGuestToken } from '../utils/authSession';
 import VisualBlueprintParser from '../components/VisualBlueprintParser';
+import { calculateHookScore } from '../utils/transcriptParser';
 
 interface GenerationItem {
   id: number;
@@ -682,17 +683,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
       }
     });
     
-    let score = 45; // base score
-    score += matchCount * 12;
-    
-    // Hook length optimization bonus
-    if (words.length >= 8 && words.length <= 16) {
-      score += 15;
-    } else {
-      score -= 10;
-    }
-    
-    score = Math.max(15, Math.min(100, score));
+    const score = calculateHookScore(text);
     
     let label = "Passive Hook";
     let color = "text-rose-400";

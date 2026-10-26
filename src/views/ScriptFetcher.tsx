@@ -39,6 +39,7 @@ import {
   parseWebVttSubtitles, 
   formatSubtitles, 
   calculateHookScore, 
+  formatThumbnailSpec, 
   resolveTranscriptClientSide,
   SubtitleLine,
   getClientFriendlyErrorMessage,
@@ -108,55 +109,6 @@ export const ScriptFetcher: React.FC = () => {
       setCalibrationHook('');
     }
   }, [calibrationHook, setCalibrationHook, addToast]);
-
-  // Helper to ensure thumbnail spec has a punchy 2-5 word hook headline rather than raw video title
-  const formatThumbnailSpec = (rawSpec: string, title: string, hookText: string): string => {
-    let cleanTitle = (title || "")
-      .replace(/\s*[\(\[](?:Official\s+)?(?:Music\s+)?Video[\)\]]/gi, "")
-      .replace(/\s*[\(\[]Lyric\s+Video[\)\]]/gi, "")
-      .replace(/\s*[\(\[]Visualizer[\)\]]/gi, "")
-      .replace(/\s*[\(\[]Audio[\)\]]/gi, "")
-      .replace(/\s*[\(\[]4K[\)\]]/gi, "")
-      .replace(/\s*[\(\[]HD[\)\]]/gi, "")
-      .replace(/\.\w{2,4}$/i, "")
-      .trim();
-
-    if (cleanTitle.includes(" - ")) {
-      cleanTitle = cleanTitle.split(" - ").slice(1).join(" - ").trim();
-    }
-
-    let punchyHeadline = "";
-    if (hookText && hookText !== "N/A" && !hookText.startsWith("[")) {
-      const hookWords = hookText.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-      if (hookWords.length >= 2) {
-        punchyHeadline = hookWords.slice(0, 4).join(" ").toUpperCase();
-      }
-    }
-    if (!punchyHeadline && cleanTitle) {
-      const titleWords = cleanTitle.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-      punchyHeadline = titleWords.slice(0, 4).join(" ").toUpperCase();
-    }
-    if (!punchyHeadline) {
-      punchyHeadline = "REVEALED";
-    }
-
-    let cleanedSpec = rawSpec || "";
-    if (cleanedSpec) {
-      cleanedSpec = cleanedSpec
-        .replace(/\s*[\(\[](?:Official\s+)?(?:Music\s+)?Video[\)\]]/gi, "")
-        .replace(/\s*[\(\[]Lyric\s+Video[\)\]]/gi, "")
-        .replace(/\s*[\(\[]Visualizer[\)\]]/gi, "")
-        .replace(/\s*[\(\[]Audio[\)\]]/gi, "");
-    }
-
-    if (!cleanedSpec || cleanedSpec === "N/A" || cleanedSpec.length < 15) {
-      return `High-contrast split-screen layout. Left: Expressive reaction shot. Right: Focal visual highlighting core topic. Text overlay: "${punchyHeadline}"`;
-    }
-
-    cleanedSpec = cleanedSpec.replace(/(?:text\s+overlay|text\s+outline|center\s+text|text\s+tag)\s*[:\-]\s*["'][^"']+["']/i, `Text overlay: "${punchyHeadline}"`);
-
-    return cleanedSpec;
-  };
 
   // Simulated extraction package contents
   const [extractedData, setExtractedData] = useState({
@@ -736,12 +688,14 @@ export const ScriptFetcher: React.FC = () => {
 
       let fullTranscript = data.fullTranscript || (isUnavailable ? '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
       let hookText = data.hookText || 'N/A';
-      let hookScore = Number(data.hookScore) || 0;
-      if (!hookScore && hookText && hookText !== 'N/A') {
+      let hookScore = 0;
+      if (hookText && hookText !== 'N/A' && !hookText.startsWith("[")) {
         hookScore = calculateHookScore(hookText, undefined, data.platform || 'youtube');
+      } else if (data.hookScore) {
+        hookScore = Number(data.hookScore);
       }
       if (!hookScore) {
-        hookScore = isUnavailable ? 50 : 65;
+        hookScore = isUnavailable ? 35 : 55;
       }
       let pacingSpeed = data.pacingSpeed || 'N/A';
       let transcriptErrorCode = isUnavailable ? 'VIDEO_PRIVATE_OR_REMOVED' : (data.transcriptErrorCode || (hasTranscript ? '' : 'DATACENTER_IP_BLOCKED'));
