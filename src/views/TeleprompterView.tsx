@@ -680,6 +680,11 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
                 SPACE
               </kbd>
             </button>
+            {isScriptEmpty && (
+              <span className="text-[11px] font-mono text-gray-400 bg-white/5 border border-white/5 px-2.5 py-1 rounded-lg">
+                Load a script first
+              </span>
+            )}
 
             <button
               type="button"

@@ -136,9 +136,9 @@ export const PlaybookModal: React.FC<PlaybookModalProps> = ({
         description: "AXE HOURS is designed as a streamlined creator operating system. The optimal flow is simple: generate script ideas using prompt presets inside the Architect, refine your visual copy dynamically with Viral Loops, audit your pacing metrics against top channels using Script Fetcher, and benchmark your progress using the Workspace Audit trail logs.",
         steps: [
           { phase: "Phase 1: Layouts", action: "Extracting short-form layouts using advanced preset cards with prompt details to compile high-retention outlines.", targetView: "generator", query: "Show me the Script Architect to generate short-form layouts" },
-          { phase: "Phase 2: Buffer Bridge", action: "Utilizing the local state buffer transfer bridge to push transcript text or scripts directly across workspaces.", targetView: "script-fetcher", query: "Open the Script Fetcher so I can use the Data Bridge" },
+          { phase: "Phase 2: Buffer Bridge", action: "Using one-click transfer between tools to push transcript text or scripts directly across workspaces.", targetView: "script-fetcher", query: "Open the Script Fetcher so I can use the Data Bridge" },
           { phase: "Phase 3: Playground", action: "Executing A/B linguistic playground evaluations to compare metrics and copy variants side-by-side.", targetView: "generator", query: "Open the A/B comparative Retention Playground" },
-          { phase: "Phase 4: Teleprompter", action: "Initiating the requestAnimationFrame Autoscroll Teleprompter & Speech Pacing Coach to practice live delivery.", targetView: "teleprompter", query: "Show me the Teleprompter Studio viewport" }
+          { phase: "Phase 4: Teleprompter", action: "Initiating the auto-scrolling teleprompter & Speech Pacing Coach to practice live delivery.", targetView: "teleprompter", query: "Show me the Teleprompter Studio viewport" }
         ]
       }
     ],
@@ -166,7 +166,7 @@ export const PlaybookModal: React.FC<PlaybookModalProps> = ({
     'secrets': [
       {
         title: "🌌 Short-Form Retention Secrets",
-        subtitle: "Data-backed video pacing blueprints utilized by the top 0.1%",
+        subtitle: "Data-backed video pacing blueprints utilized by top creators",
         hacks: [
           { rule: "Rule 1: The 3.2s Scroll-Stop Limit", detail: "If your visual or vocal hook spans more than 3.5 seconds before establishing the conflict, retention rates decay by up to 48%. Place your hook text boldly in the safe region." },
           { rule: "Rule 2: Neural Reset Events", detail: "Trigger an audio-visual rhythm change every 4 to 6 seconds. This can be a secondary zoom, a text highlight trigger, a sound effect spike, or a b-roll cut." },

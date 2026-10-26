@@ -216,9 +216,9 @@ export const Settings: React.FC = () => {
               <div className="p-4 bg-purple-500/5 border border-purple-500/10 rounded-xl flex gap-3 items-start">
                 <ShieldCheck className="text-purple-400 mt-0.5 shrink-0" size={16} />
                 <div className="space-y-1">
-                  <p className="text-xs font-semibold text-white">Security & Sandboxing Protocol</p>
+                  <p className="text-xs font-semibold text-white">How your key is stored</p>
                   <p className="text-[11px] text-gray-400 leading-relaxed">
-                    Your API key is encrypted and stored locally in your browser. It is never stored on our database.
+                    Your key is saved in this browser only (when 'Remember' is checked) and sent to our server in a request header for each AI request. It is never saved on our servers.
                   </p>
                 </div>
               </div>

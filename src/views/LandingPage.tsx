@@ -386,7 +386,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
         </h1>
 
         <p id="landing-subtitle" className="text-base sm:text-lg md:text-xl text-gray-300 max-w-2xl mx-auto font-normal leading-relaxed mb-9">
-          Supercharge your competitor analytics, craft retention-optimized script blueprints, and stream high-converting media hooks from an integrated, futuristic command deck.
+          Supercharge your competitor analytics, craft retention-optimized script blueprints, and stream high-converting media hooks from one creator workspace.
         </p>
 
         <div id="landing-hero-actions" className="flex flex-col sm:flex-row items-center gap-4">
@@ -427,7 +427,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
             Creator Production Workflow
           </h2>
           <p id="showcase-desc" className="text-gray-300 max-w-lg mx-auto text-sm md:text-base mt-2 font-normal leading-relaxed">
-            An interconnected sequence designed to optimize every facet of your content lifecycle. Select a node to decrypt its stream parameters.
+            An interconnected sequence designed to optimize every facet of your content lifecycle. Pick a step to see how it works.
           </p>
         </div>
 

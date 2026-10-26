@@ -896,7 +896,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       doc.line(15, nextY + 3, 195, nextY + 3);
 
       refinedAlternatives.forEach((alt, idx) => {
-        const altText = `Style: ${alt.style} (Predicted Score: ${alt.score}%)`;
+        const altText = `Style: ${alt.style} (Estimated Score: ${alt.score}%)`;
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9);
         doc.setTextColor(109, 40, 217);
@@ -1116,7 +1116,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
             {/* Input video title box */}
             <div className="space-y-1.5">
               <div className="flex justify-between items-center select-none">
-                <label className="text-[10px] text-amber-400 font-bold uppercase tracking-wider font-mono">Video Title to Predict</label>
+                <label className="text-[10px] text-amber-400 font-bold uppercase tracking-wider font-mono">Video Title to Test</label>
                 <span className={`text-[9px] font-mono font-bold ${analyzedTitle.length > 70 ? 'text-rose-400' : 'text-gray-500'}`}>
                   {analyzedTitle.length} chars
                 </span>
@@ -1129,7 +1129,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
                     setAnalyzedTitle(e.target.value);
                     if (e.target.value.length % 5 === 0) playAudioCue(300 + e.target.value.length * 4);
                   }}
-                  placeholder="e.g. How to coded saas using AI"
+                  placeholder="e.g. I Grew 100kg of Tomatoes on a Balcony in 90 Days"
                   className="w-full bg-black/45 border border-white/10 rounded-xl p-3 pr-10 text-xs text-white outline-none focus:border-amber-400 font-semibold"
                 />
                 {analyzedTitle && (
@@ -1205,7 +1205,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
                         <div className="absolute inset-0 rounded-full border-4 border-amber-500 transition-all duration-500" style={{ clipPath: `polygon(50% 50%, -50% -50%, ${scores.total >= 50 ? '150%' : '50%'} -50%, ${scores.total >= 75 ? '150%' : '150%'} 150%, 150% 150%, 50% 150%)`, opacity: scores.total / 100 }} />
                         <div className="text-center">
                           <span className="text-xl font-black text-white font-mono">{scores.total}%</span>
-                          <span className="text-[7.5px] text-gray-400 uppercase font-bold block leading-none">Predicted</span>
+                          <span className="text-[7.5px] text-gray-400 uppercase font-bold block leading-none">Estimated</span>
                         </div>
                       </div>
 
@@ -1497,7 +1497,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
                     {/* Simulated curve */}
                     <div className="p-3 bg-black/40 rounded-xl border border-white/5 text-center">
                       <div className="flex justify-between text-[9px] text-gray-500 uppercase tracking-widest font-mono font-bold mb-2">
-                        <span>Predicted Retention Curve</span>
+                        <span>Estimated Retention Curve</span>
                         <span className="text-emerald-400">Generic vs Axe Hook</span>
                       </div>
                       <div className="flex items-end justify-between h-14 px-4 pt-1 text-[8px] font-mono text-gray-500 border-b border-l border-white/10 select-none">

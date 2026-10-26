@@ -37,7 +37,7 @@ export const Footer: React.FC = () => {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-[#fff] tracking-wider text-xs uppercase">AXE HOURS</span>
-                <span className="text-[9px] font-mono font-black text-primary border border-primary/20 bg-primary/5 px-1.5 py-0.2 rounded-full">v5.2.0</span>
+                
               </div>
               <p className="text-[10px] text-on-surface-variant font-light mt-0.5">High-retention creative synthesis and predictive orchestration suite.</p>
             </div>
@@ -64,7 +64,7 @@ export const Footer: React.FC = () => {
 
         {/* Copy Indicator bar */}
         <div className="max-w-7xl mx-auto border-t border-white/5 mt-5 pt-4 flex flex-col xs:flex-row justify-between items-center gap-3 text-[10px] text-gray-500 font-mono">
-          <p>© {new Date().getFullYear()} AXE HOURS. Built for top 0.1% retention strategists.</p>
+          <p>© {new Date().getFullYear()} AXE HOURS.</p>
           <div className="flex items-center gap-4">
             <button 
               type="button"
@@ -90,7 +90,7 @@ export const Footer: React.FC = () => {
             <span className="h-3 w-[1px] bg-white/10" />
             <p className="flex items-center gap-1">
               <Shield size={10} className="text-primary/70" />
-              <span>Secure Sandboxed cloud protocol locked</span>
+              
             </p>
           </div>
         </div>

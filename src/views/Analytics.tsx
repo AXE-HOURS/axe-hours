@@ -1974,7 +1974,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ recentGenerations = [] }) 
                 /* SECTION 3: Projected Growth Line Chart Simulator */
                 <div className="space-y-4 animate-in fade-in duration-300">
                   <p className="text-xs text-gray-400 font-light leading-relaxed select-text">
-                    This interactive simulator uses our <strong>Viewer Retention Decay Algorithm</strong>. Adjusting the predicted first-3-seconds <strong>Hook Strength</strong> score dynamically scales the audience retention profile across the entire video runtime. Higher hooks trigger algorithm recommendation loops.
+                    This interactive simulator uses our <strong>Viewer Retention Decay Algorithm</strong>. Adjusting the estimated first-3-seconds <strong>Hook Strength</strong> score dynamically scales the audience retention profile across the entire video runtime. Higher hooks trigger algorithm recommendation loops.
                   </p>
 
                   {/* Interactive Slider */}
@@ -1982,7 +1982,7 @@ export const Analytics: React.FC<AnalyticsProps> = ({ recentGenerations = [] }) 
                     <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
                       <div className="space-y-0.5 select-none">
                         <span className="text-[9px] text-purple-400 font-bold uppercase tracking-widest font-mono">Simulate Hook Score</span>
-                        <h4 className="text-xs font-extrabold text-white">Adjust Predicted Hook Strength Metric</h4>
+                        <h4 className="text-xs font-extrabold text-white">Adjust Estimated Hook Strength Metric</h4>
                       </div>
                       <div className="flex items-center gap-2 select-none">
                         <span className="text-[11px] text-gray-400">Target Score:</span>
@@ -2891,9 +2891,9 @@ export const Analytics: React.FC<AnalyticsProps> = ({ recentGenerations = [] }) 
                           <div className="flex gap-2 items-start text-xs text-red-400">
                             <span className="shrink-0 mt-0.5">⚠️</span>
                             <div>
-                              <p className="font-bold">Sandbox API Handshake Restricted (HTTP 403)</p>
+                              <p className="font-bold">API Access Restricted (HTTP 403)</p>
                               <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">
-                                Google's live YouTube API is restricted in this sandboxed Dev Environment to whitelisted testers. But don't worry! You can bypass this immediately.
+                                Google's live YouTube API is restricted in this environment to authorized testers. But don't worry! You can bypass this immediately.
                               </p>
                             </div>
                           </div>

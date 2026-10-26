@@ -235,17 +235,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ recentGenerations = [], on
   };
 
   // Interactive Thumbnail States
-  const [thumbHeadline, setThumbHeadline] = useState("I CODED SAAS IN 24H 🤫");
-  const [thumbLeftMetric, setThumbLeftMetric] = useState("OLD WAY");
-  const [thumbLeftSub, setThumbLeftSub] = useState("0 NEW VISITORS");
-  const [thumbRightMetric, setThumbRightMetric] = useState("AI PROMPT ⚡");
-  const [thumbRightSub, setThumbRightSub] = useState("$12.4K RECURRING");
+  const [thumbHeadline, setThumbHeadline] = useState("I TRIED THIS FOR 30 DAYS 🤫");
+  const [thumbLeftMetric, setThumbLeftMetric] = useState("DAY 1");
+  const [thumbLeftSub, setThumbLeftSub] = useState("0 PROGRESS");
+  const [thumbRightMetric, setThumbRightMetric] = useState("DAY 30 ⚡");
+  const [thumbRightSub, setThumbRightSub] = useState("REAL RESULTS");
   const [thumbTheme, setThumbTheme] = useState<"magenta" | "emerald" | "cyan" | "gold">("emerald");
   const [thumbLayout, setThumbLayout] = useState<"thirds" | "split">("thirds");
   const [thumbFace, setThumbFace] = useState<"shocked" | "distressed" | "confident">("confident");
 
   // Dynamic Dashboard SEO Optimizer states
-  const [seoTitleInput, setSeoTitleInput] = useState("10x your client acquisition using AI-driven hooks");
+  const [seoTitleInput, setSeoTitleInput] = useState("How I doubled my audience retention in 30 days");
   const [seoDescription, setSeoDescription] = useState("");
   const [seoHashtags, setSeoHashtags] = useState<string[]>([]);
   const [seoKeywords, setSeoKeywords] = useState<string[]>([]);
@@ -289,9 +289,11 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
 
     setSeoDescription(descriptionGlow);
 
-    const tags = ["#creators", "#growthhacks", "#viralalgorithm", "#saas"];
-    if (formatted.toLowerCase().includes("ai") || formatted.toLowerCase().includes("hook") || formatted.toLowerCase().includes("generator")) {
-      tags.push("#artificialintelligence", "#promptengineering");
+    const tags = ["#creators", "#youtubetips", "#viralcontent", "#growth"];
+    if (formatted.toLowerCase().includes("tech") || formatted.toLowerCase().includes("coding") || formatted.toLowerCase().includes("software")) {
+      tags.push("#techcreator", "#saas");
+    } else if (formatted.toLowerCase().includes("ai") || formatted.toLowerCase().includes("hook") || formatted.toLowerCase().includes("generator")) {
+      tags.push("#artificialintelligence", "#creatorgrowth");
     }
     if (formatted.toLowerCase().includes("money") || formatted.toLowerCase().includes("client") || formatted.toLowerCase().includes("$")) {
       tags.push("#businessscaling", "#solopreneur");
@@ -439,7 +441,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
         <h1 id="dashboard-title" className="text-3xl font-extrabold text-white tracking-tight">Dashboard Overview</h1>
         <p id="dashboard-subtitle" className="text-on-surface-variant flex items-center gap-1.5 mt-1 text-sm font-light">
           <Zap className="text-primary fill-current" size={14} />
-          Statistical compounding charts mapping active AI projections.
+          Your content activity at a glance
         </p>
       </div>
 
@@ -472,7 +474,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
               {totalGens === 0 ? (
                 <div className="w-full h-[200px] min-h-[200px] bg-black/30 rounded-xl border border-white/5 p-4 flex flex-col items-center justify-center text-center mt-4">
                   <TrendingUp className="text-gray-500 mb-2" size={24} />
-                  <p className="text-xs text-gray-400">Generate scripts to populate your retention curve.</p>
+                  <p className="text-xs text-gray-400">Generate your first script to see trends.</p>
                 </div>
               ) : (
                 <div className="relative w-full h-[200px] min-h-[200px] bg-black/30 rounded-xl border border-white/5 p-2 overflow-hidden mt-4">
@@ -500,7 +502,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
           {totalGens === 0 ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-4">
               <span className="text-2xl font-black text-gray-600 mb-2">--</span>
-              <p className="text-xs text-gray-400">Generate scripts to evaluate quality projections.</p>
+              <p className="text-xs text-gray-400">Generate your first script to see trends.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4 flex-1 items-center">
@@ -791,7 +793,7 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
               <div className="space-y-2.5 max-h-[195px] overflow-y-auto custom-scrollbar pr-1">
                 {scheduledPosts.length === 0 ? (
                   <div className="text-center py-6 flex flex-col items-center justify-center">
-                    <p className="text-xs text-gray-400 font-medium">No videos planned yet. Generate a script to add your first video.</p>
+                    <p className="text-xs text-gray-400 font-medium">No posts planned yet: click Add Slot.</p>
                     <button
                       onClick={onViewAllGens}
                       className="mt-3 px-3 py-1.5 bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 text-xs font-semibold rounded-lg border border-purple-500/30 transition-all flex items-center gap-1.5 cursor-pointer"
@@ -1017,7 +1019,8 @@ Comment 'BLUEPRINT' down below and our server automated suite will send the sour
                 <span className="text-[9px] uppercase text-purple-300 font-extrabold font-mono tracking-wider">⚡ Quick preset themes:</span>
                 <div className="flex gap-1 overflow-x-auto scrollbar-none py-0.5">
                   {[
-                    { label: "Tech 💻", head: "I CODED SAAS IN 24H 🤫", lMet: "OLD WAY", lSub: "0 NEW VISITORS", rMet: "AI PROMPT ⚡", rSub: "$12.4K RECURRING", color: "magenta" },
+                    { label: "General 🎯", head: "I TRIED THIS FOR 30 DAYS 🤫", lMet: "DAY 1", lSub: "0 PROGRESS", rMet: "DAY 30 ⚡", rSub: "REAL RESULTS", color: "emerald" },
+                    { label: "Tech 💻", head: "I BUILT AN APP IN 24H 🤫", lMet: "OLD WAY", lSub: "0 NEW VISITORS", rMet: "AI PROMPT ⚡", rSub: "$12.4K RECURRING", color: "magenta" },
                     { label: "Food 🍳", head: "RUINED MY PASTA?! 🤦‍♂️", lMet: "BOILED", lSub: "SOGGY & LAND", rMet: "MICHELIN STAR", rSub: "GLOSSY EMULSION", color: "gold" },
                     { label: "Fitness ⚡", head: "STOP COFFEE FIRST! 🚨", lMet: "IMMEDIATE", lSub: "AFTERNOON CRASH", rMet: "DELAY 90 MINS", rSub: "LIMITLESS STAMINA", color: "emerald" },
                     { label: "Wealth 💰", head: "SAVINGS ACCOUNTS=SCAM?! 🤫", lMet: "BANK ACCOUNT", lSub: "0.01% PENNY GAINS", rMet: "ROYALTY STREAM", rSub: "12% AUTOPILOT", color: "gold" },

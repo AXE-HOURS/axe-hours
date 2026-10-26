@@ -44,6 +44,25 @@ interface TimelineSegment {
 
 // Creative Presets & Blueprints templates
 const VIDEO_TEMPLATES = [
+  // General & Creator Strategy
+  {
+    name: "The 30-Day Content Experiment",
+    prompt: "Stop posting randomly and hoping for algorithmic reach. Here is the exact daily workflow I used for 30 days to double my audience retention without burning out.",
+    voice: "Storyteller",
+    category: "General",
+    niche: "General Creator Growth",
+    duration: "60s Short-form",
+    style: "Clean documentary pacing with text callouts"
+  },
+  {
+    name: "The Habit Loop Strategy",
+    prompt: "Why 90% of people quit their new habits within two weeks. The simple 2-minute friction rule that makes daily consistency feel completely effortless.",
+    voice: "Educator",
+    category: "General",
+    niche: "Self-Improvement & Habits",
+    duration: "60s Short-form",
+    style: "Split-screen comparison with bold captions"
+  },
   // Tech & Indie Hacking
   {
     name: "The Contrarian SaaS",
@@ -55,8 +74,8 @@ const VIDEO_TEMPLATES = [
     style: "Cyber-glow console zoom-ins"
   },
   {
-    name: "The 0.1% IDE Obsidian Setup",
-    prompt: "The 0.1% software engineers do not use standard terminal layouts. Why this obscure configuration trick doubles coding velocity with zero cognitive load.",
+    name: "The Minimal Desk Setup",
+    prompt: "Top software engineers do not use cluttered desktop layouts. Why this clean configuration trick doubles coding velocity with zero mental friction.",
     voice: "Storyteller",
     category: "Tech",
     niche: "Dev Productivity",
@@ -213,7 +232,7 @@ const MIX_PRESETS = [
   {
     name: "Curiosity Loop Hook",
     desc: "Enshroud raw ideas in severe mystery, revealing obscure tricks only at the final segment.",
-    anchor: "The top 0.1% of specialists do not use standard formats. Why this obscure configuration trick doubles operational speed with zero cognitive load."
+    anchor: "Top specialists do not use standard formats. Why this clean workflow doubles operational speed with zero mental friction."
   },
   {
     name: "Ultimate Value Bomb",
@@ -2266,7 +2285,7 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
               </div>
               {/* Category Filter Pills */}
               <div className="flex gap-1 overflow-x-auto scrollbar-none py-1">
-                {["All", "Tech", "Finance", "Travel", "Food", "Fitness", "Gaming"].map((cat) => (
+                {["All", "General", "Tech", "Finance", "Travel", "Food", "Fitness", "Gaming"].map((cat) => (
                   <button
                     key={cat}
                     onClick={() => {

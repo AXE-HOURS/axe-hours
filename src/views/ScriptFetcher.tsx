@@ -1398,7 +1398,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
             <ul className="text-[10.5px] text-gray-400 leading-relaxed space-y-1.5 font-light">
               <li className="flex items-start gap-1.5">
                 <CheckCircle size={10} className="text-amber-500 mt-1 shrink-0" />
-                <span><span className="text-white font-semibold">Waveform Transcription:</span> Converts vocal patterns to high fidelity text outputs.</span>
+                <span><span className="text-white font-semibold">Audio transcription:</span> turns speech into text when captions are missing</span>
               </li>
               <li className="flex items-start gap-1.5">
                 <CheckCircle size={10} className="text-amber-500 mt-1 shrink-0" />
@@ -1802,7 +1802,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
           </span>
           <h2 className="text-2xl font-extrabold text-white tracking-tight">Algorithmic Trust & Metrics Calibration Center</h2>
           <p className="text-on-surface-variant text-sm max-w-4xl font-light leading-relaxed">
-            Many tools show static or random fake scores. Our platform simulates <strong className="text-white font-medium">empirical viewer psychology, speech linguistics, and real-world platform recommendation vectors</strong>. See exactly how your hook structure, vocal delivery speed, and film cuts mathematically dictate real retention before spending hours shooting.
+            Many tools show static or random fake scores. Scores are estimates based on simple text heuristics (hook length, curiosity words, pacing).
           </p>
         </div>
 

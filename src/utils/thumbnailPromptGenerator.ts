@@ -99,18 +99,18 @@ export const generateThumbnailSpecs = (
 • Facial Detail Spec: ${faceDetails.describe}
 
 --- 🖊️ 4. HERO OVERLAY TYPOGRAPHY ---
-• Overlay Text Phrase: "${headline || "I CODED SAAS IN 24H 🤫"}"
+• Overlay Text Phrase: "${headline || "I TRIED THIS FOR 30 DAYS 🤫"}"
 • Typographical Directive: Rendered in a high-impact, modern display font (e.g., Space Grotesk or Cabinet Grotesque, Black weight). Font color should be extreme-contrast white with strong outer neon outlines in colors matching ${themeDetails.glowColors}. Include a heavy, crisp offset drop shadow to guarantee readability at a microscopic 100px mobile preview.
 • Positioning Strategy: Centered overlay across the seam, bridging the gap between both panes for visually seamless integration.
 
 --- 📊 5. COMPARATIVE STATISTICAL DATA BADGES ---
 🔴 LEFT PANE [THE CRITICAL PROBLEM STATE]:
-   - Metrics Header Accent: "${leftMetric || "OLD WAY"}"
-   - Metrics Detail Subtitle: "${leftSub || "0 NEW VISITORS"}"
+   - Metrics Header Accent: "${leftMetric || "BEFORE"}"
+   - Metrics Detail Subtitle: "${leftSub || "0 PROGRESS"}"
    - Color Styling: Desaturated dark crimson banner, custom faded gray text to represent manual struggle, low performance, and failure.
 🟢 RIGHT PANE [THE OPTIMIZED SOLUTION STATE]:
-   - Metrics Header Accent: "${rightMetric || "AI PROMPT ⚡"}"
-   - Metrics Detail Subtitle: "${rightSub || "$12.4K RECURRING"}"
+   - Metrics Header Accent: "${rightMetric || "AFTER ⚡"}"
+   - Metrics Detail Subtitle: "${rightSub || "10X RESULTS"}"
    - Color Styling: Highly saturated neon gradients with brilliant ${themeDetails.glowColors} outlines to communicate speed, automated luxury, and high-converting success.
 
 ================================================================================
@@ -123,7 +123,7 @@ Copy & paste into Midjourney:
 
 🔥 [PROMPT 2: GRAPHIC TECH PRESENTATION CANVAS]
 Copy & paste into Midjourney:
-/imagine prompt: A clean minimalist technology graphic design banner presentation on a pitch black studio backdrop, rule of thirds composition. Centered in the middle is glowing custom high-voltage neon typography displaying the letters "${headline || "I CODED SAAS IN 24H"}" encased in sharp 3D glossmorphic panel borders. Bright vibrant lighting splashes of ${themeDetails.glowColors}, deep saturated color gradient beams, floating performance indicators and charts, futuristic graphic design layout, modern premium YouTuber branding aesthetic --ar 16:9 --style raw
+/imagine prompt: A clean minimalist technology graphic design banner presentation on a pitch black studio backdrop, rule of thirds composition. Centered in the middle is glowing custom high-voltage neon typography displaying the letters "${headline || "I TRIED THIS FOR 30 DAYS"}" encased in sharp 3D glossmorphic panel borders. Bright vibrant lighting splashes of ${themeDetails.glowColors}, deep saturated color gradient beams, floating performance indicators and charts, futuristic graphic design layout, modern premium YouTuber branding aesthetic --ar 16:9 --style raw
 
 🔥 [PROMPT 3: CRISP INFLUENCER AVATAR HERO SHOT]
 Copy & paste into Midjourney:

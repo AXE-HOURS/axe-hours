@@ -563,7 +563,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         handleFirestoreError(e, OperationType.WRITE, path);
       }
     } else {
-      // Local sandboxed index bounds check
+      // Local isolated index bounds check
       const current = getLocalIdeas();
       if (current.length >= 5) {
         throw new Error("Free Sandbox limit exceeded (5 ideas). Register for a free account to unlock infinite Cloud database storage!");

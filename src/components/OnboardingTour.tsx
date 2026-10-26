@@ -74,7 +74,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
           <div className="p-3.5 bg-purple-500/5 border border-purple-500/20 text-purple-300 rounded-xl flex items-center gap-3">
             <Sparkles size={16} className="shrink-0 text-purple-400 animate-pulse" />
             <div>
-              <p className="font-bold text-[11px]">Dynamic Local State Buffer</p>
+              <p className="font-bold text-[11px]">One-click transfer</p>
               <p className="text-[9px] text-gray-400 mt-0.5">Bypass manual copying entirely by linking your transcript sources to the AI generator.</p>
             </div>
           </div>
@@ -108,7 +108,7 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
     },
     {
       title: "🎙️ Step C: The Speech Coach Viewport",
-      subtitle: "requestAnimationFrame Autoscroll Teleprompter",
+      subtitle: "auto-scrolling teleprompter",
       icon: BrandIcon,
       accent: "text-amber-400 border-amber-500/30 bg-amber-500/10",
       selector: "#teleprompter-viewport",
