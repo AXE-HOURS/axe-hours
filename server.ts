@@ -1429,7 +1429,32 @@ ${
       ...(sessionHeaders?.["Cookie"] ? { "Cookie": sessionHeaders["Cookie"] } : {})
     };
 
-    // 1. Prioritize raw JSON3 format (&fmt=json3)
+    // 1. Prioritize cleanUrl directly (as signed by player response with its exact fmt parameter, e.g. fmt=srv3)
+    try {
+      const directRes = await fetch(cleanUrl, {
+        headers,
+        keepalive: true,
+        signal: AbortSignal.timeout(10000)
+      });
+      if (directRes.ok) {
+        const txt = await decodeHttpResponseText(directRes);
+        if (txt && txt.trim().length > 0) {
+          try {
+            const data = JSON.parse(txt);
+            const lines = parseJsonSubtitles(data);
+            if (lines && lines.length > 0) return lines;
+          } catch (_) {}
+          const lines = parseTimedTextXml(txt);
+          if (lines && lines.length > 0) return lines;
+        }
+      } else {
+        console.warn(`[SubtitleFetcher] Direct track fetch returned HTTP ${directRes.status} (${directRes.statusText})`);
+      }
+    } catch (e) {
+      console.warn("[SubtitleFetcher] Direct track fetch error:", e);
+    }
+
+    // 2. Fallback: Try raw JSON3 format (&fmt=json3)
     try {
       let jsonUrl = cleanUrl;
       if (jsonUrl.includes('fmt=')) {
@@ -1453,7 +1478,6 @@ ${
               return lines;
             }
           } catch (_) {
-            // Fallback: XML parser in case response was not JSON
             const lines = parseTimedTextXml(jsonText);
             if (lines && lines.length > 0) {
               return lines;
@@ -1465,31 +1489,6 @@ ${
       }
     } catch (e) {
       console.warn("[SubtitleFetcher] JSON3 track fetch error:", e);
-    }
-
-    // 2. Try cleanUrl directly (as signed by player response)
-    try {
-      const directRes = await fetch(cleanUrl, {
-        headers,
-        keepalive: true,
-        signal: AbortSignal.timeout(10000)
-      });
-      if (directRes.ok) {
-        const txt = await decodeHttpResponseText(directRes);
-        if (txt && txt.trim().length > 0) {
-          try {
-            const data = JSON.parse(txt);
-            const lines = parseJsonSubtitles(data);
-            if (lines && lines.length > 0) return lines;
-          } catch (_) {}
-          const lines = parseTimedTextXml(txt);
-          if (lines && lines.length > 0) return lines;
-        }
-      } else {
-        console.warn(`[SubtitleFetcher] Direct track fetch returned HTTP ${directRes.status} (${directRes.statusText})`);
-      }
-    } catch (e) {
-      console.warn("[SubtitleFetcher] Direct track fetch error:", e);
     }
 
     // 3. Try raw XML format (remove &fmt= if present)
@@ -1775,19 +1774,190 @@ ${
     try {
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
 
-      // -------------------------------------------------------------
-      // PRE-PROBE: Extract INNERTUBE_API_KEY, visitorData, and initial HTML from Watch Page
-      // -------------------------------------------------------------
-      let innertubeApiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"; // Default Innertube client key fallback
-      let watchHtml = "";
-      let watchCookie = "";
-      let visitorData = "";
       let candidateTrackUrl: string | null = null;
-      let watchHttpStatus = 200;
-      const watchUserAgent = getRandomUserAgent();
+
+      const defaultInnertubeApiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+      const playerEndpoint = `https://www.youtube.com/youtubei/v1/player?key=${defaultInnertubeApiKey}`;
       const standardConsentCookie = "CONSENT=PENDING+999; SOCS=CAESEwgDEgk2MjE4Mzg0ODQaAmVuIAEaBgiA_LmvBg";
 
+      // -------------------------------------------------------------
+      // STRATEGY 1 (FASTEST & MOST RELIABLE): Innertube Android Client
+      // Directly returns authenticated fmt=srv3 XML tracks in < 1s
+      // -------------------------------------------------------------
+      let tracks: any[] | undefined = undefined;
+      let step1Status = 200;
       try {
+        console.log("[SubtitleFetcher] Strategy 1: Querying Innertube Android player API...");
+        const androidHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+          "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14; Pixel 8 Pro) gzip",
+          "X-YouTube-Client-Name": "3",
+          "X-YouTube-Client-Version": "20.10.38",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cookie": standardConsentCookie
+        };
+
+        const playerRes = await fetch(playerEndpoint, {
+          method: "POST",
+          headers: androidHeaders,
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: "ANDROID",
+                clientVersion: "20.10.38",
+                hl: "en",
+                gl: "US"
+              }
+            },
+            videoId: videoId
+          }),
+          signal: AbortSignal.timeout(8000),
+          keepalive: true
+        });
+
+        step1Status = playerRes.status;
+        if (playerRes.ok) {
+          const playerJson = await playerRes.json() as any;
+          const playability = playerJson.playabilityStatus;
+          if (
+            playability?.status === 'LOGIN_REQUIRED' ||
+            playability?.reason?.toLowerCase().includes('private') ||
+            playability?.reason?.toLowerCase().includes('deleted') ||
+            playability?.reason?.toLowerCase().includes('removed')
+          ) {
+            return {
+              lines: null,
+              hasTracks: false,
+              errorCode: 'VIDEO_UNAVAILABLE',
+              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+              status: 'VIDEO_UNAVAILABLE',
+              strategySummary: "android: private/removed"
+            };
+          }
+          const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
+          tracks = tracklist?.captionTracks;
+        }
+
+        if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+          const sessionCookie = playerRes.headers.get("set-cookie") || "";
+          const sessionHeaders: Record<string, string> = {
+            "User-Agent": androidHeaders["User-Agent"],
+            "Cookie": sessionCookie ? `${standardConsentCookie}; ${sessionCookie}` : standardConsentCookie
+          };
+          const sortedTracks = sortCaptionTracks(tracks).slice(0, 3);
+          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+            candidateTrackUrl = sortedTracks[0].baseUrl;
+          }
+          for (const track of sortedTracks) {
+            const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
+            if (lines && lines.length > 0) {
+              strategyLog.push(`android: ok (${lines.length} lines)`);
+              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
+            }
+          }
+          strategyLog.push(`android: HTTP ${step1Status}, ${tracks.length} tracks, fetch failed`);
+        } else {
+          strategyLog.push(`android: HTTP ${step1Status}, ${tracks?.length || 0} tracks`);
+        }
+      } catch (l1Err: any) {
+        strategyLog.push(`android: error (${l1Err?.message || 'failed'})`);
+      }
+
+      // -------------------------------------------------------------
+      // STRATEGY 2: Innertube iOS Client Fallback
+      // -------------------------------------------------------------
+      let iosTracks: any[] | undefined = undefined;
+      let step2Status = 200;
+      try {
+        console.log("[SubtitleFetcher] Strategy 2: Retrying with IOS client context...");
+        const iosHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+          "User-Agent": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)",
+          "X-YouTube-Client-Name": "5",
+          "X-YouTube-Client-Version": "19.45.4",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cookie": standardConsentCookie
+        };
+
+        const iosRes = await fetch(playerEndpoint, {
+          method: "POST",
+          headers: iosHeaders,
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: "IOS",
+                clientVersion: "19.45.4",
+                deviceModel: "iPhone16,2",
+                osName: "iOS",
+                osVersion: "18.1.0.22B83",
+                hl: "en",
+                gl: "US"
+              }
+            },
+            videoId: videoId
+          }),
+          signal: AbortSignal.timeout(8000),
+          keepalive: true
+        });
+
+        step2Status = iosRes.status;
+        if (iosRes.ok) {
+          const iosJson = await iosRes.json() as any;
+          const playability = iosJson.playabilityStatus;
+          if (
+            playability?.status === 'LOGIN_REQUIRED' ||
+            playability?.reason?.toLowerCase().includes('private') ||
+            playability?.reason?.toLowerCase().includes('deleted') ||
+            playability?.reason?.toLowerCase().includes('removed')
+          ) {
+            return {
+              lines: null,
+              hasTracks: false,
+              errorCode: 'VIDEO_UNAVAILABLE',
+              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+              status: 'VIDEO_UNAVAILABLE',
+              strategySummary: "ios: private/removed"
+            };
+          }
+          const tracklist = iosJson.captions?.playerCaptionsTracklistRenderer || iosJson.playerCaptionsTracklistRenderer;
+          iosTracks = tracklist?.captionTracks;
+        }
+
+        if (iosTracks && Array.isArray(iosTracks) && iosTracks.length > 0) {
+          const sessionCookie = iosRes.headers.get("set-cookie") || "";
+          const sessionHeaders: Record<string, string> = {
+            "User-Agent": iosHeaders["User-Agent"],
+            "Cookie": sessionCookie ? `${standardConsentCookie}; ${sessionCookie}` : standardConsentCookie
+          };
+          const sortedTracks = sortCaptionTracks(iosTracks).slice(0, 3);
+          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+            candidateTrackUrl = sortedTracks[0].baseUrl;
+          }
+          for (const track of sortedTracks) {
+            const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
+            if (lines && lines.length > 0) {
+              strategyLog.push(`ios: ok (${lines.length} lines)`);
+              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
+            }
+          }
+          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks.length} tracks, fetch failed`);
+        } else {
+          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks?.length || 0} tracks`);
+        }
+      } catch (l2Err: any) {
+        strategyLog.push(`ios: error (${l2Err?.message || 'failed'})`);
+      }
+
+      // -------------------------------------------------------------
+      // STRATEGY 3: Web Watch-Page HTML Extraction
+      // -------------------------------------------------------------
+      let watchHtml = "";
+      let watchCookie = "";
+      let watchHttpStatus = 200;
+      let webTracks: any[] | null = null;
+      const watchUserAgent = getRandomUserAgent();
+      try {
+        console.log("[SubtitleFetcher] Strategy 3: Probing watch page HTML...");
         const probeRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
           headers: {
             "User-Agent": watchUserAgent,
@@ -1795,60 +1965,18 @@ ${
             "Accept-Language": "en-US,en;q=0.9",
             "Cookie": standardConsentCookie
           },
-          signal: AbortSignal.timeout(8000)
+          signal: AbortSignal.timeout(6000)
         });
         watchHttpStatus = probeRes.status;
         if (probeRes.ok) {
           watchHtml = await probeRes.text();
           const setCookies = probeRes.headers.get("set-cookie") || "";
           watchCookie = setCookies ? `${standardConsentCookie}; ${setCookies}` : standardConsentCookie;
-
-          const keyMatch = watchHtml.match(/"INNERTUBE_API_KEY":\s*"([^"]+)"/)?.[1] ||
-                           watchHtml.match(/"INNERTUBE_API_KEY":"([^"]+)"/)?.[1] ||
-                           watchHtml.match(/INNERTUBE_API_KEY\\":\\"([^\\"]+)\\"/)?.[1];
-          if (keyMatch) {
-            innertubeApiKey = keyMatch;
-            console.log(`[SubtitleFetcher] Extracted live INNERTUBE_API_KEY from watch page: ${innertubeApiKey.slice(0, 10)}...`);
-          }
-
-          const visitorMatch = watchHtml.match(/"visitorData":\s*"([^"]+)"/)?.[1] ||
-                               watchHtml.match(/visitorData\\":\\"([^\\"]+)\\"/)?.[1];
-          if (visitorMatch) {
-            visitorData = visitorMatch;
-            console.log(`[SubtitleFetcher] Extracted live visitorData from watch page: ${visitorData.slice(0, 15)}...`);
-          }
-        } else {
-          console.warn(`[SubtitleFetcher] Watch page probe returned HTTP ${probeRes.status}`);
         }
       } catch (probeErr: any) {
-        console.warn("[SubtitleFetcher] Watch page probe skipped, using standard Innertube key:", probeErr?.message || probeErr);
+        console.warn("[SubtitleFetcher] Watch page probe skipped:", probeErr?.message || probeErr);
       }
 
-      // Check if video is private or restricted from watchHtml
-      if (watchHtml) {
-        if (
-          watchHtml.includes('"status":"LOGIN_REQUIRED"') ||
-          watchHtml.includes('"status": "LOGIN_REQUIRED"') ||
-          watchHtml.includes('This video is private') ||
-          watchHtml.includes('"reason":"This video is private"')
-        ) {
-          console.warn("[SubtitleFetcher] Watch page confirms video is private or restricted.");
-          return {
-            lines: null,
-            hasTracks: false,
-            errorCode: 'VIDEO_UNAVAILABLE',
-            errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-            status: 'VIDEO_UNAVAILABLE',
-            strategySummary: "web: private/removed"
-          };
-        }
-      }
-
-      // -------------------------------------------------------------
-      // STRATEGY 1 (FASTEST): Web Watch-Page HTML Extraction
-      // Since watchHtml is already in memory, parsing captionTracks takes ~0ms!
-      // -------------------------------------------------------------
-      let webTracks: any[] | null = null;
       if (watchHtml) {
         const playerResponse = extractJsonBlock(watchHtml, "ytInitialPlayerResponse");
         if (playerResponse) {
@@ -1900,177 +2028,6 @@ ${
         strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks.length} tracks, fetch failed`);
       } else {
         strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks?.length || 0} tracks`);
-      }
-
-      const playerEndpoint = `https://www.youtube.com/youtubei/v1/player?key=${innertubeApiKey}`;
-
-      // -------------------------------------------------------------
-      // STRATEGY 2: Innertube Android Client (Resilient against Cloud/Render bot blocks & PO tokens)
-      // -------------------------------------------------------------
-      let tracks: any[] | undefined = undefined;
-      let step1Status = 200;
-      try {
-        console.log("[SubtitleFetcher] Strategy 2: Querying Innertube Android player API...");
-        const androidHeaders: Record<string, string> = {
-          "Content-Type": "application/json",
-          "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14; Pixel 8 Pro) gzip",
-          "X-YouTube-Client-Name": "3",
-          "X-YouTube-Client-Version": "20.10.38",
-          "Accept-Encoding": "gzip, deflate, br",
-          "Cookie": watchCookie || standardConsentCookie
-        };
-
-        const playerRes = await fetch(playerEndpoint, {
-          method: "POST",
-          headers: androidHeaders,
-          body: JSON.stringify({
-            context: {
-              client: {
-                clientName: "ANDROID",
-                clientVersion: "20.10.38",
-                hl: "en",
-                gl: "US",
-                ...(visitorData ? { visitorData } : {})
-              }
-            },
-            videoId: videoId
-          }),
-          signal: AbortSignal.timeout(8000),
-          keepalive: true
-        });
-
-        step1Status = playerRes.status;
-        if (playerRes.ok) {
-          const playerJson = await playerRes.json() as any;
-          const playability = playerJson.playabilityStatus;
-          if (
-            playability?.status === 'LOGIN_REQUIRED' ||
-            playability?.reason?.toLowerCase().includes('private') ||
-            playability?.reason?.toLowerCase().includes('deleted') ||
-            playability?.reason?.toLowerCase().includes('removed')
-          ) {
-            return {
-              lines: null,
-              hasTracks: false,
-              errorCode: 'VIDEO_UNAVAILABLE',
-              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-              status: 'VIDEO_UNAVAILABLE',
-              strategySummary: "android: private/removed"
-            };
-          }
-          const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
-          tracks = tracklist?.captionTracks;
-        }
-
-        if (tracks && Array.isArray(tracks) && tracks.length > 0) {
-          const sessionCookie = playerRes.headers.get("set-cookie") || "";
-          const sessionHeaders: Record<string, string> = {
-            "User-Agent": androidHeaders["User-Agent"],
-            "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
-          };
-          const sortedTracks = sortCaptionTracks(tracks).slice(0, 2);
-          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
-            candidateTrackUrl = sortedTracks[0].baseUrl;
-          }
-          for (const track of sortedTracks) {
-            const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
-            if (lines && lines.length > 0) {
-              strategyLog.push(`android: ok (${lines.length} lines)`);
-              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
-            }
-          }
-          strategyLog.push(`android: HTTP ${step1Status}, ${tracks.length} tracks, fetch failed`);
-        } else {
-          strategyLog.push(`android: HTTP ${step1Status}, ${tracks?.length || 0} tracks`);
-        }
-      } catch (l1Err: any) {
-        strategyLog.push(`android: error (${l1Err?.message || 'failed'})`);
-      }
-
-      // -------------------------------------------------------------
-      // STRATEGY 3: Innertube iOS Client Fallback
-      // -------------------------------------------------------------
-      let iosTracks: any[] | undefined = undefined;
-      let step2Status = 200;
-      try {
-        console.log("[SubtitleFetcher] Strategy 3: Retrying with IOS client context...");
-        const iosHeaders: Record<string, string> = {
-          "Content-Type": "application/json",
-          "User-Agent": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)",
-          "X-YouTube-Client-Name": "5",
-          "X-YouTube-Client-Version": "19.45.4",
-          "Accept-Encoding": "gzip, deflate, br",
-          "Cookie": watchCookie || standardConsentCookie
-        };
-
-        const iosRes = await fetch(playerEndpoint, {
-          method: "POST",
-          headers: iosHeaders,
-          body: JSON.stringify({
-            context: {
-              client: {
-                clientName: "IOS",
-                clientVersion: "19.45.4",
-                deviceModel: "iPhone16,2",
-                osName: "iOS",
-                osVersion: "18.1.0.22B83",
-                hl: "en",
-                gl: "US",
-                ...(visitorData ? { visitorData } : {})
-              }
-            },
-            videoId: videoId
-          }),
-          signal: AbortSignal.timeout(8000),
-          keepalive: true
-        });
-
-        step2Status = iosRes.status;
-        if (iosRes.ok) {
-          const iosJson = await iosRes.json() as any;
-          const playability = iosJson.playabilityStatus;
-          if (
-            playability?.status === 'LOGIN_REQUIRED' ||
-            playability?.reason?.toLowerCase().includes('private') ||
-            playability?.reason?.toLowerCase().includes('deleted') ||
-            playability?.reason?.toLowerCase().includes('removed')
-          ) {
-            return {
-              lines: null,
-              hasTracks: false,
-              errorCode: 'VIDEO_UNAVAILABLE',
-              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-              status: 'VIDEO_UNAVAILABLE',
-              strategySummary: "ios: private/removed"
-            };
-          }
-          const tracklist = iosJson.captions?.playerCaptionsTracklistRenderer || iosJson.playerCaptionsTracklistRenderer;
-          iosTracks = tracklist?.captionTracks;
-        }
-
-        if (iosTracks && Array.isArray(iosTracks) && iosTracks.length > 0) {
-          const sessionCookie = iosRes.headers.get("set-cookie") || "";
-          const sessionHeaders: Record<string, string> = {
-            "User-Agent": iosHeaders["User-Agent"],
-            "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
-          };
-          const sortedTracks = sortCaptionTracks(iosTracks).slice(0, 2);
-          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
-            candidateTrackUrl = sortedTracks[0].baseUrl;
-          }
-          for (const track of sortedTracks) {
-            const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
-            if (lines && lines.length > 0) {
-              strategyLog.push(`ios: ok (${lines.length} lines)`);
-              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
-            }
-          }
-          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks.length} tracks, fetch failed`);
-        } else {
-          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks?.length || 0} tracks`);
-        }
-      } catch (l2Err: any) {
-        strategyLog.push(`ios: error (${l2Err?.message || 'failed'})`);
       }
 
       // -------------------------------------------------------------
@@ -2443,7 +2400,7 @@ Return ONLY a JSON array of dialogue objects:
               config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
             });
             const groundingTimeout = new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("Grounding transcription timed out after 8s")), 8000)
+              setTimeout(() => reject(new Error("Grounding transcription timed out after 20s")), 20000)
             );
             const groundingRes: any = await Promise.race([groundingPromise, groundingTimeout]);
             const gText = groundingRes.text || "";

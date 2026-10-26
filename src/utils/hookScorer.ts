@@ -242,3 +242,4 @@ export function formatThumbnailSpec(rawSpec: string, title: string, hookText: st
 
   return cleanedSpec;
 }
+
