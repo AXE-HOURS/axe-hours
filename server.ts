@@ -4,7 +4,7 @@ import path from "path";
 import crypto from "crypto";
 import dotenv from "dotenv";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import { rateLimit } from "express-rate-limit";
 import { gunzipSync, inflateSync } from "node:zlib";
 import { PREFERRED_MODEL_ORDER, DEFAULT_FALLBACK_MODELS } from "./src/constants/models";
@@ -650,6 +650,25 @@ function cleanGeminiErrorMessage(error: any): string {
     : "AI is busy, try again in a minute.";
 }
 
+const transcriptionSchema = {
+  type: Type.ARRAY,
+  description: "Chronological verbatim dialogue segments with precise start timestamps in seconds",
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      start: {
+        type: Type.NUMBER,
+        description: "Start timestamp of the spoken segment in seconds"
+      },
+      text: {
+        type: Type.STRING,
+        description: "Verbatim spoken words of this segment"
+      }
+    },
+    required: ["start", "text"]
+  }
+};
+
 async function generateContentWithCascade(
   ai: GoogleGenAI,
   params: {
@@ -1289,34 +1308,125 @@ ${
   }
 
   function parseDialogueLines(responseText: string): { text: string; start: number; duration: number }[] {
+    if (!responseText || typeof responseText !== "string") return [];
+
     let lines: { text: string; start: number; duration: number }[] = [];
+
+    // 1. Strip markdown code fences
+    const cleaned = responseText
+      .replace(/^```json\s*/gim, "")
+      .replace(/^```\s*/gim, "")
+      .replace(/```$/gim, "")
+      .replace(/```/g, "")
+      .trim();
+
+    // Helper to validate and normalize parsed dialogue items
+    const normalizeItems = (items: any[]): { text: string; start: number; duration: number }[] => {
+      if (!Array.isArray(items)) return [];
+      return items
+        .map((item: any, idx: number) => {
+          if (!item || typeof item !== "object") return null;
+          const text = typeof item.text === "string" ? item.text.trim() : (typeof item.content === "string" ? item.content.trim() : "");
+          const rawStart = item.start !== undefined ? item.start : item.timestamp;
+          const start = typeof rawStart === "number" ? rawStart : (parseFloat(rawStart) || idx * 4);
+          const duration = typeof item.duration === "number" ? item.duration : (parseFloat(item.duration || item.dur) || 3.5);
+          if (!text || isNaN(start)) return null;
+          return { text, start: parseFloat(start.toFixed(3)), duration: parseFloat(duration.toFixed(2)) };
+        })
+        .filter((l): l is { text: string; start: number; duration: number } => l !== null);
+    };
+
+    // Attempt 1: Direct JSON.parse of entire cleaned text
     try {
-      const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-      let rawParsed: any = null;
+      let directParsed = JSON.parse(cleaned);
+      if (!Array.isArray(directParsed) && directParsed && typeof directParsed === "object") {
+        directParsed = directParsed.transcript || directParsed.lines || directParsed.subtitles || directParsed.dialogue || null;
+      }
+      if (Array.isArray(directParsed)) {
+        lines = normalizeItems(directParsed);
+      }
+    } catch (directErr) {
+      // Attempt 2: Array substring match [ ... ]
       const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
       if (arrayMatch) {
-        rawParsed = JSON.parse(arrayMatch[0]);
-      } else {
-        const objMatch = cleaned.match(/\{[\s\S]*\}/);
-        if (objMatch) {
-          const obj = JSON.parse(objMatch[0]);
-          rawParsed = obj.transcript || obj.lines || obj.subtitles || obj.dialogue || null;
+        try {
+          const parsed = JSON.parse(arrayMatch[0]);
+          if (Array.isArray(parsed)) {
+            lines = normalizeItems(parsed);
+          }
+        } catch (arrErr) {
+          // Proceed to repair
         }
       }
-      if (Array.isArray(rawParsed)) {
-        lines = rawParsed.map((item: any, idx: number) => ({
-          text: (item.text || item.content || item.line || "").trim(),
-          start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-          duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-        })).filter((l: any) => l.text.length > 0);
-      }
-    } catch (parseErr) {
-      console.warn("[parseDialogueLines] JSON parse error:", parseErr);
     }
 
-    const isRefusal = /cannot fulfill|capabilities do not include|do not provide the actual transcript|unable to access|cannot directly access|no transcript (found|available)/i.test(responseText);
-    if (!isRefusal && lines.length === 0 && responseText && responseText.trim().length > 30) {
-      const cleanedText = responseText.replace(/```[\s\S]*?```/g, "").replace(/[\*\#\_]/g, "").trim();
+    // Attempt 3: Repair truncated JSON array by cutting to last complete "}" and closing with "]"
+    if (lines.length === 0) {
+      const firstBracket = cleaned.indexOf('[');
+      if (firstBracket !== -1) {
+        const slice = cleaned.slice(firstBracket);
+        const lastBrace = slice.lastIndexOf('}');
+        if (lastBrace !== -1) {
+          const repaired = slice.slice(0, lastBrace + 1) + ']';
+          try {
+            const repairedParsed = JSON.parse(repaired);
+            if (Array.isArray(repairedParsed)) {
+              lines = normalizeItems(repairedParsed);
+              console.log(`[parseDialogueLines] Successfully repaired truncated JSON array: recovered ${lines.length} lines.`);
+            }
+          } catch (repairErr) {
+            // Proceed to regex object extraction
+          }
+        }
+      }
+    }
+
+    // Attempt 4: Extract individual objects with regex for {"start":N,"text":"..."} (or reverse order)
+    if (lines.length === 0) {
+      const objRegex = /\{[^{}]*?"(?:start|text)"[^{}]*?\}/g;
+      const matches = cleaned.match(objRegex);
+      if (matches && matches.length > 0) {
+        const extracted: any[] = [];
+        for (const m of matches) {
+          try {
+            const parsed = JSON.parse(m);
+            if (parsed && (parsed.text || parsed.content) && parsed.start !== undefined) {
+              extracted.push(parsed);
+              continue;
+            }
+          } catch {}
+          const startM = m.match(/"start"\s*:\s*([0-9]+(?:\.[0-9]+)?)/i);
+          const textM = m.match(/"text"\s*:\s*"((?:\\.|[^"\\])*)"/i);
+          if (startM && textM) {
+            extracted.push({
+              start: parseFloat(startM[1]),
+              text: textM[1].replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+            });
+          }
+        }
+        if (extracted.length > 0) {
+          lines = normalizeItems(extracted);
+          console.log(`[parseDialogueLines] Regex recovered ${lines.length} objects from incomplete JSON.`);
+        }
+      }
+    }
+
+    // Calculate realistic durations between consecutive lines if not set
+    for (let i = 0; i < lines.length; i++) {
+      if (i < lines.length - 1) {
+        const nextStart = lines[i + 1].start;
+        if (nextStart > lines[i].start) {
+          lines[i].duration = parseFloat(Math.min(15, Math.max(1, nextStart - lines[i].start)).toFixed(2));
+        }
+      }
+    }
+
+    // 4. Never pass raw JSON into the sentence-split fallback
+    const looksLikeJson = /^\s*\[|^\s*\{|"start"\s*:|"text"\s*:/i.test(cleaned);
+    const isRefusal = /cannot fulfill|capabilities do not include|do not provide the actual transcript|unable to access|cannot directly access|no transcript (found|available)/i.test(cleaned);
+
+    if (!looksLikeJson && !isRefusal && lines.length === 0 && cleaned.length > 30) {
+      const cleanedText = cleaned.replace(/```[\s\S]*?```/g, "").replace(/[\*\#\_]/g, "").trim();
       const sentences = cleanedText.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 5);
       if (sentences.length > 0) {
         let currStart = 0;
@@ -2536,11 +2646,18 @@ ${
               preferredModel: activeModelCascade[0],
               contents: [{ role: "user", parts: [videoPart, promptPart] }],
               config: {
+                responseMimeType: "application/json",
+                responseSchema: transcriptionSchema,
+                maxOutputTokens: 16384,
                 mediaResolution: "MEDIA_RESOLUTION_LOW",
                 thinkingConfig: { thinkingBudget: 0 }
               }
             });
-            console.log(`[fetch-script] Token usage for ${videoId}: prompt=${nativeRes.usageMetadata?.promptTokenCount}, candidates=${nativeRes.usageMetadata?.candidatesTokenCount}, thoughts=${(nativeRes.usageMetadata as any)?.thoughtsTokenCount ?? 0}, total=${nativeRes.usageMetadata?.totalTokenCount}`);
+            const finishReason = nativeRes.candidates?.[0]?.finishReason || "UNKNOWN";
+            console.log(`[fetch-script] Token usage for ${videoId}: prompt=${nativeRes.usageMetadata?.promptTokenCount}, candidates=${nativeRes.usageMetadata?.candidatesTokenCount}, thoughts=${(nativeRes.usageMetadata as any)?.thoughtsTokenCount ?? 0}, total=${nativeRes.usageMetadata?.totalTokenCount}, finishReason=${finishReason}`);
+            if (finishReason === "MAX_TOKENS") {
+              console.warn(`[fetch-script] Native video transcription reached MAX_TOKENS for ${videoId}; recovering complete parsed items.`);
+            }
             fallbackLines = parseDialogueLines(nativeRes.text || "");
             if (isClipped && fallbackLines.length > 0) {
               fallbackLines = fallbackLines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
@@ -2612,8 +2729,8 @@ Return ONLY a JSON array of dialogue objects:
             scrapedData.transcript = "";
             scrapedData.transcriptArray = [];
             scrapedData.hasTracks = subResult.hasTracks;
-            scrapedData.transcriptErrorCode = subResult.errorCode || "CAPTION_FETCH_FAILED";
-            scrapedData.transcriptErrorDetails = subResult.errorDetails || "No spoken dialogue could be extracted. Retry, or use AI audio transcription.";
+            scrapedData.transcriptErrorCode = "CAPTION_FETCH_FAILED";
+            scrapedData.transcriptErrorDetails = "AI transcript could not be read. Retry.";
           }
           fallbackDuration = Date.now() - fallbackStart;
           console.log(`[fetch-script] Fallback (audio transcription) took: ${(fallbackDuration / 1000).toFixed(2)}s`);
@@ -3545,13 +3662,20 @@ When analyzing how this exact sequence unfolds, we find that the leading example
             parts: [videoPart, promptPart]
           }],
           config: {
+            responseMimeType: "application/json",
+            responseSchema: transcriptionSchema,
+            maxOutputTokens: 16384,
             mediaResolution: "MEDIA_RESOLUTION_LOW",
             thinkingConfig: { thinkingBudget: 0 }
           }
         });
 
+        const finishReason = response.candidates?.[0]?.finishReason || "UNKNOWN";
         usageMetadata = response.usageMetadata || null;
-        console.log(`[/api/transcribe-audio] Token usage for ${videoId}: prompt=${usageMetadata?.promptTokenCount}, candidates=${usageMetadata?.candidatesTokenCount}, thoughts=${(usageMetadata as any)?.thoughtsTokenCount ?? 0}, total=${usageMetadata?.totalTokenCount}`);
+        console.log(`[/api/transcribe-audio] Token usage for ${videoId}: prompt=${usageMetadata?.promptTokenCount}, candidates=${usageMetadata?.candidatesTokenCount}, thoughts=${(usageMetadata as any)?.thoughtsTokenCount ?? 0}, total=${usageMetadata?.totalTokenCount}, finishReason=${finishReason}`);
+        if (finishReason === "MAX_TOKENS") {
+          console.warn(`[/api/transcribe-audio] Native video transcription reached MAX_TOKENS for ${videoId}; recovering complete parsed items.`);
+        }
 
         const responseText = response.text || "";
         lines = parseDialogueLines(responseText);
@@ -3675,7 +3799,8 @@ Return ONLY a valid JSON array of dialogue objects:
         res.status(404).json({
           success: false,
           hasTranscript: false,
-          error: "Spoken dialogue could not be derived from the audio track (video may be purely music/non-verbal)."
+          errorCode: "CAPTION_FETCH_FAILED",
+          error: "AI transcript could not be read. Retry."
         });
       }
     } catch (err: any) {
