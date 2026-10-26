@@ -317,7 +317,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
 
     if (type === "extraction") {
       // Repeat requests for cached transcripts do not consume daily quota
-      const videoUrl = req.body?.videoUrl;
+      const videoUrl = req.body?.videoUrl || req.body?.url || "";
       const normalizedVideoId = extractYoutubeVideoId(videoUrl);
       if (normalizedVideoId && transcriptCache.has(normalizedVideoId)) {
         const cached = transcriptCache.get(normalizedVideoId)!;
@@ -1111,13 +1111,6 @@ ${
       res.end();
     }
   });
-
-  // Dynamic helper functions for high-retention scraping of actual video content
-  function extractYoutubeVideoId(url: string): string | null {
-    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=|shorts\/)([^#\&\?]*).*/;
-    const match = url.match(regExp);
-    return (match && match[2].length === 11) ? match[2] : null;
-  }
 
   // Helper for YouTube ISO 8601 duration parsing
   function parseIso8601Duration(isoDuration: string): string {
@@ -2237,7 +2230,13 @@ ${
 
   // Secure Script Fetcher and Analyzer with Google Search grounding
   app.post("/api/fetch-script", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
-    const { videoUrl, isLive } = req.body || {};
+    const rawUrl = req.body?.videoUrl || req.body?.url;
+    const videoUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+    const isLive = !!req.body?.isLive;
+
+    if (!videoUrl) {
+      return res.status(400).json({ error: "Missing videoUrl parameter" });
+    }
 
     // Normalize YouTube URL and check Transcript Cache (24-hour TTL)
     const normalizedVideoId = extractYoutubeVideoId(videoUrl);
@@ -3255,7 +3254,9 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
   // AI Audio Transcription / Speech-to-Text Fallback Pipeline (Consolidated with extraction quota)
   app.post("/api/transcribe-audio", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
-    const { videoUrl, title, author } = req.body || {};
+    const rawUrl = req.body?.videoUrl || req.body?.url;
+    const videoUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+    const { title, author } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
     const apiKey = usingCustomKey ? req.customApiKey : process.env.GEMINI_API_KEY;
 
