@@ -7,6 +7,8 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 import { rateLimit } from "express-rate-limit";
 import { gunzipSync, inflateSync } from "node:zlib";
+import { PREFERRED_MODEL_ORDER, DEFAULT_FALLBACK_MODELS } from "./src/constants/models";
+import { calculateHookScore, extractPunchyThumbnailOverlay, formatThumbnailSpec } from "./src/utils/hookScorer";
 
 dotenv.config();
 
@@ -526,7 +528,52 @@ function verifyAiAccess(req: any, res: any, next: any) {
   });
 }
 
-const FALLBACK_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.0-flash-lite"];
+let activeModelCascade: string[] = [...DEFAULT_FALLBACK_MODELS];
+
+async function resolveModelCascade(apiKey?: string): Promise<string[]> {
+  const key = apiKey || process.env.GEMINI_API_KEY || "";
+  if (!key) {
+    console.warn("[Gemini Cascade] No GEMINI_API_KEY configured; using default fallback cascade:", activeModelCascade);
+    return activeModelCascade;
+  }
+  try {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`, {
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!res.ok) {
+      console.warn(`[Gemini Cascade] ListModels returned HTTP ${res.status}: ${res.statusText}; using default cascade:`, activeModelCascade);
+      return activeModelCascade;
+    }
+    const data = await res.json() as any;
+    const rawModels: any[] = Array.isArray(data.models) ? data.models : [];
+    const available = rawModels
+      .filter((m: any) => Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes("generateContent"))
+      .map((m: any) => (typeof m.name === 'string' ? m.name.replace(/^models\//, '') : ''))
+      .filter(Boolean);
+
+    console.log(`[Gemini Cascade] Available models supporting generateContent (${available.length}):`, available.join(", "));
+
+    // Filter by PREFERRED_MODEL_ORDER
+    const matched = PREFERRED_MODEL_ORDER.filter(preferred => available.includes(preferred));
+
+    if (matched.length > 0) {
+      activeModelCascade = [...matched];
+    } else {
+      // If none of our preferred matched directly, pick any flash models or the first few available
+      const flashModels = available.filter(m => m.includes("flash"));
+      if (flashModels.length > 0) {
+        activeModelCascade = flashModels.slice(0, 3);
+      } else if (available.length > 0) {
+        activeModelCascade = available.slice(0, 3);
+      }
+    }
+    console.log(`[Gemini Cascade] Resolved active model cascade:`, activeModelCascade);
+    return activeModelCascade;
+  } catch (err: any) {
+    console.warn("[Gemini Cascade] Failed to resolve models via ListModels API:", err?.message || err, "; using:", activeModelCascade);
+    return activeModelCascade;
+  }
+}
 
 function isRetryableGeminiError(error: any): boolean {
   if (!error) return false;
@@ -602,9 +649,10 @@ async function generateContentWithCascade(
     preferredModel?: string;
   }
 ) {
+  const cascade = activeModelCascade.length > 0 ? activeModelCascade : DEFAULT_FALLBACK_MODELS;
   const models = [
-    ...(params.preferredModel && !FALLBACK_MODELS.includes(params.preferredModel) ? [params.preferredModel] : []),
-    ...FALLBACK_MODELS
+    ...(params.preferredModel && !cascade.includes(params.preferredModel) ? [params.preferredModel] : []),
+    ...cascade
   ];
 
   let lastError: any = null;
@@ -653,9 +701,10 @@ async function generateContentStreamWithCascade(
     preferredModel?: string;
   }
 ) {
+  const cascade = activeModelCascade.length > 0 ? activeModelCascade : DEFAULT_FALLBACK_MODELS;
   const models = [
-    ...(params.preferredModel && !FALLBACK_MODELS.includes(params.preferredModel) ? [params.preferredModel] : []),
-    ...FALLBACK_MODELS
+    ...(params.preferredModel && !cascade.includes(params.preferredModel) ? [params.preferredModel] : []),
+    ...cascade
   ];
 
   let lastError: any = null;
@@ -1392,7 +1441,7 @@ ${
       const jsonRes = await fetch(jsonUrl, {
         headers,
         keepalive: true,
-        signal: AbortSignal.timeout(2500)
+        signal: AbortSignal.timeout(10000)
       });
       if (jsonRes.ok) {
         const jsonText = await decodeHttpResponseText(jsonRes);
@@ -1423,7 +1472,7 @@ ${
       const directRes = await fetch(cleanUrl, {
         headers,
         keepalive: true,
-        signal: AbortSignal.timeout(2500)
+        signal: AbortSignal.timeout(10000)
       });
       if (directRes.ok) {
         const txt = await decodeHttpResponseText(directRes);
@@ -1449,7 +1498,7 @@ ${
       const xmlRes = await fetch(xmlUrl, {
         headers,
         keepalive: true,
-        signal: AbortSignal.timeout(2500)
+        signal: AbortSignal.timeout(10000)
       });
       if (xmlRes.ok) {
         const xml = await decodeHttpResponseText(xmlRes);
@@ -1720,7 +1769,9 @@ ${
     errorDetails?: string; 
     clientDelegationUrl?: string;
     status?: string;
+    strategySummary?: string;
   }> {
+    const strategyLog: string[] = [];
     try {
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
 
@@ -1744,7 +1795,7 @@ ${
             "Accept-Language": "en-US,en;q=0.9",
             "Cookie": standardConsentCookie
           },
-          signal: AbortSignal.timeout(3500)
+          signal: AbortSignal.timeout(8000)
         });
         watchHttpStatus = probeRes.status;
         if (probeRes.ok) {
@@ -1769,19 +1820,97 @@ ${
         } else {
           console.warn(`[SubtitleFetcher] Watch page probe returned HTTP ${probeRes.status}`);
         }
-      } catch (probeErr) {
-        console.warn("[SubtitleFetcher] Watch page probe skipped, using standard Innertube key:", probeErr);
+      } catch (probeErr: any) {
+        console.warn("[SubtitleFetcher] Watch page probe skipped, using standard Innertube key:", probeErr?.message || probeErr);
+      }
+
+      // Check if video is private or restricted from watchHtml
+      if (watchHtml) {
+        if (
+          watchHtml.includes('"status":"LOGIN_REQUIRED"') ||
+          watchHtml.includes('"status": "LOGIN_REQUIRED"') ||
+          watchHtml.includes('This video is private') ||
+          watchHtml.includes('"reason":"This video is private"')
+        ) {
+          console.warn("[SubtitleFetcher] Watch page confirms video is private or restricted.");
+          return {
+            lines: null,
+            hasTracks: false,
+            errorCode: 'VIDEO_UNAVAILABLE',
+            errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+            status: 'VIDEO_UNAVAILABLE',
+            strategySummary: "web: private/removed"
+          };
+        }
+      }
+
+      // -------------------------------------------------------------
+      // STRATEGY 1 (FASTEST): Web Watch-Page HTML Extraction
+      // Since watchHtml is already in memory, parsing captionTracks takes ~0ms!
+      // -------------------------------------------------------------
+      let webTracks: any[] | null = null;
+      if (watchHtml) {
+        const playerResponse = extractJsonBlock(watchHtml, "ytInitialPlayerResponse");
+        if (playerResponse) {
+          const playability = playerResponse.playabilityStatus;
+          if (playability?.status === 'LOGIN_REQUIRED' || playability?.reason?.toLowerCase().includes('private')) {
+            return {
+              lines: null,
+              hasTracks: false,
+              errorCode: 'VIDEO_UNAVAILABLE',
+              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+              status: 'VIDEO_UNAVAILABLE',
+              strategySummary: "web: private"
+            };
+          }
+          webTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+        }
+
+        if (!webTracks) {
+          const initialData = extractJsonBlock(watchHtml, "ytInitialData");
+          webTracks = initialData?.playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
+        }
+
+        if (!webTracks) {
+          const regexMatch = watchHtml.match(/"captionTracks"\s*:\s*(\[.+?\])/);
+          if (regexMatch) {
+            try {
+              webTracks = JSON.parse(regexMatch[1]);
+            } catch (_) {}
+          }
+        }
+      }
+
+      if (webTracks && Array.isArray(webTracks) && webTracks.length > 0) {
+        const sessionHeaders: Record<string, string> = {
+          "User-Agent": watchUserAgent,
+          "Cookie": watchCookie || standardConsentCookie
+        };
+        const sortedTracks = sortCaptionTracks(webTracks).slice(0, 2);
+        if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+          candidateTrackUrl = sortedTracks[0].baseUrl;
+        }
+        for (const track of sortedTracks) {
+          const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
+          if (lines && lines.length > 0) {
+            strategyLog.push(`web: ok (${lines.length} lines)`);
+            return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
+          }
+        }
+        strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks.length} tracks, fetch failed`);
+      } else {
+        strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks?.length || 0} tracks`);
       }
 
       const playerEndpoint = `https://www.youtube.com/youtubei/v1/player?key=${innertubeApiKey}`;
 
       // -------------------------------------------------------------
-      // LAYER 1: Innertube Android Client (Resilient against Cloud/Render bot blocks & PO tokens)
+      // STRATEGY 2: Innertube Android Client (Resilient against Cloud/Render bot blocks & PO tokens)
       // -------------------------------------------------------------
       let tracks: any[] | undefined = undefined;
       let step1Status = 200;
       try {
-        console.log("[SubtitleFetcher] Layer 1: Querying Innertube Android player API...");
+        console.log("[SubtitleFetcher] Strategy 2: Querying Innertube Android player API...");
         const androidHeaders: Record<string, string> = {
           "Content-Type": "application/json",
           "User-Agent": "com.google.android.youtube/20.10.38 (Linux; U; Android 14; Pixel 8 Pro) gzip",
@@ -1806,7 +1935,7 @@ ${
             },
             videoId: videoId
           }),
-          signal: AbortSignal.timeout(3500),
+          signal: AbortSignal.timeout(8000),
           keepalive: true
         });
 
@@ -1820,75 +1949,25 @@ ${
             playability?.reason?.toLowerCase().includes('deleted') ||
             playability?.reason?.toLowerCase().includes('removed')
           ) {
-            console.warn(`[SubtitleFetcher] Video unavailable or private: ${playability?.status} (${playability?.reason})`);
             return {
               lines: null,
               hasTracks: false,
               errorCode: 'VIDEO_UNAVAILABLE',
               errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-              status: 'VIDEO_UNAVAILABLE'
+              status: 'VIDEO_UNAVAILABLE',
+              strategySummary: "android: private/removed"
             };
           }
           const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
           tracks = tracklist?.captionTracks;
-        } else {
-          console.warn(`[SubtitleFetcher] Android player API returned HTTP ${playerRes.status} (${playerRes.statusText})`);
         }
-
-        // Retry with alternate mobile User-Agent if 429 or no tracks found
-        if (step1Status === 429 || !tracks || !Array.isArray(tracks) || tracks.length === 0) {
-          console.log("[SubtitleFetcher] Layer 1 returned empty/429. Fast retrying with alternate mobile User-Agent...");
-          try {
-            const altAndroidHeaders: Record<string, string> = {
-              "Content-Type": "application/json",
-              "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14)",
-              "X-YouTube-Client-Name": "3",
-              "X-YouTube-Client-Version": "19.29.37",
-              "Accept-Encoding": "gzip, deflate, br",
-              "Cookie": watchCookie || standardConsentCookie
-            };
-            const altPlayerRes = await fetch(playerEndpoint, {
-              method: "POST",
-              headers: altAndroidHeaders,
-              body: JSON.stringify({
-                context: {
-                  client: {
-                    clientName: "ANDROID",
-                    clientVersion: "19.29.37",
-                    hl: "en",
-                    gl: "US",
-                    ...(visitorData ? { visitorData } : {})
-                  }
-                },
-                videoId: videoId
-              }),
-              signal: AbortSignal.timeout(2500),
-              keepalive: true
-            });
-            if (altPlayerRes.ok) {
-              const altJson = await altPlayerRes.json() as any;
-              const altTracklist = altJson.captions?.playerCaptionsTracklistRenderer || altJson.playerCaptionsTracklistRenderer;
-              if (altTracklist?.captionTracks && Array.isArray(altTracklist.captionTracks) && altTracklist.captionTracks.length > 0) {
-                tracks = altTracklist.captionTracks;
-                step1Status = 200;
-                console.log(`[SubtitleFetcher] Alternate mobile User-Agent retry succeeded with ${tracks.length} caption tracks!`);
-              }
-            }
-          } catch (altErr) {
-            console.warn("[SubtitleFetcher] Alternate mobile retry encountered error:", altErr);
-          }
-        }
-
-        console.log('[Captions] Step 1 - Android Innertube returned:', tracks?.length || 0);
 
         if (tracks && Array.isArray(tracks) && tracks.length > 0) {
-          console.log(`[SubtitleFetcher] Layer 1 (Android) found ${tracks.length} caption tracks. Cascading with pinned session...`);
           const sessionCookie = playerRes.headers.get("set-cookie") || "";
           const sessionHeaders: Record<string, string> = {
             "User-Agent": androidHeaders["User-Agent"],
             "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
           };
-
           const sortedTracks = sortCaptionTracks(tracks).slice(0, 2);
           if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
             candidateTrackUrl = sortedTracks[0].baseUrl;
@@ -1896,24 +1975,25 @@ ${
           for (const track of sortedTracks) {
             const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
             if (lines && lines.length > 0) {
-              console.log(`[SubtitleFetcher] Layer 1 (Android) successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
-              return { lines, hasTracks: true };
+              strategyLog.push(`android: ok (${lines.length} lines)`);
+              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
             }
           }
-          console.warn("[SubtitleFetcher] Layer 1 (Android) caption tracks were present, but all segment downloads failed.");
+          strategyLog.push(`android: HTTP ${step1Status}, ${tracks.length} tracks, fetch failed`);
+        } else {
+          strategyLog.push(`android: HTTP ${step1Status}, ${tracks?.length || 0} tracks`);
         }
-      } catch (l1Err) {
-        console.warn("[SubtitleFetcher] Layer 1 Innertube Android fetch encountered error:", l1Err);
-        console.log('[Captions] Step 1 - Android Innertube returned: 0');
+      } catch (l1Err: any) {
+        strategyLog.push(`android: error (${l1Err?.message || 'failed'})`);
       }
 
       // -------------------------------------------------------------
-      // LAYER 2: Innertube iOS Client Fallback (Complete with osName & osVersion)
+      // STRATEGY 3: Innertube iOS Client Fallback
       // -------------------------------------------------------------
       let iosTracks: any[] | undefined = undefined;
       let step2Status = 200;
       try {
-        console.log("[SubtitleFetcher] Layer 2: Retrying with IOS client context...");
+        console.log("[SubtitleFetcher] Strategy 3: Retrying with IOS client context...");
         const iosHeaders: Record<string, string> = {
           "Content-Type": "application/json",
           "User-Agent": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)",
@@ -1941,7 +2021,7 @@ ${
             },
             videoId: videoId
           }),
-          signal: AbortSignal.timeout(3500),
+          signal: AbortSignal.timeout(8000),
           keepalive: true
         });
 
@@ -1955,31 +2035,25 @@ ${
             playability?.reason?.toLowerCase().includes('deleted') ||
             playability?.reason?.toLowerCase().includes('removed')
           ) {
-            console.warn(`[SubtitleFetcher] Video unavailable or private (iOS): ${playability?.status} (${playability?.reason})`);
             return {
               lines: null,
               hasTracks: false,
               errorCode: 'VIDEO_UNAVAILABLE',
               errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-              status: 'VIDEO_UNAVAILABLE'
+              status: 'VIDEO_UNAVAILABLE',
+              strategySummary: "ios: private/removed"
             };
           }
           const tracklist = iosJson.captions?.playerCaptionsTracklistRenderer || iosJson.playerCaptionsTracklistRenderer;
           iosTracks = tracklist?.captionTracks;
-        } else {
-          console.warn(`[SubtitleFetcher] iOS player API returned HTTP ${iosRes.status} (${iosRes.statusText})`);
         }
 
-        console.log('[Captions] Step 2 - iOS Innertube returned:', iosTracks?.length || 0);
-
         if (iosTracks && Array.isArray(iosTracks) && iosTracks.length > 0) {
-          console.log(`[SubtitleFetcher] Layer 2 (iOS) found ${iosTracks.length} caption tracks. Cascading with pinned session...`);
           const sessionCookie = iosRes.headers.get("set-cookie") || "";
           const sessionHeaders: Record<string, string> = {
             "User-Agent": iosHeaders["User-Agent"],
             "Cookie": sessionCookie ? `${watchCookie || standardConsentCookie}; ${sessionCookie}` : (watchCookie || standardConsentCookie)
           };
-
           const sortedTracks = sortCaptionTracks(iosTracks).slice(0, 2);
           if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
             candidateTrackUrl = sortedTracks[0].baseUrl;
@@ -1987,181 +2061,86 @@ ${
           for (const track of sortedTracks) {
             const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
             if (lines && lines.length > 0) {
-              console.log(`[SubtitleFetcher] Layer 2 (iOS) successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
-              return { lines, hasTracks: true };
+              strategyLog.push(`ios: ok (${lines.length} lines)`);
+              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
             }
           }
-          console.warn("[SubtitleFetcher] Layer 2 (iOS) caption tracks were present, but all segment downloads failed.");
+          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks.length} tracks, fetch failed`);
+        } else {
+          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks?.length || 0} tracks`);
         }
-      } catch (l2Err) {
-        console.warn("[SubtitleFetcher] Layer 2 Innertube iOS fetch encountered error:", l2Err);
-        console.log('[Captions] Step 2 - iOS Innertube returned: 0');
+      } catch (l2Err: any) {
+        strategyLog.push(`ios: error (${l2Err?.message || 'failed'})`);
       }
 
       // -------------------------------------------------------------
-      // LAYER 3: Web Watch-Page HTML Extraction
+      // STRATEGY 4: Direct XML Timedtext Fallback
       // -------------------------------------------------------------
-      console.log("[SubtitleFetcher] Layer 3: Attempting watch-page HTML extraction...");
-      if (!watchHtml) {
-        try {
-          const response = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-            headers: {
-              "User-Agent": watchUserAgent,
-              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-              "Accept-Language": "en-US,en;q=0.9",
-              "Cookie": watchCookie || standardConsentCookie
-            }
-          });
-          watchHttpStatus = response.status;
-          if (response.ok) {
-            watchHtml = await response.text();
-            watchCookie = response.headers.get("set-cookie") || "";
-          }
-        } catch (watchErr) {
-          console.warn("[SubtitleFetcher] Watch page HTML re-fetch failed:", watchErr);
-        }
-      }
-
-      let webTracks: any[] | null = null;
-      if (watchHtml) {
-        if (
-          watchHtml.includes('"status":"LOGIN_REQUIRED"') ||
-          watchHtml.includes('"status": "LOGIN_REQUIRED"') ||
-          watchHtml.includes('This video is private') ||
-          watchHtml.includes('"reason":"This video is private"')
-        ) {
-          console.warn("[SubtitleFetcher] Watch page confirms video is private or restricted.");
-          return {
-            lines: null,
-            hasTracks: false,
-            errorCode: 'VIDEO_UNAVAILABLE',
-            errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-            status: 'VIDEO_UNAVAILABLE'
-          };
-        }
-
-        // 1. Try ytInitialPlayerResponse
-        const playerResponse = extractJsonBlock(watchHtml, "ytInitialPlayerResponse");
-        if (playerResponse) {
-          const playability = playerResponse.playabilityStatus;
-          if (
-            playability?.status === 'LOGIN_REQUIRED' ||
-            playability?.reason?.toLowerCase().includes('private')
-          ) {
-            return {
-              lines: null,
-              hasTracks: false,
-              errorCode: 'VIDEO_UNAVAILABLE',
-              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-              status: 'VIDEO_UNAVAILABLE'
-            };
-          }
-          webTracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
-        }
-        
-        // 2. Try ytInitialData
-        if (!webTracks) {
-          const initialData = extractJsonBlock(watchHtml, "ytInitialData");
-          webTracks = initialData?.playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
-        }
-        
-        // 3. Try regex fallback directly on captionTracks
-        if (!webTracks) {
-          const regexMatch = watchHtml.match(/"captionTracks"\s*:\s*(\[.+?\])/);
-          if (regexMatch) {
-            try {
-              webTracks = JSON.parse(regexMatch[1]);
-            } catch (e) {
-              console.warn("[SubtitleFetcher] Failed to parse captionTracks from regex match", e);
-            }
-          }
-        }
-      }
-
-      console.log('[Captions] Step 3 - Web HTML scraper returned:', webTracks?.length || 0);
-
-      if (webTracks && Array.isArray(webTracks) && webTracks.length > 0) {
-        console.log(`[SubtitleFetcher] Layer 3 (Web) found ${webTracks.length} caption tracks. Cascading...`);
-        const sessionHeaders: Record<string, string> = {
-          "User-Agent": watchUserAgent,
-          "Cookie": watchCookie || standardConsentCookie
-        };
-
-        const sortedTracks = sortCaptionTracks(webTracks).slice(0, 2);
-        if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
-          candidateTrackUrl = sortedTracks[0].baseUrl;
-        }
-        for (const track of sortedTracks) {
-          const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
-          if (lines && lines.length > 0) {
-            console.log(`[SubtitleFetcher] Layer 3 (Web) successfully extracted ${lines.length} lines from track (${track.languageCode}, kind: ${track.kind || 'manual'})`);
-            return { lines, hasTracks: true };
-          }
-        }
-        console.warn("[SubtitleFetcher] Layer 3 (Web) caption tracks were present, but all segment downloads failed.");
-      }
-
-      // -------------------------------------------------------------
-      // LAYER 4: Direct XML Timedtext Fallback
-      // -------------------------------------------------------------
-      console.log("[SubtitleFetcher] Layer 4: Running XML parser fallback...");
+      console.log("[SubtitleFetcher] Strategy 4: Running XML parser fallback...");
       const xmlResult = await fetchYoutubeSubtitlesFromXml(videoId);
       if (xmlResult.lines && xmlResult.lines.length > 0) {
-        return xmlResult;
+        strategyLog.push(`xml: ok (${xmlResult.lines.length} lines)`);
+        return { ...xmlResult, strategySummary: strategyLog.join("; ") };
       }
       if (!candidateTrackUrl && xmlResult.trackUrl) {
         candidateTrackUrl = xmlResult.trackUrl;
       }
+      strategyLog.push(`xml: ${xmlResult.tracksCount || 0} tracks`);
 
       // -------------------------------------------------------------
-      // LAYER 5: Cloud Fallback Layer (Invidious / Piped / Open Proxies)
+      // STRATEGY 5: Cloud Fallback Layer (Invidious / Piped / Open Proxies)
       // -------------------------------------------------------------
-      console.log("[SubtitleFetcher] Layer 5: Querying open transcript cloud fallback...");
+      console.log("[SubtitleFetcher] Strategy 5: Querying open transcript cloud fallback...");
       const cloudResult = await fetchCloudSubtitleFallback(videoId);
       if (cloudResult.lines && cloudResult.lines.length > 0) {
-        console.log(`[Captions] Step 5 - Cloud Fallback succeeded via ${cloudResult.source}: ${cloudResult.lines.length} lines`);
-        return { lines: cloudResult.lines, hasTracks: true };
+        strategyLog.push(`cloud: ok (${cloudResult.source})`);
+        return { lines: cloudResult.lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
       }
+      strategyLog.push(`cloud: fail`);
 
       // -------------------------------------------------------------
       // CASCADE FAILURE DIAGNOSTIC COMPILATION
       // -------------------------------------------------------------
-      const totalTracksSeen = (tracks?.length || 0) + (iosTracks?.length || 0) + (webTracks?.length || 0) + (xmlResult.tracksCount || 0) + (cloudResult.hasTracks ? 1 : 0);
-      let finalErrorCode = "NO_CAPTIONS_AVAILABLE";
-      let finalErrorDetails = "";
+      const totalTracksSeen = (webTracks?.length || 0) + (tracks?.length || 0) + (iosTracks?.length || 0) + (xmlResult.tracksCount || 0) + (cloudResult.hasTracks ? 1 : 0);
+      let finalErrorCode = "CAPTION_FETCH_FAILED";
+      let finalErrorDetails = "Couldn't fetch captions right now. Retry, or use AI audio transcription.";
       let finalStatus: string | undefined = undefined;
 
       if (candidateTrackUrl || totalTracksSeen > 0) {
-        finalErrorCode = "REQUIRE_CLIENT_FETCH";
-        finalErrorDetails = `Discovered ${totalTracksSeen} caption track(s), but server timedtext requests were blocked (403 Forbidden/cloud datacenter IP block). Delegating fetch to client residential IP.`;
-        finalStatus = "REQUIRE_CLIENT_FETCH";
+        finalErrorCode = "CAPTION_FETCH_FAILED";
+        finalErrorDetails = `Discovered ${totalTracksSeen} caption track(s), but server timedtext requests failed or timed out. Retry, or use AI audio transcription.`;
+        finalStatus = "CAPTION_FETCH_FAILED";
       } else if (step1Status === 429 || step2Status === 429 || watchHttpStatus === 429 || xmlResult.errorCode?.includes("429")) {
-        finalErrorCode = "IP_THROTTLED_429";
-        finalErrorDetails = "YouTube rate limited or throttled server IP address (HTTP 429 Too Many Requests).";
+        finalErrorCode = "CAPTION_FETCH_FAILED";
+        finalErrorDetails = "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.";
       } else if (step1Status === 403 || step2Status === 403 || watchHttpStatus === 403 || xmlResult.errorCode?.includes("403")) {
-        finalErrorCode = "HTTP_403_FORBIDDEN";
-        finalErrorDetails = "YouTube rejected extractor requests with HTTP 403 Forbidden (bot detection or bot guard).";
-      } else {
-        finalErrorCode = "NO_CAPTIONS_FOUND";
-        finalErrorDetails = "0 tracks found across Android (Step 1), iOS (Step 2), Web HTML (Step 3), XML (Step 4), and Cloud Proxies (Step 5). Video may be non-verbal or captions disabled by creator.";
+        finalErrorCode = "CAPTION_FETCH_FAILED";
+        finalErrorDetails = "YouTube rejected extractor requests with HTTP 403 Forbidden. Retry, or use AI audio transcription.";
+      } else if (watchHttpStatus === 200 || step1Status === 200 || step2Status === 200) {
+        // Only if YouTube successfully answered 200 and explicitly reported 0 caption tracks
+        finalErrorCode = "NO_OFFICIAL_CAPTIONS";
+        finalErrorDetails = "0 tracks found across Web HTML, Android, iOS, XML, and Cloud Proxies. Video may be non-verbal or captions disabled by creator.";
       }
 
-      console.log(`[Captions] Cascade finished with status: ${finalStatus || 'FAILED'} | error: ${finalErrorCode} - ${finalErrorDetails}`);
+      const strategySummary = strategyLog.join("; ");
+      console.log(`[Captions] Cascade finished with status: ${finalStatus || 'FAILED'} | error: ${finalErrorCode} | summary: ${strategySummary}`);
       return { 
         lines: null, 
         hasTracks: totalTracksSeen > 0, 
         errorCode: finalErrorCode, 
         errorDetails: finalErrorDetails,
         clientDelegationUrl: candidateTrackUrl || undefined,
-        status: finalStatus
+        status: finalStatus,
+        strategySummary
       };
     } catch (err: any) {
       console.error("[SubtitleFetcher] Error in fetchYoutubeSubtitles pipeline:", err);
       return { 
         lines: null, 
         hasTracks: false, 
-        errorCode: 'PIPELINE_ERROR',
-        errorDetails: err.message || "Unknown pipeline exception"
+        errorCode: 'CAPTION_FETCH_FAILED',
+        errorDetails: err.message || "Unknown pipeline exception",
+        strategySummary: `pipeline error: ${err.message || 'unknown'}`
       };
     }
   }
@@ -2263,13 +2242,14 @@ ${
     };
   }
 
-  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 15000): Promise<{ 
+  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 40000): Promise<{ 
     lines: { text: string; start: number; duration: number }[] | null; 
     hasTracks: boolean; 
     errorCode?: string; 
     errorDetails?: string; 
     clientDelegationUrl?: string;
     status?: string;
+    strategySummary?: string;
   }> {
     let timer: NodeJS.Timeout;
     const timeoutPromise = new Promise<{
@@ -2277,14 +2257,16 @@ ${
       hasTracks: false;
       errorCode: string;
       errorDetails: string;
+      strategySummary: string;
     }>((resolve) => {
       timer = setTimeout(() => {
         console.warn(`[SubtitleFetcher] Subtitle extraction timed out after ${timeoutMs / 1000}s for video ${videoId}`);
         resolve({
           lines: null,
           hasTracks: false,
-          errorCode: "TIMEOUT",
-          errorDetails: `Subtitle fetch timed out after ${timeoutMs / 1000} seconds.`
+          errorCode: "CAPTION_FETCH_FAILED",
+          errorDetails: `Subtitle fetch timed out after ${timeoutMs / 1000} seconds. Retry, or use AI audio transcription.`,
+          strategySummary: `timeout after ${timeoutMs / 1000}s`
         });
       }, timeoutMs);
     });
@@ -2383,7 +2365,7 @@ ${
         const captionsStart = Date.now();
         const [metaSettled, captionsSettled] = await Promise.allSettled([
           fetchYoutubeMetadataSafe(videoId, ytApiKey),
-          fetchYoutubeSubtitlesWithTimeout(videoId, 15000)
+          fetchYoutubeSubtitlesWithTimeout(videoId, 40000)
         ]);
         metaDuration = Date.now() - metaStart;
         captionsDuration = Date.now() - captionsStart;
@@ -2456,7 +2438,7 @@ Return ONLY a JSON array of dialogue objects:
   { "start": 3.5, "duration": 4.0, "text": "Second spoken dialogue..." }
 ]`;
             const groundingPromise = generateContentWithCascade(aiGrounding, {
-              preferredModel: "gemini-2.0-flash",
+              preferredModel: activeModelCascade[0],
               contents: groundingPrompt,
               config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
             });
@@ -2491,9 +2473,9 @@ Return ONLY a JSON array of dialogue objects:
           } else {
             scrapedData.transcript = "";
             scrapedData.transcriptArray = [];
-            scrapedData.hasTracks = false;
-            scrapedData.transcriptErrorCode = "NO_OFFICIAL_CAPTIONS";
-            scrapedData.transcriptErrorDetails = "No spoken dialogue could be extracted (video may be non-verbal, music, or unavailable).";
+            scrapedData.hasTracks = subResult.hasTracks;
+            scrapedData.transcriptErrorCode = subResult.errorCode || "CAPTION_FETCH_FAILED";
+            scrapedData.transcriptErrorDetails = subResult.errorDetails || "No spoken dialogue could be extracted. Retry, or use AI audio transcription.";
           }
           fallbackDuration = Date.now() - fallbackStart;
           console.log(`[fetch-script] Fallback (audio transcription) took: ${(fallbackDuration / 1000).toFixed(2)}s`);
@@ -2670,7 +2652,7 @@ Return exactly this JSON schema:
       let parsedData: any = null;
       try {
         const geminiPromise = generateContentWithCascade(ai, {
-          preferredModel: "gemini-2.0-flash",
+          preferredModel: activeModelCascade[0],
           contents: prompt,
           config: {
             tools: [{ googleSearch: {} }],
@@ -2720,8 +2702,8 @@ Return exactly this JSON schema:
           parsedData.transcript = [];
         } else {
           parsedData.hasTranscript = false;
-          parsedData.transcriptErrorCode = scrapedData.transcriptErrorCode || (scrapedData.hasTracks ? "TIMEDTEXT_BLOCKED" : "NO_CAPTIONS_AVAILABLE");
-          parsedData.transcriptErrorDetails = scrapedData.transcriptErrorDetails || (scrapedData.hasTracks ? "Caption tracks were discovered, but timedtext content could not be decoded." : "0 tracks found across Android, iOS, Web, and XML cascade.");
+          parsedData.transcriptErrorCode = scrapedData.transcriptErrorCode || (scrapedData.hasTracks ? "CAPTION_FETCH_FAILED" : "NO_OFFICIAL_CAPTIONS");
+          parsedData.transcriptErrorDetails = scrapedData.transcriptErrorDetails || (scrapedData.hasTracks ? "Couldn't fetch captions right now. Retry, or use AI audio transcription." : "0 tracks found across Web HTML, Android, iOS, XML, and Cloud Proxies.");
           parsedData.fullTranscript = "[Notice: No spoken dialogue transcript is available for this video (captions are disabled or video is non-verbal/music). Spoken dialogue extraction is unavailable.]";
           parsedData.transcript = [];
         }
@@ -2730,6 +2712,23 @@ Return exactly this JSON schema:
         parsedData.transcriptErrorCode = "NO_METADATA";
         parsedData.transcriptErrorDetails = "Video metadata could not be fetched.";
         parsedData.transcript = [];
+      }
+
+      if (parsedData) {
+        const finalHookText = (
+          parsedData.hookAnalysis?.hookText || 
+          parsedData.hookText || 
+          (scrapedData?.transcriptArray?.slice(0, 3).map((l: any) => l.text).join(' ')) || 
+          ''
+        ).trim();
+        parsedData.hookScore = calculateHookScore(finalHookText);
+        if (parsedData.hookAnalysis) {
+          parsedData.hookAnalysis.score = parsedData.hookScore;
+        }
+        parsedData.thumbnailSpec = formatThumbnailSpec(parsedData.thumbnailSpec || parsedData.thumbnailSuggestion, realTitle, finalHookText);
+        if (parsedData.thumbnailSuggestion) {
+          parsedData.thumbnailSuggestion = parsedData.thumbnailSpec;
+        }
       }
 
       if (normalizedVideoId && parsedData && (parsedData.hasTranscript || (parsedData.fullTranscript && !parsedData.fullTranscript.startsWith("[Notice:")))) {
@@ -2744,155 +2743,28 @@ Return exactly this JSON schema:
         }
       }
 
-      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
+      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} (${subResult?.strategySummary || 'none'}) | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
 
       res.json(parsedData);
     } catch (error: any) {
-      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
+      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} (${subResult?.strategySummary || 'none'}) | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
       console.log("[fetch-script] Transitioning to local high-fidelity fallback generator due to rate limit or API exception:", error?.message || error);
       try {
         const fallbackData = generateScriptFallback(videoUrl, realTitle, realAuthor, scrapedData, isLive);
+        if (fallbackData) {
+          const fbHook = (fallbackData.hookText || '').trim();
+          fallbackData.hookScore = calculateHookScore(fbHook);
+          if (fallbackData.hookAnalysis) {
+            fallbackData.hookAnalysis.score = fallbackData.hookScore;
+          }
+          fallbackData.thumbnailSpec = formatThumbnailSpec(fallbackData.thumbnailSpec || fallbackData.thumbnailSuggestion, realTitle, fbHook);
+        }
         res.json(fallbackData);
       } catch (fallbackError: any) {
         res.status(500).json({ error: "Fallback failure: " + (fallbackError.message || "Unknown error") });
       }
     }
   });
-
-  // Server-side calibrated Hook Scorer & Punchy Thumbnail Spec Generator
-  function calculateHookScoreServer(hookText: string): number {
-    const rawText = (hookText || '').trim();
-    if (!rawText) return 0;
-    const words = rawText.split(/\s+/).filter(Boolean);
-    const wordCount = words.length;
-    if (wordCount === 0) return 0;
-    if (wordCount <= 3) return Math.min(35, Math.max(10, wordCount * 10));
-
-    const lower = rawText.toLowerCase().replace(/[^\w\s']/g, ' ');
-    const normalizedWords = lower.split(/\s+/).filter(Boolean);
-
-    let score = 46;
-    const weakOpeners = [
-      'all right', 'alright', 'so here we are', 'here we are', 'hey guys', 'hey everyone',
-      'welcome back', 'welcome to', 'today we are', 'today im', 'today i', 'in this video',
-      'what is up', 'whats up', 'hello guys', 'hello everyone', 'so today', 'just wanted to',
-      'so basically', 'i just wanted', 'as you know', 'as you can see'
-    ];
-    const openingPhrase = normalizedWords.slice(0, 6).join(' ');
-    let fillerPenalty = 0;
-    for (const weak of weakOpeners) {
-      if (openingPhrase.startsWith(weak) || lower.startsWith(weak)) {
-        fillerPenalty = 16;
-        break;
-      }
-    }
-    score -= fillerPenalty;
-
-    if (wordCount >= 6 && wordCount <= 16) score += 5;
-    else if (wordCount > 25) score -= 10;
-    else if (wordCount < 5) score -= 8;
-
-    const contrarianPatterns = /\b(stop|never|don't|dont|quit|avoid|wrong|myth|lie|lies|scam|ruining|ruined|waste|worst|terrible|kills|killing|dead|trap|mistake|failed|failing)\b/i;
-    let hasContrarian = false;
-    if (contrarianPatterns.test(lower)) {
-      hasContrarian = true;
-      score += 10;
-    }
-
-    const curiosityPatterns = /\b(secret|secrets|secretly|hidden|nobody|no one|why|how|truth|exposed|exposing|revealed|uncovered|loophole|hack|banned|forbidden|illegal|conspiracy|insane)\b/i;
-    let hasCuriosity = false;
-    if (curiosityPatterns.test(lower)) {
-      hasCuriosity = true;
-      score += 8;
-    }
-
-    const numberPatterns = /\b(\d+([kmb%]|x|\.\d+)?|\$\d+)\b/i;
-    const timePatterns = /\b(hours?|days?|seconds?|minutes?|months?|years?|overnight|in 24 hours)\b/i;
-    let hasProof = false;
-    if (numberPatterns.test(lower) || timePatterns.test(lower)) {
-      hasProof = true;
-      score += 8;
-    }
-
-    const stakesPatterns = /\b(money|dollar|\$|bank|banks|lose|losing|steal|stealing|scam|trap|danger|illegal|warning|ruin|costing|career|crisis)\b/i;
-    let hasStakes = false;
-    if (stakesPatterns.test(lower)) {
-      hasStakes = true;
-      score += 7;
-    }
-
-    const empiricalPatterns = /\b(i tested|we tested|i spent|we spent|i tried|we tried|i bought|i built|i analyzed|i worked|i lived)\b/i;
-    if (empiricalPatterns.test(lower)) score += 6;
-
-    if (/\b(you|your|you're|you'll|you've)\b/i.test(lower)) score += 4;
-
-    if ((hasContrarian && hasCuriosity) || ((hasContrarian || hasCuriosity) && (hasProof || hasStakes))) {
-      score += 6;
-    }
-
-    return Math.min(95, Math.max(15, Math.round(score)));
-  }
-
-  function extractPunchyThumbnailOverlayServer(title: string, hookText: string): string {
-    const cleanTitle = (title || "")
-      .replace(/\s*[\(\[](?:Official\s+)?(?:Music\s+)?Video[\)\]]/gi, "")
-      .replace(/\s*[\(\[]Lyric\s+Video[\)\]]/gi, "")
-      .replace(/\s*[\(\[]Visualizer[\)\]]/gi, "")
-      .replace(/\s*[\(\[]Audio[\)\]]/gi, "")
-      .replace(/\s*[\(\[]4K[\)\]]/gi, "")
-      .replace(/\s*[\(\[]HD[\)\]]/gi, "")
-      .replace(/\.\w{2,4}$/i, "")
-      .trim();
-
-    const titleTopic = cleanTitle.includes(" - ") ? cleanTitle.split(" - ").slice(1).join(" - ").trim() : cleanTitle;
-    const lowerTitle = titleTopic.toLowerCase();
-    const lowerHook = (hookText || "").toLowerCase();
-
-    if (lowerTitle.includes("zoo") || lowerHook.includes("elephant")) {
-      return "ELEPHANTS UP CLOSE";
-    }
-    if (lowerTitle.includes("collatz") || lowerTitle.includes("3x+1") || lowerHook.includes("collatz")) {
-      return "IMPOSSIBLE MATH PUZZLE";
-    }
-    if (lowerTitle.includes("never gonna give you up") || lowerTitle.includes("rick astley")) {
-      return "NEVER GONNA GIVE";
-    }
-
-    const stopWords = new Set([
-      "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
-      "by", "from", "up", "about", "into", "through", "after", "over", "between", "out",
-      "against", "during", "without", "before", "under", "around", "among", "is", "are",
-      "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did",
-      "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",
-      "my", "your", "his", "its", "our", "their", "this", "that", "these", "those",
-      "what", "which", "who", "whom", "whose", "so", "just", "really", "very", "quite",
-      "right", "alright", "hey", "hello", "welcome", "guys", "today", "video", "official",
-      "here", "there", "when", "where", "why", "how", "all", "any", "both", "each",
-      "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only",
-      "own", "same", "than", "too", "can", "will", "should", "now"
-    ]);
-
-    const titleWords = titleTopic.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-    const meaningfulTitleWords = titleWords.filter(w => !stopWords.has(w.toLowerCase()));
-
-    if (meaningfulTitleWords.length >= 2) {
-      return meaningfulTitleWords.slice(0, 3).join(" ").toUpperCase();
-    }
-
-    if (hookText && hookText !== "N/A" && !hookText.startsWith("[")) {
-      const hookWords = hookText.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/).filter(Boolean);
-      const meaningfulHookWords = hookWords.filter(w => !stopWords.has(w.toLowerCase()));
-      if (meaningfulHookWords.length >= 2) {
-        return meaningfulHookWords.slice(0, 3).join(" ").toUpperCase();
-      }
-    }
-
-    if (titleWords.length >= 2) {
-      return titleWords.slice(0, 3).join(" ").toUpperCase();
-    }
-
-    return "REVEALED";
-  }
 
   // Unique high-fidelity script fallback builder
   function generateRawScriptFallback(videoUrl: string, realTitle: string, realAuthor: string, scrapedData?: any, isLive?: boolean) {
@@ -3042,8 +2914,8 @@ Return exactly this JSON schema:
         .replace(/\s*[\(\[]Audio[\)\]]/gi, "")
         .replace(/\.\w{2,4}$/i, "")
         .trim();
-      const headlineWords = extractPunchyThumbnailOverlayServer(displayTitle, truncatedHook);
-      const computedHookScore = calculateHookScoreServer(truncatedHook);
+      const headlineWords = extractPunchyThumbnailOverlay(displayTitle, truncatedHook);
+      const computedHookScore = calculateHookScore(truncatedHook);
 
       return {
         title: displayTitle,
@@ -3506,7 +3378,7 @@ OUTPUT REQUIREMENTS:
 6. Return ONLY the raw JSON array. Do not enclose in backticks or markdown fences.`;
 
       const response = await generateContentWithCascade(ai, {
-        preferredModel: "gemini-2.0-flash",
+        preferredModel: activeModelCascade[0],
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -3517,19 +3389,41 @@ OUTPUT REQUIREMENTS:
       const responseText = response.text || "";
       try {
         const cleaned = responseText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim();
-        const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (Array.isArray(parsed)) {
-            lines = parsed.map((item: any, idx: number) => ({
-              text: (item.text || item.content || "").trim(),
-              start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-              duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-            })).filter(l => l.text.length > 0);
+        let rawParsed: any = null;
+        const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+        if (arrayMatch) {
+          rawParsed = JSON.parse(arrayMatch[0]);
+        } else {
+          const objMatch = cleaned.match(/\{[\s\S]*\}/);
+          if (objMatch) {
+            const obj = JSON.parse(objMatch[0]);
+            rawParsed = obj.transcript || obj.lines || obj.subtitles || obj.dialogue || null;
           }
+        }
+        if (Array.isArray(rawParsed)) {
+          lines = rawParsed.map((item: any, idx: number) => ({
+            text: (item.text || item.content || item.line || "").trim(),
+            start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
+            duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
+          })).filter((l: any) => l.text.length > 0);
         }
       } catch (parseErr) {
         console.warn("[/api/transcribe-audio] JSON parse error:", parseErr, responseText);
+      }
+
+      // If strict JSON extraction yielded 0 lines, fallback to splitting raw text into spoken dialogue sentences
+      if (lines.length === 0 && responseText && responseText.trim().length > 20) {
+        const cleanedText = responseText.replace(/```[\s\S]*?```/g, "").replace(/[\*\#\_]/g, "").trim();
+        const sentences = cleanedText.split(/(?<=[.?!])\s+/).filter(s => s.trim().length > 5);
+        if (sentences.length > 0) {
+          let currStart = 0;
+          lines = sentences.map((sentence) => {
+            const duration = Math.min(6, Math.max(2, sentence.split(/\s+/).length * 0.4));
+            const entry = { text: sentence.trim(), start: parseFloat(currStart.toFixed(1)), duration: parseFloat(duration.toFixed(1)) };
+            currStart += duration;
+            return entry;
+          });
+        }
       }
 
       if (lines.length > 0) {
@@ -3540,6 +3434,7 @@ OUTPUT REQUIREMENTS:
         const totalSec = (lastLine ? lastLine.start + lastLine.duration : 0) || 60;
         const calculatedWpm = Math.round(totalWords / (totalSec / 60));
         const pacingSpeed = `${calculatedWpm} words/min (Authentic Audio Transcription)`;
+        const computedHookScore = calculateHookScore(hookText, calculatedWpm, "youtube");
 
         console.log(`[/api/transcribe-audio] Successfully extracted ${lines.length} lines via AI Speech Grounding!`);
 
@@ -3551,6 +3446,7 @@ OUTPUT REQUIREMENTS:
               transcript: lines,
               fullTranscript,
               hookText: hookText || "Extracted spoken hook.",
+              hookScore: computedHookScore,
               pacingSpeed,
               calculatedWpm,
               title: title || "YouTube Video",
@@ -3575,6 +3471,7 @@ OUTPUT REQUIREMENTS:
           transcript: lines,
           fullTranscript,
           hookText: hookText || "Extracted spoken hook.",
+          hookScore: computedHookScore,
           pacingSpeed,
           calculatedWpm,
           method: "AI_AUDIO_SPEECH_RECONSTRUCTION"
@@ -4640,6 +4537,11 @@ Support Bot response:`;
   if (!process.env.YOUTUBE_API_KEY && !process.env.YOUTUBE_DATA_API_KEY && !process.env.VITE_YOUTUBE_API_KEY) {
     console.warn("YOUTUBE_API_KEY not set: metadata will use oEmbed fallback");
   }
+
+  console.log("[Gemini Cascade] Discovering available models via Gemini ListModels endpoint...");
+  resolveModelCascade(process.env.GEMINI_API_KEY).catch((e) => {
+    console.warn("[Gemini Cascade] Background model discovery error:", e);
+  });
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Axe Hours Suite Backend Server running on http://0.0.0.0:${PORT}`);

@@ -808,8 +808,8 @@ export const ScriptFetcher: React.FC = () => {
             }
 
             if (!hasTranscript) {
-              transcriptErrorCode = 'NO_OFFICIAL_CAPTIONS';
-              transcriptErrorDetails = getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS');
+              transcriptErrorCode = data.transcriptErrorCode || 'CAPTION_FETCH_FAILED';
+              transcriptErrorDetails = getClientFriendlyErrorMessage(transcriptErrorCode);
             }
           }
         } catch (clientErr) {
@@ -1557,16 +1557,32 @@ ${extractedData.fullTranscript || 'N/A'}`;
                           </div>
                           <div className="space-y-1">
                             <h3 className="text-sm font-bold text-white tracking-tight">
-                              No Official Captions Found on YouTube
+                              {extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED'
+                                ? "Couldn't Fetch Captions Right Now"
+                                : "No Official Captions Found on YouTube"}
                             </h3>
                             <p className="text-xs text-gray-300 leading-relaxed font-sans">
-                              This video does not contain official creator subtitles or auto-generated captions on YouTube (common in music clips, teasers, or non-verbal media).
+                              {extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED'
+                                ? "Couldn't fetch captions right now. Retry, or use AI audio transcription."
+                                : "This video does not contain official creator subtitles or auto-generated captions on YouTube (common in music clips, teasers, or non-verbal media)."}
                             </p>
                           </div>
                         </div>
 
                         {/* Prominently Presented Action Buttons */}
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t border-white/5">
+                          {extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED' && (
+                            <button
+                              type="button"
+                              onClick={() => handleExtract(new Event('submit') as any)}
+                              disabled={isLoading}
+                              className="px-4 py-2.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 hover:text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm active:scale-[0.99] disabled:opacity-50"
+                            >
+                              <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+                              <span>Retry Caption Extraction</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={handleRunAudioTranscription}
