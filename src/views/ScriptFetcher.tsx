@@ -256,6 +256,15 @@ export const ScriptFetcher: React.FC = () => {
         const calculatedWpm = data.calculatedWpm || 145;
         const hookText = data.hookText || extractedData.hookText;
         const hookScore = calculateHookScore(hookText, calculatedWpm, extractedData.platform);
+        const parseDurationSec = (durStr?: string): number => {
+          if (!durStr) return 0;
+          const clean = durStr.toLowerCase().replace(/[ms]/g, "").trim();
+          const parts = clean.split(":");
+          if (parts.length === 3) return (parseInt(parts[0], 10) || 0) * 3600 + (parseInt(parts[1], 10) || 0) * 60 + (parseInt(parts[2], 10) || 0);
+          if (parts.length === 2) return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+          return parseInt(parts[0], 10) || 0;
+        };
+        const isClipped = Boolean(data.isClipped) || (parseDurationSec(extractedData.duration) > 600);
 
         setExtractedData(prev => ({
           ...prev,
@@ -263,7 +272,7 @@ export const ScriptFetcher: React.FC = () => {
           isAiGenerated: true,
           transcriptionMethod: data.transcriptionMethod || '',
           warningLabel: data.warningLabel || '',
-          isClipped: data.isClipped || false,
+          isClipped: isClipped,
           fullTranscript: data.fullTranscript,
           hookText,
           hookScore: hookScore || prev.hookScore,
@@ -700,10 +709,19 @@ export const ScriptFetcher: React.FC = () => {
         ? Boolean(data.hasTranscript)
         : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:')));
 
+      const parseDurationSec = (durStr?: string): number => {
+        if (!durStr) return 0;
+        const clean = durStr.toLowerCase().replace(/[ms]/g, "").trim();
+        const parts = clean.split(":");
+        if (parts.length === 3) return (parseInt(parts[0], 10) || 0) * 3600 + (parseInt(parts[1], 10) || 0) * 60 + (parseInt(parts[2], 10) || 0);
+        if (parts.length === 2) return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+        return parseInt(parts[0], 10) || 0;
+      };
+
       let isAiGenerated = Boolean(data.isAiGenerated);
       let transcriptionMethod = data.transcriptionMethod || '';
       let warningLabel = data.warningLabel || '';
-      let isClipped = Boolean(data.isClipped);
+      let isClipped = Boolean(data.isClipped) || (isAiGenerated && parseDurationSec(data.duration) > 600);
       let fullTranscript = data.fullTranscript || (isUnavailable ? '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
       let hookText = data.hookText || 'N/A';
       let hookScore = 0;
@@ -1529,10 +1547,18 @@ ${extractedData.fullTranscript || 'N/A'}`;
                       <div className="flex items-center gap-2 flex-wrap">
                         {extractedData.hasTranscript ? (
                           extractedData.isAiGenerated ? (
-                            <span className="text-[10px] text-amber-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded">
-                              <AlertTriangle size={11} className="text-amber-400" />
-                              {extractedData.warningLabel || "AI-generated transcript (may be inaccurate)"}
-                            </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[10px] text-amber-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded">
+                                <AlertTriangle size={11} className="text-amber-400" />
+                                {extractedData.warningLabel || "AI-generated transcript (may be inaccurate)"}
+                              </span>
+                              {extractedData.isClipped && (
+                                <span className="text-[10px] text-blue-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded">
+                                  <Info size={11} className="text-blue-400" />
+                                  Video clipped to first 10 minutes
+                                </span>
+                              )}
+                            </div>
                           ) : (
                             <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>

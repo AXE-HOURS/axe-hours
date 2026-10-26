@@ -2533,13 +2533,20 @@ ${
 
             const nativeRes = await generateContentWithCascade(aiGen, {
               preferredModel: activeModelCascade[0],
-              contents: [{ role: "user", parts: [videoPart, promptPart] }]
+              contents: [{ role: "user", parts: [videoPart, promptPart] }],
+              config: {
+                mediaResolution: "MEDIA_RESOLUTION_LOW"
+              }
             });
+            console.log(`[fetch-script] Token usage for ${videoId}: prompt=${nativeRes.usageMetadata?.promptTokenCount}, candidates=${nativeRes.usageMetadata?.candidatesTokenCount}, total=${nativeRes.usageMetadata?.totalTokenCount}`);
             fallbackLines = parseDialogueLines(nativeRes.text || "");
             if (fallbackLines.length > 0) {
               scrapedData.transcriptionMethod = "NATIVE_VIDEO_INPUT";
               scrapedData.isClipped = isClipped;
-              console.log(`[fetch-script] Native YouTube video input successfully transcribed ${fallbackLines.length} spoken dialogue lines!`);
+              if (nativeRes.usageMetadata) {
+                scrapedData.usageMetadata = nativeRes.usageMetadata;
+              }
+              console.log(`[fetch-script] Native YouTube video input successfully transcribed ${fallbackLines.length} spoken dialogue lines! (isClipped: ${isClipped})`);
             }
           } catch (nativeErr: any) {
             console.warn(`[fetch-script] Native YouTube video input failed for video ${videoId} (${Date.now() - fallbackStart}ms):`, nativeErr?.message || nativeErr);
@@ -2815,6 +2822,12 @@ Return exactly this JSON schema:
           parsedData.transcript = scrapedData.transcriptArray;
           parsedData.hasTranscript = true;
           parsedData.isAiGenerated = !!scrapedData.isAiGenerated;
+          parsedData.isClipped = Boolean(scrapedData.isClipped);
+          parsedData.transcriptionMethod = scrapedData.transcriptionMethod || (scrapedData.isAiGenerated ? 'NATIVE_VIDEO_INPUT' : 'OFFICIAL_CAPTIONS');
+          parsedData.warningLabel = scrapedData.warningLabel || null;
+          if (scrapedData.usageMetadata) {
+            parsedData.usageMetadata = scrapedData.usageMetadata;
+          }
           parsedData.transcriptErrorCode = null;
           parsedData.transcriptErrorDetails = null;
         } else if (scrapedData.clientDelegationUrl) {
@@ -3057,6 +3070,11 @@ Return exactly this JSON schema:
         suggestedTags: suggestedTags,
         transcript: scrapedData.transcriptArray || [],
         hasTranscript: hasValidTranscript,
+        isAiGenerated: Boolean(scrapedData?.isAiGenerated),
+        transcriptionMethod: scrapedData?.transcriptionMethod,
+        warningLabel: scrapedData?.warningLabel || null,
+        isClipped: Boolean(scrapedData?.isClipped),
+        usageMetadata: scrapedData?.usageMetadata || null,
         status: !hasValidTranscript && scrapedData?.clientDelegationUrl ? 'REQUIRE_CLIENT_FETCH' : undefined,
         clientDelegationUrl: !hasValidTranscript ? (scrapedData?.clientDelegationUrl || undefined) : undefined,
         videoId: scrapedData?.videoId || (videoUrl ? extractYoutubeVideoId(videoUrl) : undefined),
@@ -3490,6 +3508,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
       let transcriptionMethod = "NATIVE_VIDEO_INPUT";
       let warningLabel = "";
       let isClipped = false;
+      let usageMetadata: any = null;
 
       const durationSec = duration ? getDurationSeconds(duration) : 0;
       if (durationSec > 600) {
@@ -3521,8 +3540,14 @@ When analyzing how this exact sequence unfolds, we find that the leading example
           contents: [{
             role: "user",
             parts: [videoPart, promptPart]
-          }]
+          }],
+          config: {
+            mediaResolution: "MEDIA_RESOLUTION_LOW"
+          }
         });
+
+        usageMetadata = response.usageMetadata || null;
+        console.log(`[/api/transcribe-audio] Token usage for ${videoId}: prompt=${usageMetadata?.promptTokenCount}, candidates=${usageMetadata?.candidatesTokenCount}, total=${usageMetadata?.totalTokenCount}`);
 
         const responseText = response.text || "";
         lines = parseDialogueLines(responseText);
@@ -3600,6 +3625,7 @@ Return ONLY a valid JSON array of dialogue objects:
               transcriptionMethod,
               warningLabel,
               isClipped,
+              usageMetadata,
               transcript: lines,
               fullTranscript,
               hookText: hookText || "Extracted spoken hook.",
@@ -3627,6 +3653,7 @@ Return ONLY a valid JSON array of dialogue objects:
           transcriptionMethod,
           warningLabel,
           isClipped,
+          usageMetadata,
           transcript: lines,
           fullTranscript,
           hookText: hookText || "Extracted spoken hook.",
