@@ -2527,25 +2527,27 @@ ${
             if (isClipped) {
               videoPart.videoMetadata = { startOffset: "0s", endOffset: "600s" };
             }
-            const promptPart = {
-              text: `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`
-            };
+            const promptText = isClipped
+              ? `The clip ends at 10:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`
+              : `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`;
+            const promptPart = { text: promptText };
 
             const nativeRes = await generateContentWithCascade(aiGen, {
               preferredModel: activeModelCascade[0],
               contents: [{ role: "user", parts: [videoPart, promptPart] }],
               config: {
-                mediaResolution: "MEDIA_RESOLUTION_LOW"
+                mediaResolution: "MEDIA_RESOLUTION_LOW",
+                thinkingConfig: { thinkingBudget: 0 }
               }
             });
-            console.log(`[fetch-script] Token usage for ${videoId}: prompt=${nativeRes.usageMetadata?.promptTokenCount}, candidates=${nativeRes.usageMetadata?.candidatesTokenCount}, total=${nativeRes.usageMetadata?.totalTokenCount}`);
+            console.log(`[fetch-script] Token usage for ${videoId}: prompt=${nativeRes.usageMetadata?.promptTokenCount}, candidates=${nativeRes.usageMetadata?.candidatesTokenCount}, thoughts=${(nativeRes.usageMetadata as any)?.thoughtsTokenCount ?? 0}, total=${nativeRes.usageMetadata?.totalTokenCount}`);
             fallbackLines = parseDialogueLines(nativeRes.text || "");
+            if (isClipped && fallbackLines.length > 0) {
+              fallbackLines = fallbackLines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
+            }
             if (fallbackLines.length > 0) {
               scrapedData.transcriptionMethod = "NATIVE_VIDEO_INPUT";
               scrapedData.isClipped = isClipped;
-              if (nativeRes.usageMetadata) {
-                scrapedData.usageMetadata = nativeRes.usageMetadata;
-              }
               console.log(`[fetch-script] Native YouTube video input successfully transcribed ${fallbackLines.length} spoken dialogue lines! (isClipped: ${isClipped})`);
             }
           } catch (nativeErr: any) {
@@ -2591,6 +2593,10 @@ Return ONLY a JSON array of dialogue objects:
             } catch (gErr: any) {
               console.warn(`[fetch-script] Search grounding fallback failed (${Date.now() - fallbackStart}ms):`, gErr?.message || gErr);
             }
+          }
+
+          if (isClipped && fallbackLines.length > 0) {
+            fallbackLines = fallbackLines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
           }
 
           if (fallbackLines.length > 0) {
@@ -2825,9 +2831,6 @@ Return exactly this JSON schema:
           parsedData.isClipped = Boolean(scrapedData.isClipped);
           parsedData.transcriptionMethod = scrapedData.transcriptionMethod || (scrapedData.isAiGenerated ? 'NATIVE_VIDEO_INPUT' : 'OFFICIAL_CAPTIONS');
           parsedData.warningLabel = scrapedData.warningLabel || null;
-          if (scrapedData.usageMetadata) {
-            parsedData.usageMetadata = scrapedData.usageMetadata;
-          }
           parsedData.transcriptErrorCode = null;
           parsedData.transcriptErrorDetails = null;
         } else if (scrapedData.clientDelegationUrl) {
@@ -3074,7 +3077,6 @@ Return exactly this JSON schema:
         transcriptionMethod: scrapedData?.transcriptionMethod,
         warningLabel: scrapedData?.warningLabel || null,
         isClipped: Boolean(scrapedData?.isClipped),
-        usageMetadata: scrapedData?.usageMetadata || null,
         status: !hasValidTranscript && scrapedData?.clientDelegationUrl ? 'REQUIRE_CLIENT_FETCH' : undefined,
         clientDelegationUrl: !hasValidTranscript ? (scrapedData?.clientDelegationUrl || undefined) : undefined,
         videoId: scrapedData?.videoId || (videoUrl ? extractYoutubeVideoId(videoUrl) : undefined),
@@ -3531,9 +3533,10 @@ When analyzing how this exact sequence unfolds, we find that the leading example
           };
         }
 
-        const promptPart = {
-          text: `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`
-        };
+        const promptText = isClipped
+          ? `The clip ends at 10:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`
+          : `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`;
+        const promptPart = { text: promptText };
 
         const response = await generateContentWithCascade(ai, {
           preferredModel: activeModelCascade[0],
@@ -3542,15 +3545,19 @@ When analyzing how this exact sequence unfolds, we find that the leading example
             parts: [videoPart, promptPart]
           }],
           config: {
-            mediaResolution: "MEDIA_RESOLUTION_LOW"
+            mediaResolution: "MEDIA_RESOLUTION_LOW",
+            thinkingConfig: { thinkingBudget: 0 }
           }
         });
 
         usageMetadata = response.usageMetadata || null;
-        console.log(`[/api/transcribe-audio] Token usage for ${videoId}: prompt=${usageMetadata?.promptTokenCount}, candidates=${usageMetadata?.candidatesTokenCount}, total=${usageMetadata?.totalTokenCount}`);
+        console.log(`[/api/transcribe-audio] Token usage for ${videoId}: prompt=${usageMetadata?.promptTokenCount}, candidates=${usageMetadata?.candidatesTokenCount}, thoughts=${(usageMetadata as any)?.thoughtsTokenCount ?? 0}, total=${usageMetadata?.totalTokenCount}`);
 
         const responseText = response.text || "";
         lines = parseDialogueLines(responseText);
+        if (isClipped && lines.length > 0) {
+          lines = lines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
+        }
         if (lines.length > 0) {
           console.log(`[/api/transcribe-audio] [Strategy 1 Success] Native YouTube input transcribed ${lines.length} dialogue lines!`);
           transcriptionMethod = "NATIVE_VIDEO_INPUT";
@@ -3606,6 +3613,10 @@ Return ONLY a valid JSON array of dialogue objects:
         }
       }
 
+      if (isClipped && lines.length > 0) {
+        lines = lines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
+      }
+
       if (lines.length > 0) {
         const fullTranscript = formatSubtitles(lines);
         const hookText = lines.slice(0, 4).map(l => l.text).join(' ');
@@ -3625,7 +3636,6 @@ Return ONLY a valid JSON array of dialogue objects:
               transcriptionMethod,
               warningLabel,
               isClipped,
-              usageMetadata,
               transcript: lines,
               fullTranscript,
               hookText: hookText || "Extracted spoken hook.",
@@ -3653,7 +3663,6 @@ Return ONLY a valid JSON array of dialogue objects:
           transcriptionMethod,
           warningLabel,
           isClipped,
-          usageMetadata,
           transcript: lines,
           fullTranscript,
           hookText: hookText || "Extracted spoken hook.",

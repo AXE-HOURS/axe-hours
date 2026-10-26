@@ -1419,9 +1419,17 @@ ${extractedData.fullTranscript || 'N/A'}`;
               <GlassCard glowColor="purple" className="border-purple-500/10 space-y-4">
                 <div className="flex flex-col gap-3 mb-5">
                   <div className="w-full">
-                    <span className="text-[10px] text-purple-300 font-mono uppercase font-black tracking-widest block whitespace-nowrap">
-                      Fetched Analytics Report
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] text-purple-300 font-mono uppercase font-black tracking-widest block whitespace-nowrap">
+                        Fetched Analytics Report
+                      </span>
+                      {extractedData.isClipped && (
+                        <span className="text-[10px] text-blue-300 font-bold uppercase tracking-widest font-mono inline-flex items-center gap-1 bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 rounded-full" title="Video clipped to first 10 minutes for AI transcription">
+                          <Info size={11} className="text-blue-400" />
+                          Clipped to 10m
+                        </span>
+                      )}
+                    </div>
                     <h2 className="text-lg md:text-xl font-bold text-white leading-snug break-words mt-1">
                       {extractedData.title}
                     </h2>
@@ -1553,9 +1561,9 @@ ${extractedData.fullTranscript || 'N/A'}`;
                                 {extractedData.warningLabel || "AI-generated transcript (may be inaccurate)"}
                               </span>
                               {extractedData.isClipped && (
-                                <span className="text-[10px] text-blue-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded">
+                                <span className="text-[10px] text-blue-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded" title="Video clipped to first 10 minutes for AI transcription">
                                   <Info size={11} className="text-blue-400" />
-                                  Video clipped to first 10 minutes
+                                  Clipped to 10m
                                 </span>
                               )}
                             </div>
@@ -1654,7 +1662,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                             className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99] disabled:opacity-50"
                           >
                             <Mic size={14} className={isTranscribingAudio ? "animate-pulse" : ""} />
-                            <span>{isTranscribingAudio ? "Transcribing with AI (30–60 s)..." : "Transcribe with AI (30–60 s)"}</span>
+                            <span>{isTranscribingAudio ? "Transcribing with AI (up to ~90 s)..." : "Transcribe with AI (up to ~90 s)"}</span>
                           </button>
 
                           <button
