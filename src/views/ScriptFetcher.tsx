@@ -125,6 +125,7 @@ export const ScriptFetcher: React.FC = () => {
     metadataDesc: '',
     suggestedTags: [] as string[],
     hasTranscript: false,
+    isAiGenerated: false,
     transcriptErrorCode: '',
     transcriptErrorDetails: '',
     transcript: [] as Array<{ text: string; start: number; duration: number }>,
@@ -255,6 +256,7 @@ export const ScriptFetcher: React.FC = () => {
         setExtractedData(prev => ({
           ...prev,
           hasTranscript: true,
+          isAiGenerated: true,
           fullTranscript: data.fullTranscript,
           hookText,
           hookScore: hookScore || prev.hookScore,
@@ -686,6 +688,7 @@ export const ScriptFetcher: React.FC = () => {
         ? Boolean(data.hasTranscript)
         : Boolean(data.fullTranscript && !data.fullTranscript.startsWith('[Notice:') && !data.fullTranscript.startsWith('[Note:')));
 
+      let isAiGenerated = Boolean(data.isAiGenerated);
       let fullTranscript = data.fullTranscript || (isUnavailable ? '[Notice: This video is private, removed, or region-restricted by YouTube. Please paste a manual transcript below or upload the audio file.]' : 'N/A');
       let hookText = data.hookText || 'N/A';
       let hookScore = 0;
@@ -794,6 +797,7 @@ export const ScriptFetcher: React.FC = () => {
                 const audioData = await parseSafeJsonResponse(audioRes);
                 if (audioData.hasTranscript && audioData.fullTranscript) {
                   hasTranscript = true;
+                  isAiGenerated = true;
                   fullTranscript = audioData.fullTranscript;
                   hookText = audioData.hookText || hookText;
                   pacingSpeed = audioData.pacingSpeed || pacingSpeed;
@@ -839,6 +843,7 @@ export const ScriptFetcher: React.FC = () => {
         metadataDesc: data.metadataDesc || 'N/A',
         suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
         hasTranscript: hasTranscript,
+        isAiGenerated: isAiGenerated,
         transcriptErrorCode: finalErrorCode,
         transcriptErrorDetails: finalErrorDetails,
         transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
@@ -862,6 +867,7 @@ export const ScriptFetcher: React.FC = () => {
           metadataDesc: data.metadataDesc || 'N/A',
           suggestedTags: Array.isArray(data.suggestedTags) ? data.suggestedTags : [],
           hasTranscript: hasTranscript,
+          isAiGenerated: isAiGenerated,
           transcriptErrorCode: finalErrorCode,
           transcriptErrorDetails: finalErrorDetails,
           transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
@@ -1497,10 +1503,17 @@ ${extractedData.fullTranscript || 'N/A'}`;
                     <div className="flex justify-between items-center mb-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         {extractedData.hasTranscript ? (
-                          <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                            Raw Full Text Transcript (Authentic Captions)
-                          </span>
+                          extractedData.isAiGenerated ? (
+                            <span className="text-[10px] text-amber-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded">
+                              <AlertTriangle size={11} className="text-amber-400" />
+                              AI-generated transcript (may be inaccurate)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                              Raw Full Text Transcript (Authentic Captions)
+                            </span>
+                          )
                         ) : (
                           <span className="text-[10px] text-amber-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
                             <AlertTriangle size={12} className="text-amber-400" />
@@ -1604,9 +1617,17 @@ ${extractedData.fullTranscript || 'N/A'}`;
                         </div>
                       </div>
                     ) : (
-                      <p className="text-xs leading-relaxed whitespace-pre-line font-light text-white">
-                        {extractedData.fullTranscript}
-                      </p>
+                      <>
+                        {extractedData.isAiGenerated && (
+                          <div className="mb-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono flex items-center gap-2">
+                            <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+                            <span>AI-generated transcript (may be inaccurate)</span>
+                          </div>
+                        )}
+                        <p className="text-xs leading-relaxed whitespace-pre-line font-light text-white">
+                          {extractedData.fullTranscript}
+                        </p>
+                      </>
                     )}
 
                     {!extractedData.hasTranscript && (

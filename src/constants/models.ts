@@ -10,6 +10,7 @@ export const PREFERRED_MODEL_ORDER = [
 ] as const;
 
 export const DEFAULT_FALLBACK_MODELS = [
+  'gemini-3.5-flash',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite'
 ];

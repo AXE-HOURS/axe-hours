@@ -112,6 +112,9 @@ const transcriptCache = new Map<string, TranscriptCacheEntry>();
 // Set to deduplicate extraction quota deductions per user/IP + video ID on the same day
 const userExtractedVideosSet = new Set<string>();
 
+// Global in-memory flag to stop wasting time on caption strategies when server IP is rate-limited by YouTube (15-min cooldown)
+let captionsBlockedUntil = 0;
+
 function extractYoutubeVideoId(url: string): string | null {
   if (!url || typeof url !== "string") return null;
   const trimmed = url.trim();
@@ -782,9 +785,14 @@ async function startServer() {
     });
   });
 
-  // Fast Health Check Route for Uptime Keep-Alive Pings
+  // Fast Health Check Route for Uptime Keep-Alive Pings and Model Cascade Verification
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: Date.now() });
+    res.json({
+      status: "ok",
+      timestamp: Date.now(),
+      modelCascade: activeModelCascade,
+      captionsBlockedUntil: captionsBlockedUntil > Date.now() ? new Date(captionsBlockedUntil).toISOString() : null
+    });
   });
 
   // Dedicated Authenticated Endpoint to Unlock Beta Pro Access
@@ -1441,6 +1449,11 @@ ${
           if (lines && lines.length > 0) return lines;
         }
       } else {
+        if (directRes.status === 429) {
+          captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
+          console.warn("[SubtitleFetcher] Direct track fetch returned HTTP 429. Setting captionsBlockedUntil (+15m).");
+          return null;
+        }
         console.warn(`[SubtitleFetcher] Direct track fetch returned HTTP ${directRes.status} (${directRes.statusText})`);
       }
     } catch (e) {
@@ -1765,6 +1778,19 @@ ${
   }> {
     const strategyLog: string[] = [];
     try {
+      if (Date.now() < captionsBlockedUntil) {
+        const remainingSec = Math.ceil((captionsBlockedUntil - Date.now()) / 1000);
+        console.log(`[SubtitleFetcher] Server IP is currently rate-limited by YouTube (429 cooling down for another ${remainingSec}s). Fast-failing captions.`);
+        return {
+          lines: null,
+          hasTracks: false,
+          errorCode: "CAPTION_FETCH_FAILED",
+          errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
+          status: "CAPTION_FETCH_FAILED",
+          strategySummary: `blocked-429-cooldown (${remainingSec}s remaining)`
+        };
+      }
+
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
 
       let candidateTrackUrl: string | null = null;
@@ -1809,6 +1835,19 @@ ${
         });
 
         step1Status = playerRes.status;
+        if (step1Status === 429) {
+          captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
+          console.warn("[SubtitleFetcher] Strategy 1 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
+          strategyLog.push("android: HTTP 429 (IP blocked)");
+          return {
+            lines: null,
+            hasTracks: false,
+            errorCode: "CAPTION_FETCH_FAILED",
+            errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
+            status: "CAPTION_FETCH_FAILED",
+            strategySummary: strategyLog.join("; ")
+          };
+        }
         if (playerRes.ok) {
           const playerJson = await playerRes.json() as any;
           const playability = playerJson.playabilityStatus;
@@ -1894,6 +1933,19 @@ ${
         });
 
         step2Status = iosRes.status;
+        if (step2Status === 429) {
+          captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
+          console.warn("[SubtitleFetcher] Strategy 2 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
+          strategyLog.push("ios: HTTP 429 (IP blocked)");
+          return {
+            lines: null,
+            hasTracks: false,
+            errorCode: "CAPTION_FETCH_FAILED",
+            errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
+            status: "CAPTION_FETCH_FAILED",
+            strategySummary: strategyLog.join("; ")
+          };
+        }
         if (iosRes.ok) {
           const iosJson = await iosRes.json() as any;
           const playability = iosJson.playabilityStatus;
@@ -1961,6 +2013,19 @@ ${
           signal: AbortSignal.timeout(6000)
         });
         watchHttpStatus = probeRes.status;
+        if (watchHttpStatus === 429) {
+          captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
+          console.warn("[SubtitleFetcher] Strategy 3 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
+          strategyLog.push("web: HTTP 429 (IP blocked)");
+          return {
+            lines: null,
+            hasTracks: false,
+            errorCode: "CAPTION_FETCH_FAILED",
+            errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
+            status: "CAPTION_FETCH_FAILED",
+            strategySummary: strategyLog.join("; ")
+          };
+        }
         if (probeRes.ok) {
           watchHtml = await probeRes.text();
           const setCookies = probeRes.headers.get("set-cookie") || "";
@@ -2028,6 +2093,19 @@ ${
       // -------------------------------------------------------------
       console.log("[SubtitleFetcher] Strategy 4: Running XML parser fallback...");
       const xmlResult = await fetchYoutubeSubtitlesFromXml(videoId);
+      if (xmlResult.errorCode?.includes("429") || xmlResult.errorCode?.includes("THROTTLE")) {
+        captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
+        console.warn("[SubtitleFetcher] Strategy 4 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
+        strategyLog.push("xml: HTTP 429 (IP blocked)");
+        return {
+          lines: null,
+          hasTracks: false,
+          errorCode: "CAPTION_FETCH_FAILED",
+          errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
+          status: "CAPTION_FETCH_FAILED",
+          strategySummary: strategyLog.join("; ")
+        };
+      }
       if (xmlResult.lines && xmlResult.lines.length > 0) {
         strategyLog.push(`xml: ok (${xmlResult.lines.length} lines)`);
         return { ...xmlResult, strategySummary: strategyLog.join("; ") };
@@ -2423,6 +2501,7 @@ Return ONLY a JSON array of dialogue objects:
             scrapedData.transcript = fallbackLines.map(l => l.text).join(" ");
             scrapedData.transcriptArray = fallbackLines;
             scrapedData.hasTracks = true;
+            scrapedData.isAiGenerated = true;
             scrapedData.transcriptErrorCode = null;
             scrapedData.transcriptErrorDetails = null;
             captionsOk = true;
@@ -2645,6 +2724,7 @@ Return exactly this JSON schema:
           parsedData.fullTranscript = formatSubtitles(scrapedData.transcriptArray);
           parsedData.transcript = scrapedData.transcriptArray;
           parsedData.hasTranscript = true;
+          parsedData.isAiGenerated = !!scrapedData.isAiGenerated;
           parsedData.transcriptErrorCode = null;
           parsedData.transcriptErrorDetails = null;
         } else if (scrapedData.clientDelegationUrl) {
@@ -3401,6 +3481,7 @@ OUTPUT REQUIREMENTS:
           transcriptCache.set(videoId, {
             data: {
               hasTranscript: true,
+              isAiGenerated: true,
               transcript: lines,
               fullTranscript,
               hookText: hookText || "Extracted spoken hook.",
@@ -3426,6 +3507,7 @@ OUTPUT REQUIREMENTS:
         res.json({
           success: true,
           hasTranscript: true,
+          isAiGenerated: true,
           transcript: lines,
           fullTranscript,
           hookText: hookText || "Extracted spoken hook.",
