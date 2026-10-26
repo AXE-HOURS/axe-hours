@@ -1574,7 +1574,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                           {extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED' && (
                             <button
                               type="button"
-                              onClick={() => handleExtract(new Event('submit') as any)}
+                              onClick={() => handleFetchScript()}
                               disabled={isLoading}
                               className="px-4 py-2.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 hover:text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm active:scale-[0.99] disabled:opacity-50"
                             >

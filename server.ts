@@ -2750,7 +2750,7 @@ Return exactly this JSON schema:
       console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} (${subResult?.strategySummary || 'none'}) | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
       console.log("[fetch-script] Transitioning to local high-fidelity fallback generator due to rate limit or API exception:", error?.message || error);
       try {
-        const fallbackData = generateScriptFallback(videoUrl, realTitle, realAuthor, scrapedData, isLive);
+        const fallbackData: any = generateScriptFallback(videoUrl, realTitle, realAuthor, scrapedData, isLive);
         if (fallbackData) {
           const fbHook = (fallbackData.hookText || '').trim();
           fallbackData.hookScore = calculateHookScore(fbHook);
