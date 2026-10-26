@@ -71,6 +71,7 @@ export const ScriptFetcher: React.FC = () => {
   const [progressVal, setProgressVal] = useState<number>(0);
   const [urlValidationError, setUrlValidationError] = useState<string>('');
   const [quotaError, setQuotaError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -526,8 +527,8 @@ export const ScriptFetcher: React.FC = () => {
     addToast('Extraction cancelled.', 'info');
   };
 
-  const handleFetchScript = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleFetchScript = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     const rawUrl = videoUrl.trim();
     if (!rawUrl) return;
 
@@ -567,6 +568,7 @@ export const ScriptFetcher: React.FC = () => {
 
     setIsLoading(true);
     setExtractionDone(false);
+    setServerError(null);
     setProgressVal(20);
     setProgressText('Fetching video metadata & caption tracks...');
     playAudio(523);
@@ -641,6 +643,16 @@ export const ScriptFetcher: React.FC = () => {
           return;
         }
 
+        if (response.status >= 500) {
+          setIsLoading(false);
+          setExtractionDone(false);
+          setProgressVal(0);
+          setProgressText('');
+          setServerError("Something went wrong on our side. Please try again.");
+          addToast("Something went wrong on our side. Please try again.", "error");
+          return;
+        }
+
         if (
           errData.transcriptErrorCode === 'VIDEO_PRIVATE_OR_REMOVED' || 
           errData.transcriptErrorCode === 'VIDEO_UNAVAILABLE' || 
@@ -665,6 +677,25 @@ export const ScriptFetcher: React.FC = () => {
           return;
         }
 
+        if (response.status === 422 && errData.transcriptErrorCode === 'NO_OFFICIAL_CAPTIONS') {
+          setExtractedData(prev => ({
+            ...prev,
+            title: errData.title || 'Untitled Video',
+            author: errData.author || '',
+            hasTranscript: false,
+            transcriptErrorCode: 'NO_OFFICIAL_CAPTIONS',
+            transcriptErrorDetails: getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS'),
+            fullTranscript: '[Notice: No official captions found on YouTube.]'
+          }));
+          setIsManualInputOpen(true);
+          setIsLoading(false);
+          setExtractionDone(true);
+          setProgressVal(0);
+          setProgressText('');
+          addToast(getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS'), 'warning');
+          return;
+        }
+
         const errorMessage = errData.message || (
           errData.error === 'INVALID_VIDEO_URL'
             ? 'Invalid YouTube link: Video IDs must be exactly 11 characters.'
@@ -672,15 +703,16 @@ export const ScriptFetcher: React.FC = () => {
         );
 
         setIsLoading(false);
-        setExtractionDone(true);
-        setIsManualInputOpen(true);
         setProgressVal(0);
         setProgressText('');
         if (errData.error === 'INVALID_VIDEO_URL') {
+          setExtractionDone(false);
           setUrlValidationError(errorMessage);
           addToast(errorMessage, 'warning');
         } else {
-          addToast(errorMessage, 'error');
+          setExtractionDone(false);
+          setServerError("Something went wrong on our side. Please try again.");
+          addToast("Something went wrong on our side. Please try again.", 'error');
         }
         return;
       }
@@ -929,22 +961,9 @@ export const ScriptFetcher: React.FC = () => {
       setProgressVal(0);
       setProgressText('');
       setIsLoading(false);
-      setExtractionDone(true);
-      setIsManualInputOpen(true);
-
-      const errorMsg = error.message || "Failed to fetch video details";
-      const isInputError = errorMsg.includes('11-character') || errorMsg.includes('INVALID_VIDEO_URL') || errorMsg.includes('Invalid YouTube video link');
-      
-      if (!isInputError && (
-        errorMsg.toLowerCase().includes("quota") || 
-        errorMsg.toLowerCase().includes("api key") || 
-        errorMsg.toLowerCase().includes("unauthorized") ||
-        errorMsg.toLowerCase().includes("forbidden")
-      )) {
-        addToast(`YouTube API service error: ${errorMsg}`, 'error');
-      } else {
-        addToast(errorMsg, isInputError ? 'warning' : 'error');
-      }
+      setExtractionDone(false);
+      setServerError("Something went wrong on our side. Please try again.");
+      addToast("Something went wrong on our side. Please try again.", "error");
     } finally {
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -1488,7 +1507,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                   </div>
                   <div className="bg-black/50 border border-white/5 p-2 px-1 rounded-lg border-emerald-500/15 bg-emerald-500/5">
                     <span className="text-emerald-400/70 text-[9px] uppercase font-mono block">Hook Grade <span className="text-[8px] font-normal opacity-75">(Est.)</span></span>
-                    <span className="text-emerald-300 text-xs font-black font-mono block mt-0.5">{extractedData.hookScore}/100</span>
+                    <span className="text-emerald-300 text-xs font-black font-mono block mt-0.5">{extractedData.hasTranscript && extractedData.hookScore > 0 ? `${extractedData.hookScore}/100` : '–'}</span>
                   </div>
                 </div>
               </GlassCard>
@@ -1742,6 +1761,23 @@ ${extractedData.fullTranscript || 'N/A'}`;
                   </div>
                 </div>
               )}
+            </div>
+          ) : serverError ? (
+            <div className="flex flex-col items-center justify-center p-12 bg-red-500/5 border border-red-500/20 rounded-xl text-center select-none space-y-4 min-h-[350px]">
+              <div className="w-12 h-12 rounded-full bg-red-500/20 border border-red-500/30 text-red-400 flex items-center justify-center mx-auto">
+                <AlertCircle size={24} />
+              </div>
+              <div className="space-y-1">
+                <h3 className="text-sm font-bold text-white tracking-tight">Something went wrong on our side. Please try again.</h3>
+                <p className="text-xs text-gray-400">The server encountered an issue while processing this video.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleFetchScript()}
+                className="px-5 py-2.5 rounded-xl bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-300 hover:text-white text-xs font-bold uppercase tracking-wider inline-flex items-center gap-2 cursor-pointer transition-all shadow-md active:scale-95"
+              >
+                <RefreshCw size={14} /> Retry
+              </button>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center p-12 bg-black/20 border border-white/5 rounded-xl text-center select-none space-y-4 h-[350px]">

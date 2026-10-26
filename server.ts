@@ -2153,7 +2153,101 @@ ${
   // Alias for compatibility
   const fetchYouTubeCaptions = fetchYoutubeSubtitles;
 
-  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 20000): Promise<{ 
+  // Fetch YouTube video metadata with non-fatal fallbacks (Data API -> oEmbed -> Empty)
+  async function fetchYoutubeMetadataSafe(videoId: string, ytApiKey?: string): Promise<{
+    title: string;
+    author: string;
+    views: string;
+    duration: string;
+    description: string;
+    categoryId: string;
+    tags: string[];
+    isPrivateOrRemoved?: boolean;
+  }> {
+    if (ytApiKey) {
+      try {
+        const ytResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`, {
+          signal: AbortSignal.timeout(10000)
+        });
+        if (ytResponse.ok) {
+          const ytData = await ytResponse.json() as any;
+          if (!ytData.items || ytData.items.length === 0) {
+            console.warn(`[fetch-script] YouTube Data API returned 0 items for video ID ${videoId} (private or removed)`);
+            return {
+              isPrivateOrRemoved: true,
+              title: "Private or Restricted Video",
+              author: "YouTube Creator",
+              views: "",
+              duration: "",
+              description: "",
+              categoryId: "",
+              tags: []
+            };
+          }
+          const item = ytData.items[0];
+          const snippet = item.snippet || {};
+          const stats = item.statistics || {};
+          const contentDetails = item.contentDetails || {};
+          const durationStr = parseIso8601Duration(contentDetails?.duration);
+          const viewCount = parseInt(stats?.viewCount || "0", 10);
+          let viewsStr = viewCount.toLocaleString();
+          if (viewCount >= 1000000) {
+            viewsStr = `${(viewCount / 1000000).toFixed(1)}M views`;
+          } else if (viewCount >= 1000) {
+            viewsStr = `${(viewCount / 1000).toFixed(0)}K views`;
+          } else {
+            viewsStr = `${viewCount} views`;
+          }
+          return {
+            title: snippet.title || "Untitled video",
+            author: snippet.channelTitle || "YouTube Creator",
+            views: viewsStr,
+            duration: durationStr,
+            description: snippet.description || "",
+            categoryId: snippet.categoryId || "",
+            tags: snippet.tags || []
+          };
+        } else {
+          console.warn(`[fetch-script] YouTube Data API returned status ${ytResponse.status}, falling back to oEmbed`);
+        }
+      } catch (err: any) {
+        console.warn(`[fetch-script] YouTube Data API metadata fetch failed (${err.message || err}), falling back to oEmbed`);
+      }
+    }
+
+    // Fallback to oEmbed (10s overall budget, 6s for oEmbed)
+    try {
+      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
+      const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(6000) });
+      if (oembedRes.ok) {
+        const oembedData = await oembedRes.json() as any;
+        return {
+          title: oembedData.title || "Untitled video",
+          author: oembedData.author_name || "YouTube Creator",
+          views: "",
+          duration: "",
+          description: "",
+          categoryId: "",
+          tags: []
+        };
+      }
+    } catch (oembedErr: any) {
+      console.warn(`[fetch-script] YouTube oEmbed metadata fetch failed (${oembedErr.message || oembedErr}), using empty metadata`);
+    }
+
+    // Ultimate fallback: empty metadata
+    return {
+      title: "Untitled video",
+      author: "YouTube Creator",
+      views: "",
+      duration: "",
+      description: "",
+      categoryId: "",
+      tags: []
+    };
+  }
+
+  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 25000): Promise<{ 
     lines: { text: string; start: number; duration: number }[] | null; 
     hasTracks: boolean; 
     errorCode?: string; 
@@ -2242,9 +2336,13 @@ ${
     let platform: "youtube" | "tiktok" | "instagram" = "youtube";
     let scrapedData: any = null;
     const reqStart = Date.now();
-    let step1Duration = 0;
+    let metaDuration = 0;
+    let metaOk = false;
+    let captionsDuration = 0;
+    let captionsOk = false;
     let fallbackDuration = 0;
     let geminiDuration = 0;
+    let geminiOk = false;
     let subResult: any = null;
     let fallbackLines: any[] = [];
 
@@ -2263,117 +2361,86 @@ ${
           return;
         }
 
-        const ytApiKey = process.env.VITE_YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || req.body.youtubeApiKey;
-        if (!ytApiKey) {
-          console.error("YouTube Data API v3 authentication failed: YouTube API key is not configured.");
-          res.status(400).json({ 
-            error: "The YouTube Data API is temporarily unavailable. YouTube API key is not configured in environment variables.",
-            youtubeApiError: true
+        const ytApiKey = process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || process.env.VITE_YOUTUBE_API_KEY || req.body.youtubeApiKey;
+
+        const metaStart = Date.now();
+        const captionsStart = Date.now();
+        const [metaSettled, captionsSettled] = await Promise.allSettled([
+          fetchYoutubeMetadataSafe(videoId, ytApiKey),
+          fetchYoutubeSubtitlesWithTimeout(videoId, 25000)
+        ]);
+        metaDuration = Date.now() - metaStart;
+        captionsDuration = Date.now() - captionsStart;
+
+        if (metaSettled.status === "fulfilled" && metaSettled.value.isPrivateOrRemoved) {
+          res.status(200).json({ 
+            hasTranscript: false,
+            status: 'VIDEO_UNAVAILABLE',
+            transcriptErrorCode: 'VIDEO_UNAVAILABLE',
+            transcriptErrorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+            message: 'This video is private, removed, or region-restricted by YouTube.',
+            title: "Private or Restricted Video",
+            author: "YouTube Creator"
           });
           return;
         }
 
-        try {
-          const step1Start = Date.now();
-          const subPromise = fetchYoutubeSubtitlesWithTimeout(videoId, 20000);
-          const ytPromise = fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`, {
-            signal: AbortSignal.timeout(8000)
-          });
+        const metadata = metaSettled.status === "fulfilled"
+          ? metaSettled.value
+          : { title: "Untitled video", author: "YouTube Creator", views: "", duration: "", description: "", categoryId: "", tags: [] };
+        metaOk = metaSettled.status === "fulfilled" && metadata.title !== "Untitled video";
 
-          let ytResponse: Response;
-          [subResult, ytResponse] = await Promise.all([subPromise, ytPromise]);
-          step1Duration = Date.now() - step1Start;
-          console.log(`[fetch-script] Step 1 (captions & metadata) took: ${(step1Duration / 1000).toFixed(2)}s`);
+        realTitle = metadata.title;
+        realAuthor = metadata.author;
 
-          if (!ytResponse.ok) {
-            const errorText = await ytResponse.text();
-            console.error(`YouTube Data API returned non-200 status: ${ytResponse.status}`, errorText);
-            res.status(ytResponse.status).json({ 
-              error: "The YouTube Data API is temporarily unavailable. Please verify the API key configuration or quota limits.",
-              youtubeApiError: true
+        subResult = captionsSettled.status === "fulfilled"
+          ? captionsSettled.value
+          : { lines: null, hasTracks: false };
+        captionsOk = Boolean(subResult && subResult.lines && subResult.lines.length > 0);
+
+        scrapedData = {
+          title: metadata.title,
+          author: metadata.author,
+          views: metadata.views,
+          duration: metadata.duration,
+          description: metadata.description,
+          categoryId: metadata.categoryId,
+          tags: metadata.tags,
+          transcript: "",
+          hasTracks: subResult.hasTracks,
+          transcriptErrorCode: subResult.errorCode || null,
+          transcriptErrorDetails: subResult.errorDetails || null,
+          clientDelegationUrl: subResult.clientDelegationUrl || null,
+          status: subResult.status || null,
+          videoId: videoId
+        };
+
+        if (subResult.lines && subResult.lines.length > 0) {
+          console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
+          scrapedData.transcript = subResult.lines.map((line: any) => line.text).join(" ");
+          scrapedData.transcriptArray = subResult.lines;
+        } else if (apiKey) {
+          const fallbackStart = Date.now();
+          console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing native Gemini YouTube multimodal transcription fallback...`);
+          try {
+            const aiFallback = new GoogleGenAI({
+              apiKey: apiKey,
+              httpOptions: {
+                headers: { "User-Agent": "aistudio-build" }
+              }
             });
-            return;
-          }
-
-          const ytData = await ytResponse.json() as any;
-          if (!ytData.items || ytData.items.length === 0) {
-            console.error("YouTube Data API returned 0 items for video ID (private or removed):", videoId);
-            res.status(200).json({ 
-              hasTranscript: false,
-              status: 'VIDEO_UNAVAILABLE',
-              transcriptErrorCode: 'VIDEO_UNAVAILABLE',
-              transcriptErrorDetails: 'This video is private, removed, or region-restricted by YouTube.',
-              message: 'This video is private, removed, or region-restricted by YouTube.',
-              title: "Private or Restricted Video",
-              author: "YouTube Creator"
-            });
-            return;
-          }
-
-          const item = ytData.items[0];
-          const snippet = item.snippet;
-          const stats = item.statistics;
-          const contentDetails = item.contentDetails;
-
-          const durationStr = parseIso8601Duration(contentDetails?.duration);
-
-          const viewCount = parseInt(stats?.viewCount || "0", 10);
-          let viewsStr = viewCount.toLocaleString();
-          if (viewCount >= 1000000) {
-            viewsStr = `${(viewCount / 1000000).toFixed(1)}M views`;
-          } else if (viewCount >= 1000) {
-            viewsStr = `${(viewCount / 1000).toFixed(0)}K views`;
-          } else {
-            viewsStr = `${viewCount} views`;
-          }
-
-          scrapedData = {
-            title: snippet.title || "",
-            author: snippet.channelTitle || "",
-            views: viewsStr,
-            duration: durationStr,
-            description: snippet.description || "",
-            categoryId: snippet.categoryId || "",
-            tags: snippet.tags || [],
-            transcript: "" // Since transcript is deprecated, we let Gemini Grounding augment this
-          };
-
-          realTitle = scrapedData.title;
-          realAuthor = scrapedData.author;
-
-          scrapedData.hasTracks = subResult.hasTracks;
-          scrapedData.transcriptErrorCode = subResult.errorCode || null;
-          scrapedData.transcriptErrorDetails = subResult.errorDetails || null;
-          scrapedData.clientDelegationUrl = subResult.clientDelegationUrl || null;
-          scrapedData.status = subResult.status || null;
-          scrapedData.videoId = videoId;
-
-          if (subResult.lines && subResult.lines.length > 0) {
-            console.log(`[fetch-script] Successfully retrieved public closed captions: ${subResult.lines.length} lines`);
-            scrapedData.transcript = subResult.lines.map((line: any) => line.text).join(" ");
-            scrapedData.transcriptArray = subResult.lines;
-          } else if (apiKey) {
-            const fallbackStart = Date.now();
-            console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing native Gemini YouTube multimodal transcription fallback...`);
-            try {
-              const aiFallback = new GoogleGenAI({
-                apiKey: apiKey,
-                httpOptions: {
-                  headers: { "User-Agent": "aistudio-build" }
-                }
-              });
-              const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-              const multimodalRes = await generateContentWithCascade(aiFallback, {
-                preferredModel: "gemini-2.5-flash",
-                contents: [
-                  {
-                    fileData: {
-                      fileUri: watchUrl,
-                      mimeType: "video/mp4"
-                    }
-                  },
-                  {
-                    text: `You are an expert audio-visual dialogue transcriber. Transcribe the verbatim spoken dialogue from this YouTube video with accurate chronological timestamps.
+            const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+            const multimodalRes = await generateContentWithCascade(aiFallback, {
+              preferredModel: "gemini-2.5-flash",
+              contents: [
+                {
+                  fileData: {
+                    fileUri: watchUrl,
+                    mimeType: "video/mp4"
+                  }
+                },
+                {
+                  text: `You are an expert audio-visual dialogue transcriber. Transcribe the verbatim spoken dialogue from this YouTube video with accurate chronological timestamps.
 Title: "${realTitle || 'YouTube Video'}"
 Channel: "${realAuthor || 'Creator'}"
 
@@ -2384,23 +2451,23 @@ Instructions:
 3. If the video is longer than 1 hour, use [HH:MM:SS].
 4. Capture all spoken words from opening hook to conclusion.
 5. If the video contains NO spoken words (purely instrumental background music, sound effects, or silent), respond with "[NON-VERBAL VIDEO]".`
-                  }
-                ]
-              });
+                }
+              ]
+            });
 
-              const textOut = multimodalRes.text || "";
-              if (textOut && !textOut.includes("[NON-VERBAL VIDEO]")) {
-                fallbackLines = parseTimestampedDialogueText(textOut);
-              }
-            } catch (fallbackErr: any) {
-              console.warn(`[fetch-script] Native multimodal video understanding attempt failed:`, fallbackErr?.message || fallbackErr);
-              // Fallback to Google Search Grounding for speech reconstruction
-              try {
-                const aiGrounding = new GoogleGenAI({
-                  apiKey: apiKey,
-                  httpOptions: { apiVersion: 'v1alpha' }
-                });
-                const groundingPrompt = `Search the web and reconstruct/transcribe the authentic chronological spoken dialogue for this YouTube video:
+            const textOut = multimodalRes.text || "";
+            if (textOut && !textOut.includes("[NON-VERBAL VIDEO]")) {
+              fallbackLines = parseTimestampedDialogueText(textOut);
+            }
+          } catch (fallbackErr: any) {
+            console.warn(`[fetch-script] Native multimodal video understanding attempt failed:`, fallbackErr?.message || fallbackErr);
+            // Fallback to Google Search Grounding for speech reconstruction
+            try {
+              const aiGrounding = new GoogleGenAI({
+                apiKey: apiKey,
+                httpOptions: { apiVersion: 'v1alpha' }
+              });
+              const groundingPrompt = `Search the web and reconstruct/transcribe the authentic chronological spoken dialogue for this YouTube video:
 URL: https://www.youtube.com/watch?v=${videoId}
 Title: "${realTitle || 'YouTube Video'}"
 Channel: "${realAuthor || 'Creator'}"
@@ -2410,51 +2477,44 @@ Return ONLY a JSON array of dialogue objects:
   { "start": 0, "duration": 3.5, "text": "First spoken dialogue..." },
   { "start": 3.5, "duration": 4.0, "text": "Second spoken dialogue..." }
 ]`;
-                const groundingRes = await generateContentWithCascade(aiGrounding, {
-                  contents: groundingPrompt,
-                  config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
-                });
-                const gText = groundingRes.text || "";
-                const jsonMatch = gText.match(/\[[\s\S]*\]/);
-                if (jsonMatch) {
-                  const parsed = JSON.parse(jsonMatch[0]);
-                  if (Array.isArray(parsed)) {
-                    fallbackLines = parsed.map((item: any, idx: number) => ({
-                      text: (item.text || item.content || "").trim(),
-                      start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
-                      duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
-                    })).filter(l => l.text.length > 0);
-                  }
+              const groundingRes = await generateContentWithCascade(aiGrounding, {
+                contents: groundingPrompt,
+                config: { tools: [{ googleSearch: {} }], temperature: 0.2 }
+              });
+              const gText = groundingRes.text || "";
+              const jsonMatch = gText.match(/\[[\s\S]*\]/);
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                if (Array.isArray(parsed)) {
+                  fallbackLines = parsed.map((item: any, idx: number) => ({
+                    text: (item.text || item.content || "").trim(),
+                    start: typeof item.start === 'number' ? item.start : (parseFloat(item.start) || idx * 4),
+                    duration: typeof item.duration === 'number' ? item.duration : (parseFloat(item.dur || item.duration) || 3.5)
+                  })).filter(l => l.text.length > 0);
                 }
-              } catch (gErr) {
-                console.warn(`[fetch-script] Search grounding fallback also failed:`, gErr);
               }
+            } catch (gErr) {
+              console.warn(`[fetch-script] Search grounding fallback also failed:`, gErr);
             }
-
-            if (fallbackLines.length > 0) {
-              console.log(`[fetch-script] Gemini YouTube fallback successfully recovered ${fallbackLines.length} spoken dialogue lines!`);
-              scrapedData.transcript = fallbackLines.map(l => l.text).join(" ");
-              scrapedData.transcriptArray = fallbackLines;
-              scrapedData.hasTracks = true;
-              scrapedData.transcriptErrorCode = null;
-              scrapedData.transcriptErrorDetails = null;
-            } else {
-              scrapedData.transcript = "";
-              scrapedData.transcriptArray = [];
-              scrapedData.hasTracks = false;
-              scrapedData.transcriptErrorCode = "NO_OFFICIAL_CAPTIONS";
-              scrapedData.transcriptErrorDetails = "No spoken dialogue could be extracted (video may be non-verbal, music, or unavailable).";
-            }
-            fallbackDuration = Date.now() - fallbackStart;
-            console.log(`[fetch-script] Fallback (audio transcription) took: ${(fallbackDuration / 1000).toFixed(2)}s`);
           }
-        } catch (ytErr: any) {
-          console.error("Failed to query YouTube Data API v3:", ytErr);
-          res.status(500).json({ 
-            error: "The YouTube Data API is temporarily unavailable. " + (ytErr.message || "Network request failed."),
-            youtubeApiError: true
-          });
-          return;
+
+          if (fallbackLines.length > 0) {
+            console.log(`[fetch-script] Gemini YouTube fallback successfully recovered ${fallbackLines.length} spoken dialogue lines!`);
+            scrapedData.transcript = fallbackLines.map(l => l.text).join(" ");
+            scrapedData.transcriptArray = fallbackLines;
+            scrapedData.hasTracks = true;
+            scrapedData.transcriptErrorCode = null;
+            scrapedData.transcriptErrorDetails = null;
+            captionsOk = true;
+          } else {
+            scrapedData.transcript = "";
+            scrapedData.transcriptArray = [];
+            scrapedData.hasTracks = false;
+            scrapedData.transcriptErrorCode = "NO_OFFICIAL_CAPTIONS";
+            scrapedData.transcriptErrorDetails = "No spoken dialogue could be extracted (video may be non-verbal, music, or unavailable).";
+          }
+          fallbackDuration = Date.now() - fallbackStart;
+          console.log(`[fetch-script] Fallback (audio transcription) took: ${(fallbackDuration / 1000).toFixed(2)}s`);
         }
       } else {
         // TikTok / Instagram
@@ -2625,28 +2685,38 @@ Return exactly this JSON schema:
       prompt += `\n\n*** CRITICAL REQUIREMENT: THE VISUAL BLUEPRINT ***\nYou are not just a scriptwriter; you are a high-level Creative Director. You must output a structured Visual Blueprint alongside the dialogue to completely eliminate the creator's editing friction in software like CapCut.\n\nFor every single sentence or major beat in the script, you MUST provide explicit instructions for B-Roll, Typography, and Audio Pacing before the spoken dialogue.\n\nStrictly format your output using this exact structure for every scene:\n\n[VISUAL: Describe the exact b-roll, stock footage, or background aesthetic to search for]\n[TEXT OVERLAY: The exact typographic text to display on screen, e.g., "The 80-Hour Trap"]\n[AUDIO CUE: Specific sound effect or music transition, e.g., "Heavy sub-bass drop"]\nVOICEOVER: "The actual spoken dialogue goes here."\n\nEnsure the Visual Blueprint appears for every line or major beat and is unambiguous for editors using CapCut or similar tools.`;
 
       const geminiStart = Date.now();
-      const response = await generateContentWithCascade(ai, {
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          temperature: 0.7,
-        },
-      });
-      geminiDuration = Date.now() - geminiStart;
-      console.log(`[fetch-script] Gemini call took: ${(geminiDuration / 1000).toFixed(2)}s`);
-
-      const responseText = response.text || "";
-      let parsedData;
+      let parsedData: any = null;
       try {
-        parsedData = cleanAndParseJson(responseText);
-      } catch (e) {
-        console.warn("JSON parsing failed, retrying manual clean", responseText);
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsedData = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error("Invalid response format received from model: " + responseText);
+        const geminiPromise = generateContentWithCascade(ai, {
+          contents: prompt,
+          config: {
+            tools: [{ googleSearch: {} }],
+            temperature: 0.7,
+          },
+        });
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Gemini analysis timed out after 60s")), 60000)
+        );
+        const response: any = await Promise.race([geminiPromise, timeoutPromise]);
+        geminiDuration = Date.now() - geminiStart;
+        geminiOk = true;
+
+        const responseText = response.text || "";
+        try {
+          parsedData = cleanAndParseJson(responseText);
+        } catch (e) {
+          console.warn("JSON parsing failed, retrying manual clean", responseText);
+          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            parsedData = JSON.parse(jsonMatch[0]);
+          } else {
+            throw new Error("Invalid response format received from model: " + responseText);
+          }
         }
+      } catch (geminiErr: any) {
+        geminiDuration = Date.now() - geminiStart;
+        console.warn(`[fetch-script] Gemini call failed or timed out (${geminiDuration}ms):`, geminiErr?.message || geminiErr);
+        parsedData = generateScriptFallback(videoUrl, realTitle, realAuthor, scrapedData, isLive);
       }
 
       if (scrapedData) {
@@ -2691,13 +2761,7 @@ Return exactly this JSON schema:
         }
       }
 
-      const totalDuration = Date.now() - reqStart;
-      console.log(`[fetch-script] Timing Summary for ${videoUrl}:
-  - Step 1 (captions): ${(step1Duration / 1000).toFixed(2)}s
-  - Fallback (audio transcription): ${(fallbackDuration / 1000).toFixed(2)}s
-  - Gemini call: ${(geminiDuration / 1000).toFixed(2)}s
-  - Total: ${(totalDuration / 1000).toFixed(2)}s
-  - Result: ${subResult?.lines ? 'Direct Captions Succeeded' : fallbackLines.length > 0 ? 'Fallback Audio Succeeded' : 'No Official Captions'}`);
+      console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
 
       res.json(parsedData);
     } catch (error: any) {
@@ -3932,14 +3996,14 @@ RULES:
 
     const apiKey = getYoutubeApiKey();
     if (!apiKey) {
-      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+      return res.status(503).json({ error: "YOUTUBE_API_KEY_MISSING" });
     }
 
     try {
       const isChannelId = clean.startsWith("UC") && clean.length === 24;
       if (isChannelId) {
         const url = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&id=${encodeURIComponent(clean)}&key=${apiKey}`;
-        const ytRes = await fetch(url);
+        const ytRes = await fetch(url, { signal: AbortSignal.timeout(8000) });
         if (!ytRes.ok) {
           return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
         }
@@ -3951,25 +4015,25 @@ RULES:
       // Handle search
       const handleClean = clean.startsWith("@") ? clean.slice(1) : clean;
       let handleUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&forHandle=${encodeURIComponent(handleClean)}&key=${apiKey}`;
-      let ytRes = await fetch(handleUrl);
+      let ytRes = await fetch(handleUrl, { signal: AbortSignal.timeout(8000) });
       let data = ytRes.ok ? await ytRes.json() : null;
 
       if (!data?.items?.length) {
         handleUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&forHandle=${encodeURIComponent('@' + handleClean)}&key=${apiKey}`;
-        ytRes = await fetch(handleUrl);
+        ytRes = await fetch(handleUrl, { signal: AbortSignal.timeout(8000) });
         data = ytRes.ok ? await ytRes.json() : null;
       }
 
       if (!data?.items?.length) {
         const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(clean)}&maxResults=1&key=${apiKey}`;
-        const searchRes = await fetch(searchUrl);
+        const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(8000) });
         if (searchRes.ok) {
           const searchJson = await searchRes.json();
           if (searchJson.items?.length) {
             const foundId = searchJson.items[0].id?.channelId;
             if (foundId) {
               const detailUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,brandingSettings,contentDetails&id=${encodeURIComponent(foundId)}&key=${apiKey}`;
-              const detailRes = await fetch(detailUrl);
+              const detailRes = await fetch(detailUrl, { signal: AbortSignal.timeout(8000) });
               if (detailRes.ok) {
                 data = await detailRes.json();
               }
@@ -4003,12 +4067,12 @@ RULES:
 
     const apiKey = getYoutubeApiKey();
     if (!apiKey) {
-      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+      return res.status(503).json({ error: "YOUTUBE_API_KEY_MISSING" });
     }
 
     try {
       const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${encodeURIComponent(cleanId)}&maxResults=${maxResults}&key=${apiKey}`;
-      const ytRes = await fetch(url);
+      const ytRes = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!ytRes.ok) {
         return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
       }
@@ -4040,12 +4104,12 @@ RULES:
 
     const apiKey = getYoutubeApiKey();
     if (!apiKey) {
-      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+      return res.status(503).json({ error: "YOUTUBE_API_KEY_MISSING" });
     }
 
     try {
       const url = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${encodeURIComponent(joinedIds)}&key=${apiKey}`;
-      const ytRes = await fetch(url);
+      const ytRes = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!ytRes.ok) {
         return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
       }
@@ -4073,12 +4137,12 @@ RULES:
 
     const apiKey = getYoutubeApiKey();
     if (!apiKey) {
-      return res.status(503).json({ error: "Server YouTube API key is not configured." });
+      return res.status(503).json({ error: "YOUTUBE_API_KEY_MISSING" });
     }
 
     try {
       const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=channel&q=${encodeURIComponent(cleanQ)}&maxResults=1&key=${apiKey}`;
-      const ytRes = await fetch(url);
+      const ytRes = await fetch(url, { signal: AbortSignal.timeout(8000) });
       if (!ytRes.ok) {
         return res.status(ytRes.status).json({ error: `YouTube API returned status ${ytRes.status}` });
       }
@@ -4492,6 +4556,10 @@ Support Bot response:`;
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
+  }
+
+  if (!process.env.YOUTUBE_API_KEY && !process.env.YOUTUBE_DATA_API_KEY && !process.env.VITE_YOUTUBE_API_KEY) {
+    console.warn("YOUTUBE_API_KEY not set: metadata will use oEmbed fallback");
   }
 
   app.listen(PORT, "0.0.0.0", () => {
