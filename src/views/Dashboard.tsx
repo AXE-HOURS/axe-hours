@@ -140,7 +140,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ recentGenerations = [], on
   // Trigger Outlook/ICS export
   const exportOutlookICS = () => {
     if (scheduledPosts.length === 0) {
-      showToast("No scheduled posts to export! ⚠️", "warning");
+      showToast("Nothing to export yet. Add a slot first.", "warning");
       return;
     }
 

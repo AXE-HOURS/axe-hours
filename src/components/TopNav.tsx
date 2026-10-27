@@ -10,6 +10,7 @@ import { PrimaryButton } from './PrimaryButton';
 import { getSecureGeminiKey } from '../utils/secureStorage';
 import { auth } from '../lib/firebase';
 import { getAuthOrGuestToken } from '../utils/authSession';
+import { renderChatMarkdown } from './AIPopoutAssistant';
 
 interface GenerationItem {
   id: number;
@@ -613,9 +614,13 @@ export const TopNav: React.FC<TopNavProps> = ({
                     <div className={`max-w-[85%] rounded-xl p-3 text-xs leading-relaxed ${
                       msg.sender === 'user' 
                         ? 'bg-primary-gradient text-white border border-primary/25 rounded-tr-none font-bold' 
-                        : 'bg-white/5 border border-white/5 text-gray-200 rounded-tl-none font-mono'
+                        : 'bg-white/5 border border-white/5 text-gray-200 rounded-tl-none font-sans'
                     }`}>
-                      <p className="whitespace-pre-wrap">{msg.text}</p>
+                      {msg.sender === 'user' ? (
+                        <p className="whitespace-pre-wrap">{msg.text}</p>
+                      ) : (
+                        renderChatMarkdown(msg.text)
+                      )}
                     </div>
                   </div>
                 ))}

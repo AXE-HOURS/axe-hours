@@ -31,6 +31,167 @@ export const sanitizeAssistantMarkdown = (text: string): string => {
     .replace(/^\s*\*\s*\*\*/gm, '• **');
 };
 
+function renderInlineFormatting(line: string, keyPrefix: string): React.ReactNode[] {
+  const parts = line.split(/(\*\*[^*]+?\*\*|`[^`]+?`)/g);
+  return parts.map((part, index) => {
+    const key = `${keyPrefix}-${index}`;
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      return (
+        <strong key={key} className="text-white font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      return (
+        <code key={key} className="px-1 py-0.5 rounded bg-white/10 font-mono text-[11px] text-purple-300">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <React.Fragment key={key}>{part}</React.Fragment>;
+  });
+}
+
+export const renderChatMarkdown = (rawText: string): React.ReactNode => {
+  if (!rawText) return null;
+
+  const cleaned = rawText
+    .replace(/\[ACTION_LOAD_GENERATOR:\s*\{[\s\S]*?\}\]/g, '')
+    .replace(/\*\*\*+/g, '**')
+    .trim();
+
+  const rawLines = cleaned.split('\n');
+
+  type Block =
+    | { type: 'heading'; level: number; text: string }
+    | { type: 'bullet-list'; items: string[] }
+    | { type: 'numbered-list'; items: { num: string; text: string }[] }
+    | { type: 'paragraph'; lines: string[] };
+
+  const blocks: Block[] = [];
+  let currentBlock: Block | null = null;
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      if (currentBlock) {
+        blocks.push(currentBlock);
+        currentBlock = null;
+      }
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,3})\s+(.*)$/);
+    if (headingMatch) {
+      if (currentBlock) {
+        blocks.push(currentBlock);
+        currentBlock = null;
+      }
+      blocks.push({
+        type: 'heading',
+        level: headingMatch[1].length,
+        text: headingMatch[2]
+      });
+      continue;
+    }
+
+    const bulletMatch = trimmed.match(/^[\*\-•]\s+(.*)$/);
+    if (bulletMatch) {
+      if (currentBlock && currentBlock.type === 'bullet-list') {
+        currentBlock.items.push(bulletMatch[1]);
+      } else {
+        if (currentBlock) blocks.push(currentBlock);
+        currentBlock = { type: 'bullet-list', items: [bulletMatch[1]] };
+      }
+      continue;
+    }
+
+    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
+    if (numMatch) {
+      if (currentBlock && currentBlock.type === 'numbered-list') {
+        currentBlock.items.push({ num: numMatch[1], text: numMatch[2] });
+      } else {
+        if (currentBlock) blocks.push(currentBlock);
+        currentBlock = { type: 'numbered-list', items: [{ num: numMatch[1], text: numMatch[2] }] };
+      }
+      continue;
+    }
+
+    if (currentBlock && currentBlock.type === 'paragraph') {
+      currentBlock.lines.push(trimmed);
+    } else {
+      if (currentBlock) blocks.push(currentBlock);
+      currentBlock = { type: 'paragraph', lines: [trimmed] };
+    }
+  }
+
+  if (currentBlock) {
+    blocks.push(currentBlock);
+  }
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, bIdx) => {
+        if (block.type === 'heading') {
+          return (
+            <div
+              key={`h-${bIdx}`}
+              className={`font-bold text-white pt-1 pb-0.5 ${
+                block.level === 1 ? 'text-sm' : block.level === 2 ? 'text-xs' : 'text-xs text-purple-300'
+              }`}
+            >
+              {renderInlineFormatting(block.text, `h-${bIdx}`)}
+            </div>
+          );
+        }
+        if (block.type === 'bullet-list') {
+          return (
+            <ul key={`ul-${bIdx}`} className="space-y-1 my-1 pl-1">
+              {block.items.map((item, itemIdx) => (
+                <li key={`li-${bIdx}-${itemIdx}`} className="flex items-start gap-2">
+                  <span className="text-purple-400 select-none mt-0.5 leading-none shrink-0">•</span>
+                  <div className="flex-1 leading-relaxed">
+                    {renderInlineFormatting(item, `ul-${bIdx}-${itemIdx}`)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === 'numbered-list') {
+          return (
+            <ol key={`ol-${bIdx}`} className="space-y-1 my-1 pl-1">
+              {block.items.map((item, itemIdx) => (
+                <li key={`oli-${bIdx}-${itemIdx}`} className="flex items-start gap-1.5">
+                  <span className="text-purple-400 font-mono font-semibold select-none shrink-0">
+                    {item.num}.
+                  </span>
+                  <div className="flex-1 leading-relaxed">
+                    {renderInlineFormatting(item.text, `ol-${bIdx}-${itemIdx}`)}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          );
+        }
+        return (
+          <p key={`p-${bIdx}`} className="leading-relaxed">
+            {block.lines.map((line, lIdx) => (
+              <React.Fragment key={`pl-${bIdx}-${lIdx}`}>
+                {lIdx > 0 && <br />}
+                {renderInlineFormatting(line, `pl-${bIdx}-${lIdx}`)}
+              </React.Fragment>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
+
 export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentView, setCurrentView }) => {
   const { user } = useFirebase();
   const [isOpen, setIsOpen] = useState(false);
@@ -450,11 +611,11 @@ export const AIPopoutAssistant: React.FC<AIPopoutAssistantProps> = ({ currentVie
                   <div
                     className={`p-3 rounded-2xl max-w-[82%] text-xs font-sans leading-relaxed transition-all relative ${
                       m.sender === 'user'
-                        ? 'bg-primary text-white font-medium rounded-tr-none'
-                        : 'bg-white/5 border border-white/5 text-gray-200 rounded-tl-none whitespace-pre-wrap'
+                        ? 'bg-primary text-white font-medium rounded-tr-none whitespace-pre-wrap'
+                        : 'bg-white/5 border border-white/5 text-gray-200 rounded-tl-none'
                     }`}
                   >
-                    {sanitizeAssistantMarkdown(m.text)}
+                    {m.sender === 'user' ? m.text : renderChatMarkdown(m.text)}
                     
                     {/* Action Success Badge / Direct Navigation Button */}
                     {m.actionPayload && (

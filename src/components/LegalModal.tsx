@@ -346,11 +346,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, onClose, type: i
         </div>
 
         {/* Modal Footer */}
-        <div className="border-t border-white/10 p-4 bg-[#0d0e12]/90 flex justify-between items-center text-xs text-gray-400 shrink-0">
-          <span className="flex items-center gap-1.5">
-            <Check size={14} className="text-emerald-400" />
-            <span>AXE Hours AI Legal Compliance Verified</span>
-          </span>
+        <div className="border-t border-white/10 p-4 bg-[#0d0e12]/90 flex justify-end items-center text-xs text-gray-400 shrink-0">
           <button
             onClick={onClose}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl transition-all cursor-pointer shadow-lg shadow-purple-600/20"

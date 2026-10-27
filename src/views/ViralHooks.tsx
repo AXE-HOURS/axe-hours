@@ -46,15 +46,15 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
 
   // Preset Template inputs
   const [inputs, setInputs] = useState({
-    commonAction: "building SaaS the hard way",
-    unconventionalStrategy: "using 10-line prompt modules",
-    desiredResult: "deploying profitable projects",
+    commonAction: "doing it the hard way",
+    unconventionalStrategy: "using a simple 3-step framework",
+    desiredResult: "zero to my first result",
     timeframe: "24 hours",
-    negativeState: "$0 MRR console",
-    positiveState: "glowing neon dashboard payouts",
-    experts: "software engineers",
-    topic: "automated prompt scaling",
-    process: "creator content pipeline",
+    negativeState: "starting from scratch with zero traction",
+    positiveState: "consistent daily momentum and growth",
+    experts: "top creators",
+    topic: "proven growth systems",
+    process: "daily workflow routine",
     painPoint: "retaining viewers past 3 seconds"
   });
 
@@ -83,7 +83,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
         if (payload.openingHook) return payload.openingHook;
       }
     } catch {}
-    return "Why 99% of developers FAIL under launch 🤦‍♂️";
+    return "Why 99% of creators FAIL before seeing results 🤦‍♂️";
   });
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -228,7 +228,7 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       });
       setAnalyzedTitle("Why 99% of competitive gamers completely FAIL on this map loop! 💀");
       addToast("Loaded Gaming & Esports variables! 🎮", "success");
-    } else {
+    } else if (nicheName === "Tech") {
       setInputs({
         commonAction: "building SaaS the hard way",
         unconventionalStrategy: "using 10-line prompt modules",
@@ -243,6 +243,21 @@ export const ViralHooks: React.FC<ViralHooksProps> = ({ onSelectHook }) => {
       });
       setAnalyzedTitle("Why 99% of developers FAIL under launch 🤦‍♂️");
       addToast("Loaded Tech & Indiehacking variables! 💻", "success");
+    } else {
+      setInputs({
+        commonAction: "doing it the hard way",
+        unconventionalStrategy: "using a simple 3-step framework",
+        desiredResult: "zero to my first result",
+        timeframe: "24 hours",
+        negativeState: "starting from scratch with zero traction",
+        positiveState: "consistent daily momentum and growth",
+        experts: "top creators",
+        topic: "proven growth systems",
+        process: "daily workflow routine",
+        painPoint: "retaining viewers past 3 seconds"
+      });
+      setAnalyzedTitle("Why 99% of creators FAIL before seeing results 🤦‍♂️");
+      addToast("Loaded neutral creator variables! 🎯", "success");
     }
     playAudioCue(587.33);
   };
