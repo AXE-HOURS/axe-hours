@@ -431,6 +431,9 @@ export async function resolveTranscriptClientSide(
 export const CLIENT_FRIENDLY_ERROR_MAP: Record<string, string> = {
   NO_OFFICIAL_CAPTIONS: "No official YouTube captions available for this media.",
   CAPTION_FETCH_FAILED: "Couldn't fetch captions right now. Retry, or use AI audio transcription.",
+  AUTH_REQUIRED_FOR_MULTIMODAL: "This video has no official captions. Sign in for free to run AI Audio/Video Transcription.",
+  MULTIMODAL_QUOTA_EXCEEDED: "Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription.",
+  VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION: "AI Audio Transcription is capped at videos under 5 minutes on the shared server key. Use a captioned video or add your own Gemini API key in Settings.",
   VIDEO_PRIVATE_OR_REMOVED: "Video is private, removed, or age-restricted on YouTube.",
   RATE_LIMITED_BY_YOUTUBE: "YouTube is temporarily throttling public access. Use manual paste or fallback.",
   DATACENTER_IP_BLOCKED: "YouTube is temporarily throttling public access. Use manual paste or fallback.",
@@ -445,7 +448,10 @@ export const CLIENT_FRIENDLY_ERROR_MAP: Record<string, string> = {
 export function getClientFriendlyErrorMessage(errorCode?: string | null, fallbackMessage?: string): string {
   if (!errorCode) return fallbackMessage || CLIENT_FRIENDLY_ERROR_MAP.NO_OFFICIAL_CAPTIONS;
   if (CLIENT_FRIENDLY_ERROR_MAP[errorCode]) {
-    return CLIENT_FRIENDLY_ERROR_MAP[errorCode];
+    return fallbackMessage || CLIENT_FRIENDLY_ERROR_MAP[errorCode];
+  }
+  if (fallbackMessage) {
+    return fallbackMessage;
   }
   if (errorCode.includes('429') || errorCode.includes('THROTTLE') || errorCode.includes('RATE_LIMIT')) {
     return CLIENT_FRIENDLY_ERROR_MAP.RATE_LIMITED_BY_YOUTUBE;
@@ -456,11 +462,18 @@ export function getClientFriendlyErrorMessage(errorCode?: string | null, fallbac
   if (errorCode.includes('FAIL') || errorCode.includes('TIMEOUT') || errorCode.includes('ERROR')) {
     return CLIENT_FRIENDLY_ERROR_MAP.CAPTION_FETCH_FAILED;
   }
-  return CLIENT_FRIENDLY_ERROR_MAP.NO_OFFICIAL_CAPTIONS;
+  return fallbackMessage || CLIENT_FRIENDLY_ERROR_MAP.NO_OFFICIAL_CAPTIONS;
 }
 
 export function getClientFriendlyDiagnosisCode(rawCode?: string | null): string {
   if (!rawCode) return 'NO_OFFICIAL_CAPTIONS';
+  if (
+    rawCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' ||
+    rawCode === 'MULTIMODAL_QUOTA_EXCEEDED' ||
+    rawCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION'
+  ) {
+    return rawCode;
+  }
   if (rawCode === 'CAPTION_FETCH_FAILED' || rawCode === 'CLIENT_FETCH_FAILED') {
     return 'CAPTION_FETCH_FAILED';
   }

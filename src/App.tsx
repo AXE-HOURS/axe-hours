@@ -6,6 +6,7 @@ import { Footer } from './components/Footer';
 import { AIPopoutAssistant } from './components/AIPopoutAssistant';
 import { OnboardingTour } from './components/OnboardingTour';
 import { UpgradeModal } from './components/UpgradeModal';
+import { AuthModal } from './components/AuthModal';
 import { Settings } from './views/Settings';
 import { LandingPage } from './views/LandingPage';
 import { SavedIdeas } from './views/SavedIdeas';
@@ -129,6 +130,7 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // General tab switcher and modal listener
   useEffect(() => {
@@ -140,12 +142,15 @@ export default function App() {
       }
     };
     const handleOpenUpgrade = () => setIsUpgradeModalOpen(true);
+    const handleOpenAuth = () => setIsAuthModalOpen(true);
 
     window.addEventListener("change-active-view", handleViewChange);
     window.addEventListener("open-upgrade-modal", handleOpenUpgrade);
+    window.addEventListener("open-auth-modal", handleOpenAuth);
     return () => {
       window.removeEventListener("change-active-view", handleViewChange);
       window.removeEventListener("open-upgrade-modal", handleOpenUpgrade);
+      window.removeEventListener("open-auth-modal", handleOpenAuth);
     };
   }, []);
 
@@ -403,6 +408,7 @@ export default function App() {
       <AIPopoutAssistant currentView={currentView} setCurrentView={setCurrentView} />
       <OnboardingTour isOpen={isTourOpen} onClose={() => setIsTourOpen(false)} />
       <UpgradeModal isOpen={isUpgradeModalOpen} onClose={() => setIsUpgradeModalOpen(false)} />
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
     </div>
   );
 }

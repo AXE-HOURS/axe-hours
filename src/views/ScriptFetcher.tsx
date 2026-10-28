@@ -27,8 +27,13 @@ import {
   Check,
   X,
   AlertCircle,
-  Bookmark
+  Bookmark,
+  User,
+  Key,
+  Zap,
+  Lock
 } from 'lucide-react';
+import { AuthModal } from '../components/AuthModal';
 import { useToast } from '../context/ToastContext';
 import { playAudioCue as playAudio } from '../utils/audio';
 import { useCalibrationBridge } from '../context/CalibrationBridgeContext';
@@ -202,6 +207,7 @@ export const ScriptFetcher: React.FC = () => {
   const [isManualInputOpen, setIsManualInputOpen] = useState<boolean>(false);
   const [manualInputText, setManualInputText] = useState<string>('');
   const [isWhisperModalOpen, setIsWhisperModalOpen] = useState<boolean>(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [whisperInputText, setWhisperInputText] = useState<string>('');
 
   const handleRunAudioTranscription = async () => {
@@ -241,6 +247,43 @@ export const ScriptFetcher: React.FC = () => {
         try {
           errData = await parseSafeJsonResponse(res);
         } catch (_) {}
+        const errCode = errData.code || errData.errorCode;
+        if (errCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' || res.status === 403) {
+          setIsTranscribingAudio(false);
+          const msg = errData.error || 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.';
+          setExtractedData(prev => ({
+            ...prev,
+            transcriptErrorCode: 'AUTH_REQUIRED_FOR_MULTIMODAL',
+            transcriptErrorDetails: msg
+          }));
+          addToast(msg, 'warning');
+          setIsAuthModalOpen(true);
+          window.dispatchEvent(new CustomEvent('open-auth-modal'));
+          return;
+        }
+        if (errCode === 'MULTIMODAL_QUOTA_EXCEEDED') {
+          setIsTranscribingAudio(false);
+          const msg = errData.error || 'Daily AI Audio/Video Transcription limit reached.';
+          setExtractedData(prev => ({
+            ...prev,
+            transcriptErrorCode: 'MULTIMODAL_QUOTA_EXCEEDED',
+            transcriptErrorDetails: msg
+          }));
+          setQuotaError(msg);
+          addToast(msg, 'warning');
+          return;
+        }
+        if (errCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION') {
+          setIsTranscribingAudio(false);
+          const msg = errData.error || 'AI Audio Transcription is capped at videos under 5 minutes on the shared server key.';
+          setExtractedData(prev => ({
+            ...prev,
+            transcriptErrorCode: 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION',
+            transcriptErrorDetails: msg
+          }));
+          addToast(msg, 'warning');
+          return;
+        }
         if (res.status === 429 || errData.code === 'QUOTA_EXCEEDED') {
           const msg = errData.error || 'Daily extraction limit reached.';
           setQuotaError(msg);
@@ -597,6 +640,63 @@ export const ScriptFetcher: React.FC = () => {
           errData = { error: parseErr.message };
         }
 
+        if (errData.code === 'AUTH_REQUIRED_FOR_MULTIMODAL' || response.status === 403) {
+          setIsLoading(false);
+          setProgressVal(0);
+          setProgressText('');
+          setExtractionDone(true);
+          const msg = errData.error || 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.';
+          setExtractedData(prev => ({
+            ...prev,
+            title: errData.title || prev.title || 'Video Spoken Dialogue',
+            author: errData.author || prev.author || '',
+            hasTranscript: false,
+            transcriptErrorCode: 'AUTH_REQUIRED_FOR_MULTIMODAL',
+            transcriptErrorDetails: msg,
+            fullTranscript: `[Notice: ${msg}]`
+          }));
+          addToast(msg, 'warning');
+          return;
+        }
+
+        if (errData.code === 'MULTIMODAL_QUOTA_EXCEEDED') {
+          setIsLoading(false);
+          setProgressVal(0);
+          setProgressText('');
+          setExtractionDone(true);
+          const msg = errData.error || 'Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription.';
+          setExtractedData(prev => ({
+            ...prev,
+            title: errData.title || prev.title || 'Video Spoken Dialogue',
+            author: errData.author || prev.author || '',
+            hasTranscript: false,
+            transcriptErrorCode: 'MULTIMODAL_QUOTA_EXCEEDED',
+            transcriptErrorDetails: msg,
+            fullTranscript: `[Notice: ${msg}]`
+          }));
+          addToast(msg, 'warning');
+          return;
+        }
+
+        if (errData.code === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION') {
+          setIsLoading(false);
+          setProgressVal(0);
+          setProgressText('');
+          setExtractionDone(true);
+          const msg = errData.error || 'AI Audio Transcription is capped at videos under 5 minutes on the shared server key. Use a captioned video or add your own Gemini API key in Settings.';
+          setExtractedData(prev => ({
+            ...prev,
+            title: errData.title || prev.title || 'Video Spoken Dialogue',
+            author: errData.author || prev.author || '',
+            hasTranscript: false,
+            transcriptErrorCode: 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION',
+            transcriptErrorDetails: msg,
+            fullTranscript: `[Notice: ${msg}]`
+          }));
+          addToast(msg, 'warning');
+          return;
+        }
+
         if (response.status === 429 || errData.code === 'QUOTA_EXCEEDED') {
           setIsLoading(false);
           setProgressVal(0);
@@ -818,7 +918,20 @@ export const ScriptFetcher: React.FC = () => {
                 try {
                   audioErrData = await parseSafeJsonResponse(audioRes);
                 } catch (_) {}
-                if (audioRes.status === 429 || audioErrData.code === 'QUOTA_EXCEEDED') {
+                const audioCode = audioErrData.code || audioErrData.errorCode;
+                if (audioCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' || audioRes.status === 403) {
+                  transcriptErrorCode = 'AUTH_REQUIRED_FOR_MULTIMODAL';
+                  transcriptErrorDetails = audioErrData.error || 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.';
+                  addToast(transcriptErrorDetails, 'warning');
+                } else if (audioCode === 'MULTIMODAL_QUOTA_EXCEEDED') {
+                  transcriptErrorCode = 'MULTIMODAL_QUOTA_EXCEEDED';
+                  transcriptErrorDetails = audioErrData.error || 'Daily AI Audio/Video Transcription limit reached.';
+                  addToast(transcriptErrorDetails, 'warning');
+                } else if (audioCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION') {
+                  transcriptErrorCode = 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION';
+                  transcriptErrorDetails = audioErrData.error || 'AI Audio Transcription is capped at videos under 5 minutes on the shared server key.';
+                  addToast(transcriptErrorDetails, 'warning');
+                } else if (audioRes.status === 429 || audioErrData.code === 'QUOTA_EXCEEDED') {
                   setIsLoading(false);
                   setProgressText('');
                   const msg = audioErrData.error || 'Daily extraction limit reached.';
@@ -849,8 +962,10 @@ export const ScriptFetcher: React.FC = () => {
             }
 
             if (!hasTranscript) {
-              transcriptErrorCode = data.transcriptErrorCode || 'CAPTION_FETCH_FAILED';
-              transcriptErrorDetails = getClientFriendlyErrorMessage(transcriptErrorCode);
+              if (!transcriptErrorCode || transcriptErrorCode === 'REQUIRE_CLIENT_FETCH') {
+                transcriptErrorCode = data.transcriptErrorCode || 'CAPTION_FETCH_FAILED';
+                transcriptErrorDetails = getClientFriendlyErrorMessage(transcriptErrorCode);
+              }
             }
           }
         } catch (clientErr) {
@@ -1625,16 +1740,34 @@ ${extractedData.fullTranscript || 'N/A'}`;
                       <div className="p-5 bg-[#0e0a1a] border border-purple-500/30 rounded-2xl space-y-4 shadow-lg shadow-purple-950/20 animate-in fade-in duration-300">
                         <div className="flex items-start gap-3.5">
                           <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
-                            <AlertCircle size={20} className="text-purple-400" />
+                            {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' ? (
+                              <Lock size={20} className="text-amber-400" />
+                            ) : extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION' ? (
+                              <Clock size={20} className="text-amber-400" />
+                            ) : (
+                              <AlertCircle size={20} className="text-purple-400" />
+                            )}
                           </div>
                           <div className="space-y-1">
                             <h3 className="text-sm font-bold text-white tracking-tight">
-                              {extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED'
+                              {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
+                                ? "Sign In Required for AI Audio Transcription"
+                                : extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED'
+                                ? "Daily AI Transcription Limit Reached"
+                                : extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION'
+                                ? "Video Exceeds 5-Minute AI Limit"
+                                : extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED'
                                 ? "Couldn't Fetch Captions Right Now"
                                 : "No Official Captions Found on YouTube"}
                             </h3>
                             <p className="text-xs text-gray-300 leading-relaxed font-sans">
-                              {extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED'
+                              {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
+                                ? (extractedData.transcriptErrorDetails || "This video has no official captions. Sign in for free to run AI Audio/Video Transcription.")
+                                : extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED'
+                                ? (extractedData.transcriptErrorDetails || "Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription.")
+                                : extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION'
+                                ? (extractedData.transcriptErrorDetails || "AI Audio Transcription is capped at videos under 5 minutes on the shared server key. Use a captioned video or add your own Gemini API key in Settings.")
+                                : extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED'
                                 ? "Couldn't fetch captions right now. Retry, or use AI audio transcription."
                                 : "This video does not contain official creator subtitles or auto-generated captions on YouTube (common in music clips, teasers, or non-verbal media)."}
                             </p>
@@ -1643,6 +1776,44 @@ ${extractedData.fullTranscript || 'N/A'}`;
 
                         {/* Prominently Presented Action Buttons */}
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t border-white/5">
+                          {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsAuthModalOpen(true);
+                                window.dispatchEvent(new CustomEvent('open-auth-modal'));
+                              }}
+                              className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99]"
+                            >
+                              <User size={14} />
+                              <span>Sign In Free to Transcribe Audio</span>
+                            </button>
+                          )}
+
+                          {(extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED' || extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'settings' } }));
+                              }}
+                              className="px-4 py-2.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 hover:text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm active:scale-[0.99]"
+                            >
+                              <Key size={14} />
+                              <span>Add Custom Key in Settings</span>
+                            </button>
+                          )}
+
+                          {extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED' && (
+                            <button
+                              type="button"
+                              onClick={() => window.dispatchEvent(new CustomEvent('open-upgrade-modal'))}
+                              className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99]"
+                            >
+                              <Zap size={14} />
+                              <span>Unlock Beta Access</span>
+                            </button>
+                          )}
+
                           {extractedData.transcriptErrorCode === 'CAPTION_FETCH_FAILED' && (
                             <button
                               type="button"
@@ -1655,15 +1826,19 @@ ${extractedData.fullTranscript || 'N/A'}`;
                             </button>
                           )}
 
-                          <button
-                            type="button"
-                            onClick={handleRunAudioTranscription}
-                            disabled={isTranscribingAudio}
-                            className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99] disabled:opacity-50"
-                          >
-                            <Mic size={14} className={isTranscribingAudio ? "animate-pulse" : ""} />
-                            <span>{isTranscribingAudio ? "Transcribing with AI (up to ~90 s)..." : "Transcribe with AI (up to ~90 s)"}</span>
-                          </button>
+                          {extractedData.transcriptErrorCode !== 'AUTH_REQUIRED_FOR_MULTIMODAL' &&
+                           extractedData.transcriptErrorCode !== 'MULTIMODAL_QUOTA_EXCEEDED' &&
+                           extractedData.transcriptErrorCode !== 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION' && (
+                            <button
+                              type="button"
+                              onClick={handleRunAudioTranscription}
+                              disabled={isTranscribingAudio}
+                              className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99] disabled:opacity-50"
+                            >
+                              <Mic size={14} className={isTranscribingAudio ? "animate-pulse" : ""} />
+                              <span>{isTranscribingAudio ? "Transcribing with AI (up to ~90 s)..." : "Transcribe with AI (up to ~90 s)"}</span>
+                            </button>
+                          )}
 
                           <button
                             type="button"
@@ -2222,6 +2397,9 @@ ${extractedData.fullTranscript || 'N/A'}`;
           </div>
         </div>
       )}
+
+      {/* 1-Click Free Sign-In Modal for Multimodal AI Audio Transcription */}
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
     </div>
   );

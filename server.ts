@@ -97,6 +97,7 @@ interface PersistedQuota {
   date: string; // YYYY-MM-DD
   extractions: number;
   generations: number;
+  multimodalCount: number;
   updatedAt: number;
 }
 
@@ -184,6 +185,7 @@ function persistQuotaRecord(docId: string, quota: PersistedQuota, authToken?: st
           fields: {
             extractions: { integerValue: String(quota.extractions) },
             generations: { integerValue: String(quota.generations) },
+            multimodalCount: { integerValue: String(quota.multimodalCount || 0) },
             updatedAt: { integerValue: String(quota.updatedAt) },
             date: { stringValue: quota.date }
           }
@@ -208,6 +210,7 @@ async function fetchQuotaFromFirestore(docId: string): Promise<PersistedQuota | 
         date: json.fields.date?.stringValue || getTodayString(),
         extractions: parseInt(json.fields.extractions?.integerValue || "0", 10),
         generations: parseInt(json.fields.generations?.integerValue || "0", 10),
+        multimodalCount: parseInt(json.fields.multimodalCount?.integerValue || "0", 10),
         updatedAt: parseInt(json.fields.updatedAt?.integerValue || String(Date.now()), 10)
       };
     }
@@ -291,11 +294,11 @@ function enforceDailyQuota(type: "extraction" | "generation") {
 
     // Hard Daily Caps Per Tier:
     // Guest: max 3 extractions / 3 AI scripts per day
-    // Free tier: max 3 extractions / 5 AI scripts per day
+    // Free tier: max 5 extractions / 5 AI scripts per day
     // Beta Pro / Agency: max 25 extractions / 30 AI scripts per day (hard safety cap)
     const limits = {
       guest: { extractions: 3, generations: 3 },
-      free: { extractions: 3, generations: 5 },
+      free: { extractions: 5, generations: 5 },
       pro: { extractions: 25, generations: 30 },
       agency: { extractions: 25, generations: 30 }
     }[tier];
@@ -313,7 +316,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
       if (remote && remote.date === today) {
         quota = remote;
       } else {
-        quota = { date: today, extractions: 0, generations: 0, updatedAt: Date.now() };
+        quota = { date: today, extractions: 0, generations: 0, multimodalCount: 0, updatedAt: Date.now() };
       }
       userDailyQuotaMap.set(docId, quota);
     }
@@ -331,6 +334,8 @@ function enforceDailyQuota(type: "extraction" | "generation") {
         );
         if (isFresh && hasValidData) {
           req.consumeExtractionQuota = () => {};
+          req.checkMultimodalAllowed = () => ({ allowed: true });
+          req.consumeMultimodalQuota = () => {};
           return next();
         }
       }
@@ -339,7 +344,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
         const errorMsg = tier === "guest"
           ? "Daily guest demo limit reached (3 extractions / 3 scripts per day). Please sign in or provide a custom Gemini API key in Settings."
           : tier === "free"
-          ? "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+          ? "Daily free limit reached (5 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
           : "Daily safety cap reached (25 extractions / 30 scripts per day). To continue unlimited generations today, add your personal Gemini API key in Settings.";
 
         return res.status(429).json({
@@ -348,6 +353,51 @@ function enforceDailyQuota(type: "extraction" | "generation") {
           error: errorMsg
         });
       }
+
+      // Multimodal Token Protection Guard Check
+      req.checkMultimodalAllowed = (durationSec?: number) => {
+        if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
+          return { allowed: true };
+        }
+        if (typeof durationSec === "number" && durationSec > 300) {
+          return {
+            allowed: false,
+            status: 400,
+            code: "VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION",
+            error: "AI Audio Transcription is capped at videos under 5 minutes on the shared server key. Use a captioned video or add your own Gemini API key in Settings."
+          };
+        }
+        if (isGuest || req.user?.role === "guest" || !req.userId || req.userId.startsWith("guest_")) {
+          return {
+            allowed: false,
+            status: 403,
+            code: "AUTH_REQUIRED_FOR_MULTIMODAL",
+            error: "This video has no official captions. Sign in for free to run AI Audio/Video Transcription."
+          };
+        }
+        const multimodalLimit = (tier === "pro" || tier === "agency") ? 5 : 1;
+        const currentCount = quota.multimodalCount || 0;
+        if (currentCount >= multimodalLimit) {
+          return {
+            allowed: false,
+            status: 429,
+            code: "MULTIMODAL_QUOTA_EXCEEDED",
+            error: "Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription."
+          };
+        }
+        return { allowed: true };
+      };
+
+      req.consumeMultimodalQuota = (targetVideoId?: string) => {
+        if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
+          return;
+        }
+        quota.multimodalCount = (quota.multimodalCount || 0) + 1;
+        quota.updatedAt = Date.now();
+        userDailyQuotaMap.set(docId, quota);
+        const authToken = req.headers["authorization"]?.slice(7)?.trim();
+        persistQuotaRecord(docId, quota, authToken);
+      };
 
       // Defer quota consumption until transcript extraction actually succeeds!
       req.consumeExtractionQuota = (targetVideoId?: string) => {
@@ -376,7 +426,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
         const errorMsg = tier === "guest"
           ? "Daily guest demo limit reached (3 extractions / 3 scripts per day). Please sign in or provide a custom Gemini API key in Settings."
           : tier === "free"
-          ? "Daily free limit reached (3 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
+          ? "Daily free limit reached (5 extractions / 5 scripts per day). Unlock Beta Access or add a custom Gemini API key in Settings."
           : "Daily safety cap reached (25 extractions / 30 scripts per day). To continue unlimited generations today, add your personal Gemini API key in Settings.";
 
         return res.status(429).json({
@@ -2347,6 +2397,7 @@ ${
     author: string;
     views: string;
     duration: string;
+    lengthSeconds?: number;
     description: string;
     categoryId: string;
     tags: string[];
@@ -2377,6 +2428,7 @@ ${
           const stats = item.statistics || {};
           const contentDetails = item.contentDetails || {};
           const durationStr = parseIso8601Duration(contentDetails?.duration);
+          const lengthSeconds = getDurationSeconds(contentDetails?.duration || durationStr);
           const viewCount = parseInt(stats?.viewCount || "0", 10);
           let viewsStr = viewCount.toLocaleString();
           if (viewCount >= 1000000) {
@@ -2391,6 +2443,7 @@ ${
             author: snippet.channelTitle || "YouTube Creator",
             views: viewsStr,
             duration: durationStr,
+            lengthSeconds,
             description: snippet.description || "",
             categoryId: snippet.categoryId || "",
             tags: snippet.tags || []
@@ -2619,7 +2672,23 @@ ${
         } else if (apiKey) {
           const fallbackStart = Date.now();
           console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing Gemini native video transcription...`);
-          const durationSec = metadata.duration ? getDurationSeconds(metadata.duration) : 0;
+          const durationSec = metadata.lengthSeconds || (metadata.duration ? getDurationSeconds(metadata.duration) : 0) || (subResult as any).lengthSeconds || 0;
+
+          // Multimodal Token Protection Guard Check
+          if (req.checkMultimodalAllowed) {
+            const guardCheck = req.checkMultimodalAllowed(durationSec);
+            if (!guardCheck.allowed) {
+              console.warn(`[fetch-script] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${guardCheck.error}`);
+              return res.status(guardCheck.status || 403).json({
+                ok: false,
+                code: guardCheck.code,
+                error: guardCheck.error,
+                title: realTitle,
+                author: realAuthor
+              });
+            }
+          }
+
           const isClipped = durationSec > 600;
 
           // Strategy 1: Native YouTube Video Input
@@ -2665,6 +2734,7 @@ ${
             if (fallbackLines.length > 0) {
               scrapedData.transcriptionMethod = "NATIVE_VIDEO_INPUT";
               scrapedData.isClipped = isClipped;
+              req.consumeMultimodalQuota?.(videoId);
               console.log(`[fetch-script] Native YouTube video input successfully transcribed ${fallbackLines.length} spoken dialogue lines! (isClipped: ${isClipped})`);
             }
           } catch (nativeErr: any) {
@@ -3629,7 +3699,21 @@ When analyzing how this exact sequence unfolds, we find that the leading example
       let isClipped = false;
       let usageMetadata: any = null;
 
-      const durationSec = duration ? getDurationSeconds(duration) : 0;
+      const durationSec = (duration ? getDurationSeconds(duration) : 0) || (req.body?.lengthSeconds ? Number(req.body.lengthSeconds) : 0);
+
+      // Multimodal Token Protection Guard Check
+      if (req.checkMultimodalAllowed) {
+        const guardCheck = req.checkMultimodalAllowed(durationSec);
+        if (!guardCheck.allowed) {
+          console.warn(`[/api/transcribe-audio] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${guardCheck.error}`);
+          return res.status(guardCheck.status || 403).json({
+            ok: false,
+            code: guardCheck.code,
+            error: guardCheck.error
+          });
+        }
+      }
+
       if (durationSec > 600) {
         isClipped = true;
       }
@@ -3779,6 +3863,7 @@ Return ONLY a valid JSON array of dialogue objects:
         }
 
         req.consumeExtractionQuota?.(videoId);
+        req.consumeMultimodalQuota?.(videoId);
 
         res.json({
           success: true,
@@ -4708,7 +4793,7 @@ Your job is to answer creator questions and provide assistance regarding AXE HOU
 
 ACCURATE PLAN QUOTAS & LIMITS:
 - Guest (unauthenticated): 3 video extractions and 3 AI scripts per day.
-- Free tier: 3 video extractions and 5 AI scripts per day.
+- Free tier: 5 video extractions and 5 AI scripts per day.
 - Beta Pro tier: 25 video extractions and 30 AI scripts per day (free during beta).
 - Custom Gemini API key: Unlimited extractions & generations (bypasses server caps completely when supplied in Settings).
 
@@ -4769,7 +4854,7 @@ I have prepared the blueprint settings and am loading them directly into your ge
         } else if (q.includes("ollama") || q.includes("local") || q.includes("run")) {
           response = "⚡ Host Engineering:\nEnsure your desktop Ollama instance is configured and listening on http://localhost:11434.\nInside the AI Generator view, change your active engine switcher to Ollama Local; the backend JSON stream decoder will hook up immediately.";
         } else if (q.includes("quota") || q.includes("limit") || q.includes("plan") || q.includes("free") || q.includes("pro")) {
-          response = "⚡ Axe Hours Quotas & Plans:\n- Guest: 3 video extractions & 3 AI scripts per day.\n- Free tier: 3 video extractions & 5 AI scripts per day.\n- Beta Pro tier: 25 video extractions & 30 AI scripts per day (free during beta).\n- Custom Gemini Key: Unlimited usage (bypasses server caps when added in Settings).\n\nTo upgrade to Beta Pro for free, click 'Unlock Beta Access' in the Top Navigation!";
+          response = "⚡ Axe Hours Quotas & Plans:\n- Guest: 3 video extractions & 3 AI scripts per day.\n- Free tier: 5 video extractions & 5 AI scripts per day.\n- Beta Pro tier: 25 video extractions & 30 AI scripts per day (free during beta).\n- Custom Gemini Key: Unlimited usage (bypasses server caps when added in Settings).\n\nTo upgrade to Beta Pro for free, click 'Unlock Beta Access' in the Top Navigation!";
         } else if (q.includes("billing") || q.includes("refund") || q.includes("account") || q.includes("support") || q.includes("contact")) {
           response = "⚡ Axe Hours Support:\nI cannot take action on your account or process refunds. For account questions, technical issues, or support, please reach out to our team at axehours.official@gmail.com.";
         } else if (q.includes("workspace") || q.includes("vibe") || q.includes("tour") || q.includes("info") || q.includes("suite") || q.includes("about") || q.includes("what is")) {
