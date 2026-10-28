@@ -431,7 +431,7 @@ export async function resolveTranscriptClientSide(
 export const CLIENT_FRIENDLY_ERROR_MAP: Record<string, string> = {
   NO_OFFICIAL_CAPTIONS: "No official YouTube captions available for this media.",
   CAPTION_FETCH_FAILED: "Couldn't fetch captions right now. Retry, or use AI audio transcription.",
-  AUTH_REQUIRED_FOR_MULTIMODAL: "This video has no official captions. Sign in for free to run AI Audio/Video Transcription.",
+  AUTH_REQUIRED_FOR_MULTIMODAL: "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes.",
   MULTIMODAL_QUOTA_EXCEEDED: "Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription.",
   VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION: "AI Audio Transcription is capped at videos under 5 minutes on the shared server key. Use a captioned video or add your own Gemini API key in Settings.",
   VIDEO_PRIVATE_OR_REMOVED: "Video is private, removed, or age-restricted on YouTube.",

@@ -545,8 +545,11 @@ export const ScriptFetcher: React.FC = () => {
     addToast('Extraction cancelled.', 'info');
   };
 
-  const handleFetchScript = async (e?: React.FormEvent) => {
-    e?.preventDefault();
+  const handleFetchScript = async (eOrBypass?: React.FormEvent | boolean, explicitBypass?: boolean) => {
+    if (eOrBypass && typeof eOrBypass === 'object' && 'preventDefault' in eOrBypass) {
+      eOrBypass.preventDefault();
+    }
+    const bypassCooldown = (typeof eOrBypass === 'boolean' && eOrBypass) || Boolean(explicitBypass);
     const rawUrl = videoUrl.trim();
     if (!rawUrl) return;
 
@@ -628,7 +631,8 @@ export const ScriptFetcher: React.FC = () => {
         headers,
         signal: controller.signal,
         body: JSON.stringify({
-          videoUrl: cleanedUrl
+          videoUrl: cleanedUrl,
+          bypassCooldown: bypassCooldown
         })
       });
 
@@ -653,6 +657,7 @@ export const ScriptFetcher: React.FC = () => {
             hasTranscript: false,
             transcriptErrorCode: 'AUTH_REQUIRED_FOR_MULTIMODAL',
             transcriptErrorDetails: msg,
+            isCaptionsThrottled: Boolean(errData.isCaptionsThrottled || errData.canRetryCaptions || msg.includes('YouTube is limiting')),
             fullTranscript: `[Notice: ${msg}]`
           }));
           addToast(msg, 'warning');
@@ -1516,7 +1521,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
             <ul className="text-[10.5px] text-gray-400 leading-relaxed space-y-1.5 font-light">
               <li className="flex items-start gap-1.5">
                 <CheckCircle size={10} className="text-amber-500 mt-1 shrink-0" />
-                <span><span className="text-white font-semibold">Audio transcription:</span> turns speech into text when captions are missing</span>
+                <span><span className="text-white font-semibold">AI Audio Transcription:</span> AI transcription (for videos without accessible captions) requires a free account: Free 1/day up to 5 min, Beta Pro 5/day.</span>
               </li>
               <li className="flex items-start gap-1.5">
                 <CheckCircle size={10} className="text-amber-500 mt-1 shrink-0" />
@@ -1751,7 +1756,9 @@ ${extractedData.fullTranscript || 'N/A'}`;
                           <div className="space-y-1">
                             <h3 className="text-sm font-bold text-white tracking-tight">
                               {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
-                                ? "Sign In Required for AI Audio Transcription"
+                                ? (extractedData.transcriptErrorDetails?.includes("YouTube is limiting")
+                                    ? "Caption Requests Limited by YouTube"
+                                    : "Sign In Required for AI Audio Transcription")
                                 : extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED'
                                 ? "Daily AI Transcription Limit Reached"
                                 : extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION'
@@ -1777,17 +1784,28 @@ ${extractedData.fullTranscript || 'N/A'}`;
                         {/* Prominently Presented Action Buttons */}
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t border-white/5">
                           {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setIsAuthModalOpen(true);
-                                window.dispatchEvent(new CustomEvent('open-auth-modal'));
-                              }}
-                              className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99]"
-                            >
-                              <User size={14} />
-                              <span>Sign In Free to Transcribe Audio</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsAuthModalOpen(true);
+                                  window.dispatchEvent(new CustomEvent('open-auth-modal'));
+                                }}
+                                className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99]"
+                              >
+                                <User size={14} />
+                                <span>Sign In Free to Transcribe Audio</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleFetchScript(true)}
+                                disabled={isLoading}
+                                className="px-4 py-2.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 hover:text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm active:scale-[0.99] disabled:opacity-50"
+                              >
+                                <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
+                                <span>Try captions again</span>
+                              </button>
+                            </>
                           )}
 
                           {(extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED' || extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION') && (

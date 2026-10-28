@@ -70,7 +70,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
     'Unlimited AI scripts, extractions & blueprints',
     'Full Teleprompter Studio (Mirror + WakeLock)',
     '15+ Proven viral hook formulas',
-    'AI Audio Transcription Fallback',
+    'AI Audio Transcription Fallback (Beta Pro 5/day)',
     'Real-time competitor tracking & video radar',
     'Cloud-synchronized script & hook vault',
     'Priority high-throughput server processing'
@@ -80,7 +80,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
     'Everything in Creator Pro',
     'Unlimited Competitor RSS Radar Channels',
     'Batch .TXT & .SRT Studio Export Packs',
-    'AI Audio Transcription Fallback',
+    'AI Audio Transcription Fallback (Beta Pro 5/day)',
     'Full Teleprompter Studio (Mirror + WakeLock)',
     'Priority high-throughput server processing'
   ];
@@ -228,9 +228,12 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
         <div className="border-t border-white/10 p-5 bg-[#0d0e12]/95 space-y-3 shrink-0">
           
           {/* Statutory Renewal Disclosure Text */}
-          <div className="p-3 bg-purple-500/5 border border-purple-500/15 rounded-xl text-center">
+          <div className="p-3 bg-purple-500/5 border border-purple-500/15 rounded-xl text-center space-y-1">
             <p className="text-[11px] text-purple-200/90 leading-relaxed font-sans font-medium">
               Early Access Preview • Free During Beta. Experience full Pro and Agency creator features with zero billing commitments.
+            </p>
+            <p className="text-[10px] text-purple-300/80 leading-relaxed font-sans">
+              AI transcription (for videos without accessible captions) requires a free account: Free 1/day up to 5 min, Beta Pro 5/day.
             </p>
           </div>
 

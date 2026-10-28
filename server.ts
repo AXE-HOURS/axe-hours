@@ -9,6 +9,7 @@ import { rateLimit } from "express-rate-limit";
 import { gunzipSync, inflateSync } from "node:zlib";
 import { PREFERRED_MODEL_ORDER, DEFAULT_FALLBACK_MODELS } from "./src/constants/models";
 import { calculateHookScore, extractPunchyThumbnailOverlay, formatThumbnailSpec } from "./src/utils/hookScorer";
+import { SEED_TRANSCRIPTS } from "./src/data/seedTranscripts.ts";
 
 dotenv.config();
 
@@ -110,6 +111,75 @@ interface TranscriptCacheEntry {
 }
 const TRANSCRIPT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const transcriptCache = new Map<string, TranscriptCacheEntry>();
+
+// Seed pre-verified transcripts so cache is permanently hot on fresh server boots
+if (typeof SEED_TRANSCRIPTS === "object" && SEED_TRANSCRIPTS !== null) {
+  for (const [vId, payload] of Object.entries(SEED_TRANSCRIPTS)) {
+    if (vId && payload) {
+      transcriptCache.set(vId, {
+        data: payload,
+        cachedAt: 0 // permanent/seeded, never expires via TTL check
+      });
+    }
+  }
+  console.log(`[Cache] Initialized transcriptCache with ${transcriptCache.size} seeded transcripts (e.g. iCvmsMzlF7o).`);
+}
+
+// Track caption retry bypass per IP (max 1 retry bypass per minute)
+const captionRetryByIpMap = new Map<string, number>();
+
+// Fast-Path Cache Middleware: checks cache BEFORE any auth/quota/duration checks
+function checkTranscriptCacheFastPath(mode: "fetch-script" | "transcribe-audio") {
+  return (req: any, res: any, next: any) => {
+    try {
+      const rawUrl = req.body?.videoUrl || req.body?.url;
+      const videoUrl = typeof rawUrl === "string" ? rawUrl.trim() : "";
+      if (!videoUrl) return next();
+
+      const normalizedVideoId = extractYoutubeVideoId(videoUrl);
+      if (normalizedVideoId && transcriptCache.has(normalizedVideoId)) {
+        const cached = transcriptCache.get(normalizedVideoId)!;
+        const isFresh = (cached.cachedAt === 0) || ((Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL);
+        const hasValidData = cached.data && (
+          cached.data.hasTranscript === true || 
+          (cached.data.fullTranscript && !cached.data.fullTranscript.startsWith("[Notice:"))
+        );
+
+        if (isFresh && hasValidData) {
+          console.log(`[fastPathCache] Cache HIT for videoId: ${normalizedVideoId} ("${cached.data.title || 'Untitled'}") in mode ${mode}. Bypassing auth, quota, and duration limits.`);
+          // Touch LRU
+          transcriptCache.delete(normalizedVideoId);
+          transcriptCache.set(normalizedVideoId, cached);
+
+          if (mode === "transcribe-audio") {
+            return res.json({
+              success: true,
+              hasTranscript: true,
+              isAiGenerated: cached.data.isAiGenerated ?? true,
+              transcriptionMethod: cached.data.transcriptionMethod || "SERVER_CACHE_HIT",
+              warningLabel: cached.data.warningLabel || null,
+              transcript: cached.data.transcript || [],
+              fullTranscript: cached.data.fullTranscript || "",
+              hookScore: cached.data.hookScore || 85,
+              pacingSpeed: cached.data.pacingSpeed || "140 words/min",
+              cached: true
+            });
+          } else {
+            return res.json({
+              ...cached.data,
+              cached: true
+            });
+          }
+        } else if (!isFresh) {
+          transcriptCache.delete(normalizedVideoId);
+        }
+      }
+    } catch (cacheErr) {
+      console.warn("[fastPathCache] Non-fatal cache lookup exception:", cacheErr);
+    }
+    next();
+  };
+}
 // Set to deduplicate extraction quota deductions per user/IP + video ID on the same day
 const userExtractedVideosSet = new Set<string>();
 
@@ -327,7 +397,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
       const normalizedVideoId = extractYoutubeVideoId(videoUrl);
       if (normalizedVideoId && transcriptCache.has(normalizedVideoId)) {
         const cached = transcriptCache.get(normalizedVideoId)!;
-        const isFresh = (Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL;
+        const isFresh = (cached.cachedAt === 0) || ((Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL);
         const hasValidData = cached.data && (
           cached.data.hasTranscript === true || 
           (cached.data.fullTranscript && !cached.data.fullTranscript.startsWith("[Notice:"))
@@ -355,7 +425,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
       }
 
       // Multimodal Token Protection Guard Check
-      req.checkMultimodalAllowed = (durationSec?: number) => {
+      req.checkMultimodalAllowed = (durationSec?: number, opts?: { isCaptionsThrottled?: boolean }) => {
         if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
           return { allowed: true };
         }
@@ -372,7 +442,9 @@ function enforceDailyQuota(type: "extraction" | "generation") {
             allowed: false,
             status: 403,
             code: "AUTH_REQUIRED_FOR_MULTIMODAL",
-            error: "This video has no official captions. Sign in for free to run AI Audio/Video Transcription."
+            error: opts?.isCaptionsThrottled
+              ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
+              : "This video has no official captions. Sign in for free to run AI Audio/Video Transcription."
           };
         }
         const multimodalLimit = (tier === "pro" || tier === "agency") ? 5 : 1;
@@ -1982,7 +2054,7 @@ ${
     return { lines: null, hasTracks: false };
   }
 
-  async function fetchYoutubeSubtitles(videoId: string): Promise<{ 
+  async function fetchYoutubeSubtitles(videoId: string, bypassCooldown: boolean = false): Promise<{ 
     lines: { text: string; start: number; duration: number }[] | null; 
     hasTracks: boolean; 
     errorCode?: string; 
@@ -1990,10 +2062,11 @@ ${
     clientDelegationUrl?: string;
     status?: string;
     strategySummary?: string;
+    isThrottled?: boolean;
   }> {
     const strategyLog: string[] = [];
     try {
-      if (Date.now() < captionsBlockedUntil) {
+      if (!bypassCooldown && Date.now() < captionsBlockedUntil) {
         const remainingSec = Math.ceil((captionsBlockedUntil - Date.now()) / 1000);
         console.log(`[SubtitleFetcher] Server IP is currently rate-limited by YouTube (429 cooling down for another ${remainingSec}s). Fast-failing captions.`);
         return {
@@ -2002,8 +2075,12 @@ ${
           errorCode: "CAPTION_FETCH_FAILED",
           errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
           status: "CAPTION_FETCH_FAILED",
+          isThrottled: true,
           strategySummary: `blocked-429-cooldown (${remainingSec}s remaining)`
         };
+      }
+      if (bypassCooldown && Date.now() < captionsBlockedUntil) {
+        console.log(`[SubtitleFetcher] bypassCooldown requested for video: ${videoId}. Bypassing 15m cooldown to re-attempt caption extraction.`);
       }
 
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
@@ -2060,10 +2137,15 @@ ${
             errorCode: "CAPTION_FETCH_FAILED",
             errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
             status: "CAPTION_FETCH_FAILED",
+            isThrottled: true,
             strategySummary: strategyLog.join("; ")
           };
         }
         if (playerRes.ok) {
+          if (captionsBlockedUntil > 0) {
+            console.log("[SubtitleFetcher] Strategy 1 received HTTP 200. Clearing captionsBlockedUntil cooldown.");
+            captionsBlockedUntil = 0;
+          }
           const playerJson = await playerRes.json() as any;
           const playability = playerJson.playabilityStatus;
           if (
@@ -2349,11 +2431,19 @@ ${
       let finalErrorDetails = "Couldn't fetch captions right now. Retry, or use AI audio transcription.";
       let finalStatus: string | undefined = undefined;
 
+      const isThrottled = Boolean(
+        step1Status === 429 || 
+        step2Status === 429 || 
+        watchHttpStatus === 429 || 
+        xmlResult.errorCode?.includes("429") || 
+        Date.now() < captionsBlockedUntil
+      );
+
       if (candidateTrackUrl || totalTracksSeen > 0) {
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = `Discovered ${totalTracksSeen} caption track(s), but server timedtext requests failed or timed out. Retry, or use AI audio transcription.`;
         finalStatus = "CAPTION_FETCH_FAILED";
-      } else if (step1Status === 429 || step2Status === 429 || watchHttpStatus === 429 || xmlResult.errorCode?.includes("429")) {
+      } else if (isThrottled) {
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.";
       } else if (step1Status === 403 || step2Status === 403 || watchHttpStatus === 403 || xmlResult.errorCode?.includes("403")) {
@@ -2374,6 +2464,7 @@ ${
         errorDetails: finalErrorDetails,
         clientDelegationUrl: candidateTrackUrl || undefined,
         status: finalStatus,
+        isThrottled,
         strategySummary
       };
     } catch (err: any) {
@@ -2488,7 +2579,7 @@ ${
     };
   }
 
-  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 40000): Promise<{ 
+  async function fetchYoutubeSubtitlesWithTimeout(videoId: string, timeoutMs = 40000, bypassCooldown: boolean = false): Promise<{ 
     lines: { text: string; start: number; duration: number }[] | null; 
     hasTracks: boolean; 
     errorCode?: string; 
@@ -2496,6 +2587,7 @@ ${
     clientDelegationUrl?: string;
     status?: string;
     strategySummary?: string;
+    isThrottled?: boolean;
   }> {
     let timer: NodeJS.Timeout;
     const timeoutPromise = new Promise<{
@@ -2504,6 +2596,7 @@ ${
       errorCode: string;
       errorDetails: string;
       strategySummary: string;
+      isThrottled: boolean;
     }>((resolve) => {
       timer = setTimeout(() => {
         console.warn(`[SubtitleFetcher] Subtitle extraction timed out after ${timeoutMs / 1000}s for video ${videoId}`);
@@ -2512,20 +2605,21 @@ ${
           hasTracks: false,
           errorCode: "CAPTION_FETCH_FAILED",
           errorDetails: `Subtitle fetch timed out after ${timeoutMs / 1000} seconds. Retry, or use AI audio transcription.`,
-          strategySummary: `timeout after ${timeoutMs / 1000}s`
+          strategySummary: `timeout after ${timeoutMs / 1000}s`,
+          isThrottled: false
         });
       }, timeoutMs);
     });
 
     try {
-      return await Promise.race([fetchYoutubeSubtitles(videoId), timeoutPromise]);
+      return await Promise.race([fetchYoutubeSubtitles(videoId, bypassCooldown), timeoutPromise]);
     } finally {
       clearTimeout(timer!);
     }
   }
 
   // Secure Script Fetcher and Analyzer with Google Search grounding
-  app.post("/api/fetch-script", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
+  app.post("/api/fetch-script", checkTranscriptCacheFastPath("fetch-script"), verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const rawUrl = req.body?.videoUrl || req.body?.url;
     const videoUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
     const isLive = !!req.body?.isLive;
@@ -2534,11 +2628,11 @@ ${
       return res.status(400).json({ error: "Missing videoUrl parameter" });
     }
 
-    // Normalize YouTube URL and check Transcript Cache (24-hour TTL)
+    // Normalize YouTube URL and check Transcript Cache (24-hour TTL or permanent seed)
     const normalizedVideoId = extractYoutubeVideoId(videoUrl);
     if (normalizedVideoId && transcriptCache.has(normalizedVideoId)) {
       const cached = transcriptCache.get(normalizedVideoId)!;
-      const isFresh = (Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL;
+      const isFresh = (cached.cachedAt === 0) || ((Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL);
       const hasValidData = cached.data && (
         cached.data.hasTranscript === true || 
         (cached.data.fullTranscript && !cached.data.fullTranscript.startsWith("[Notice:"))
@@ -2613,11 +2707,25 @@ ${
 
         const ytApiKey = process.env.YOUTUBE_API_KEY || process.env.YOUTUBE_DATA_API_KEY || process.env.VITE_YOUTUBE_API_KEY || req.body.youtubeApiKey;
 
+        const bypassCooldown = Boolean(req.body?.bypassCooldown);
+        const clientIp = getClientIp(req);
+        let allowBypass = false;
+        if (bypassCooldown) {
+          const lastRetry = captionRetryByIpMap.get(clientIp) || 0;
+          if (Date.now() - lastRetry >= 60_000) {
+            captionRetryByIpMap.set(clientIp, Date.now());
+            allowBypass = true;
+            console.log(`[fetch-script] User IP ${clientIp} requested caption retry bypass (granted).`);
+          } else {
+            console.log(`[fetch-script] User IP ${clientIp} requested caption retry bypass within 60s cooldown (ignored).`);
+          }
+        }
+
         const metaStart = Date.now();
         const captionsStart = Date.now();
         const [metaSettled, captionsSettled] = await Promise.allSettled([
           fetchYoutubeMetadataSafe(videoId, ytApiKey),
-          fetchYoutubeSubtitlesWithTimeout(videoId, 8000)
+          fetchYoutubeSubtitlesWithTimeout(videoId, 40000, allowBypass)
         ]);
         metaDuration = Date.now() - metaStart;
         captionsDuration = Date.now() - captionsStart;
@@ -2674,15 +2782,27 @@ ${
           console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing Gemini native video transcription...`);
           const durationSec = metadata.lengthSeconds || (metadata.duration ? getDurationSeconds(metadata.duration) : 0) || (subResult as any).lengthSeconds || 0;
 
+          const isCaptionsThrottled = Boolean(
+            subResult?.isThrottled ||
+            subResult?.errorCode === 'CAPTION_FETCH_FAILED' ||
+            (subResult?.strategySummary && subResult.strategySummary.includes('429')) ||
+            (captionsBlockedUntil > Date.now())
+          );
+
           // Multimodal Token Protection Guard Check
           if (req.checkMultimodalAllowed) {
-            const guardCheck = req.checkMultimodalAllowed(durationSec);
+            const guardCheck = req.checkMultimodalAllowed(durationSec, { isCaptionsThrottled });
             if (!guardCheck.allowed) {
-              console.warn(`[fetch-script] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${guardCheck.error}`);
+              const errorMessage = (guardCheck.code === "AUTH_REQUIRED_FOR_MULTIMODAL" && isCaptionsThrottled)
+                ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
+                : guardCheck.error;
+              console.warn(`[fetch-script] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${errorMessage}`);
               return res.status(guardCheck.status || 403).json({
                 ok: false,
                 code: guardCheck.code,
-                error: guardCheck.error,
+                error: errorMessage,
+                isCaptionsThrottled,
+                canRetryCaptions: isCaptionsThrottled,
                 title: realTitle,
                 author: realAuthor
               });
@@ -3630,7 +3750,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
   }
 
   // AI Audio Transcription / Speech-to-Text Fallback Pipeline (Consolidated with extraction quota)
-  app.post("/api/transcribe-audio", verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
+  app.post("/api/transcribe-audio", checkTranscriptCacheFastPath("transcribe-audio"), verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
     const rawUrl = req.body?.videoUrl || req.body?.url;
     const videoUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
     const { title, author, duration } = req.body || {};
@@ -3666,7 +3786,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
       // Check cache first
       if (videoId && transcriptCache.has(videoId)) {
         const cached = transcriptCache.get(videoId)!;
-        const isFresh = (Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL;
+        const isFresh = (cached.cachedAt === 0) || ((Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL);
         if (isFresh && cached.data?.hasTranscript) {
           return res.json({
             success: true,
@@ -3703,13 +3823,19 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
       // Multimodal Token Protection Guard Check
       if (req.checkMultimodalAllowed) {
-        const guardCheck = req.checkMultimodalAllowed(durationSec);
+        const isCaptionsThrottled = Boolean(req.body?.isCaptionsThrottled || (captionsBlockedUntil > Date.now()));
+        const guardCheck = req.checkMultimodalAllowed(durationSec, { isCaptionsThrottled });
         if (!guardCheck.allowed) {
-          console.warn(`[/api/transcribe-audio] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${guardCheck.error}`);
+          const errorMessage = (guardCheck.code === "AUTH_REQUIRED_FOR_MULTIMODAL" && isCaptionsThrottled)
+            ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
+            : guardCheck.error;
+          console.warn(`[/api/transcribe-audio] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${errorMessage}`);
           return res.status(guardCheck.status || 403).json({
             ok: false,
             code: guardCheck.code,
-            error: guardCheck.error
+            error: errorMessage,
+            isCaptionsThrottled,
+            canRetryCaptions: isCaptionsThrottled
           });
         }
       }

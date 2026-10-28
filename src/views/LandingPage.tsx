@@ -812,14 +812,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                   <div className="p-1 bg-purple-500/25 border border-purple-500/50 rounded-lg text-purple-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>AI Audio Transcription Fallback</span>
+                  <span>AI Audio Transcription Fallback (Beta Pro 5/day)</span>
                 </li>
               </ul>
             </div>
 
-            <div className="mt-4 pt-2 border-t border-purple-500/20 text-center">
+            <div className="mt-4 pt-2 border-t border-purple-500/20 text-center space-y-1">
               <p className="text-[10px] text-purple-200/90 leading-relaxed font-sans">
                 Early Access Preview • Free During Beta
+              </p>
+              <p className="text-[9.5px] text-purple-300/80 leading-relaxed font-sans">
+                AI transcription (for videos without accessible captions) requires a free account: Free 1/day up to 5 min, Beta Pro 5/day.
               </p>
             </div>
 
@@ -870,7 +873,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnter }) => {
                   <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
                     <Check size={12} />
                   </div>
-                  <span>AI Audio Transcription Fallback</span>
+                  <span>AI Audio Transcription Fallback (Beta Pro 5/day)</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-xs text-gray-200">
                   <div className="p-1 bg-amber-500/20 border border-amber-500/40 rounded-lg text-amber-300 shrink-0">
