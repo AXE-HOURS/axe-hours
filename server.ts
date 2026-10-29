@@ -21,6 +21,10 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const SERVER_SECRET = process.env.SERVER_SECRET || process.env.GUEST_TOKEN_SECRET || crypto.randomBytes(32).toString("hex");
 const GUEST_TOKEN_SECRET = process.env.GUEST_TOKEN_SECRET || SERVER_SECRET;
 
+process.on("unhandledRejection", (reason: any) => {
+  console.warn("[Process] Handled unhandled rejection (non-fatal):", reason?.message || reason);
+});
+
 function normalizeIp(ip: string): string {
   if (!ip) return "unknown_ip";
   let cleaned = ip.trim();
@@ -129,15 +133,15 @@ try {
     } catch (e) {}
   }
 
-  if (!getAdminApps().length) {
-    if (credential) {
+  if (credential) {
+    if (!getAdminApps().length) {
       initAdminApp({ credential, projectId: FIREBASE_PROJECT_ID });
-    } else {
-      initAdminApp({ projectId: FIREBASE_PROJECT_ID });
     }
+    firestoreAdmin = getAdminFirestore();
+    console.log(`[FirebaseAdmin] Firestore Admin initialized for project ${FIREBASE_PROJECT_ID}`);
+  } else {
+    console.log(`[FirebaseAdmin] No service account credentials found in environment; using resilient disk fallback (.transcript_cache.json).`);
   }
-  firestoreAdmin = getAdminFirestore();
-  console.log(`[FirebaseAdmin] Firestore Admin initialized for project ${FIREBASE_PROJECT_ID}`);
 } catch (adminErr: any) {
   console.warn("[FirebaseAdmin] Firestore Admin not initialized:", adminErr?.message || adminErr);
 }
