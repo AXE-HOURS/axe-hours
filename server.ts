@@ -1261,6 +1261,7 @@ async function startServer() {
     res.json({
       status: "ok",
       timestamp: Date.now(),
+      gitCommit: "b4501a4",
       modelCascade: activeModelCascade,
       captionsBlockedUntil: captionsBlockedUntil > Date.now() ? new Date(captionsBlockedUntil).toISOString() : null
     });
@@ -2512,7 +2513,7 @@ ${
             }
           }
           strategyLog.push(`android: HTTP ${step1Status}, ${tracks.length} tracks, fetch failed`);
-        } else if (androidPlayabilityOk) {
+        } else if (androidPlayabilityOk && tracks && Array.isArray(tracks) && tracks.length === 0) {
           youtubeReportedZeroTracks = true;
           strategyLog.push(`android: HTTP 200, status=OK, 0 tracks`);
         } else {
@@ -2619,7 +2620,7 @@ ${
             }
           }
           strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks.length} tracks, fetch failed`);
-        } else if (iosPlayabilityOk) {
+        } else if (iosPlayabilityOk && iosTracks && Array.isArray(iosTracks) && iosTracks.length === 0) {
           youtubeReportedZeroTracks = true;
           strategyLog.push(`ios: HTTP 200, status=OK, 0 tracks`);
         } else {
@@ -2726,9 +2727,6 @@ ${
           }
         }
         strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks.length} tracks, fetch failed`);
-      } else if (webPlayabilityOk) {
-        youtubeReportedZeroTracks = true;
-        strategyLog.push(`web: HTTP 200, status=OK, 0 tracks`);
       } else {
         strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks?.length || 0} tracks`);
       }
@@ -3155,7 +3153,7 @@ ${
             subResult?.captionStatus || (
               captionsBlockedUntil > Date.now() 
                 ? "skipped_cooldown" 
-                : (subResult?.isThrottled ? "blocked" : (subResult?.hasTracks ? "error" : "none"))
+                : (subResult?.isThrottled ? "blocked" : "error")
             );
 
           const isCaptionsThrottled = currentCaptionStatus !== "none";
