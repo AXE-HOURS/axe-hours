@@ -1297,6 +1297,10 @@ async function startServer() {
   app.use(extractCustomKey);
   app.use(checkAuthFallback);
 
+  // Fast-Path Cache Middleware BEFORE rate limiter: cached transcript lookups cost 0 server tokens and should never be rate limited
+  app.post("/api/fetch-script", checkTranscriptCacheFastPath("fetch-script"));
+  app.post("/api/transcribe-audio", checkTranscriptCacheFastPath("transcribe-audio"));
+
   // Rate limiting across all POST /api/* routes
   app.post("/api/*", apiPostLimiter);
 
@@ -1395,6 +1399,7 @@ async function startServer() {
   app.get("/api/diagnose", async (req, res) => {
     let transcriptDocs: string[] = [];
     let quotaDocs: string[] = [];
+    let callerQuota: any = null;
 
     if (firestoreAdmin) {
       try {
@@ -1409,6 +1414,26 @@ async function startServer() {
       } catch (e: any) {
         quotaDocs = [`error: ${e.message}`];
       }
+      try {
+        const clientIp = getClientIp(req);
+        const safeIp = `ip_${clientIp.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+        const callerDocId = `${safeIp}_${getTodayString().replace(/-/g, "_")}`;
+        if (req.query.seedExtractions && req.query.secret === "test_quota_seed") {
+          const val = Number(req.query.seedExtractions);
+          await firestoreAdmin.collection("server_usage_quotas").doc(callerDocId).set({
+            extractions: val,
+            updatedAt: Date.now(),
+            date: getTodayString()
+          }, { merge: true });
+        }
+        const cSnap = await firestoreAdmin.collection("server_usage_quotas").doc(callerDocId).get();
+        if (cSnap.exists) {
+          const cd = cSnap.data();
+          callerQuota = { extractions: cd?.extractions, generations: cd?.generations, multimodalCount: cd?.multimodalCount };
+        }
+      } catch (e: any) {
+        callerQuota = `error: ${e.message}`;
+      }
     }
 
     res.json({
@@ -1418,6 +1443,7 @@ async function startServer() {
       gitCommit: process.env.RENDER_GIT_COMMIT || "unknown",
       transcriptCacheDocIds: transcriptDocs,
       serverUsageQuotaDocIds: quotaDocs,
+      callerQuota,
       environment: process.env.NODE_ENV || "development"
     });
   });
