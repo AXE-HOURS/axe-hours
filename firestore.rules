@@ -252,5 +252,10 @@ service cloud.firestore {
         allow delete: if isSignedIn() && isOwner(userId) && isValidId(userId);
       }
     }
+
+    // Transcript Cache Collection (Server Admin SDK only; no direct client access)
+    match /transcript_cache/{videoId} {
+      allow read, write: if false;
+    }
   }
 }

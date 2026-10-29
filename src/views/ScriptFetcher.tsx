@@ -139,7 +139,9 @@ export const ScriptFetcher: React.FC = () => {
     transcript: [] as Array<{ text: string; start: number; duration: number }>,
     clientDelegationUrl: '' as string | undefined,
     videoId: '' as string | undefined,
-    status: '' as string | undefined
+    status: '' as string | undefined,
+    captionStatus: undefined as ("none" | "blocked" | "skipped_cooldown" | "error" | undefined),
+    isCaptionsThrottled: false
   });
 
   const [isResolvingClientSide, setIsResolvingClientSide] = useState<boolean>(false);
@@ -250,11 +252,16 @@ export const ScriptFetcher: React.FC = () => {
         const errCode = errData.code || errData.errorCode;
         if (errCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' || res.status === 403) {
           setIsTranscribingAudio(false);
-          const msg = errData.error || 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.';
+          const isThrottledOrNotNone = errData.captionStatus ? errData.captionStatus !== 'none' : Boolean(errData.isCaptionsThrottled);
+          const msg = errData.error || (isThrottledOrNotNone
+            ? 'YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes.'
+            : 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.');
           setExtractedData(prev => ({
             ...prev,
             transcriptErrorCode: 'AUTH_REQUIRED_FOR_MULTIMODAL',
-            transcriptErrorDetails: msg
+            transcriptErrorDetails: msg,
+            captionStatus: errData.captionStatus || (isThrottledOrNotNone ? 'blocked' : 'none'),
+            isCaptionsThrottled: isThrottledOrNotNone
           }));
           addToast(msg, 'warning');
           setIsAuthModalOpen(true);
@@ -649,7 +656,10 @@ export const ScriptFetcher: React.FC = () => {
           setProgressVal(0);
           setProgressText('');
           setExtractionDone(true);
-          const msg = errData.error || 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.';
+          const isThrottledOrNotNone = errData.captionStatus ? errData.captionStatus !== 'none' : Boolean(errData.isCaptionsThrottled || errData.canRetryCaptions || errData.error?.includes('YouTube is limiting'));
+          const msg = errData.error || (isThrottledOrNotNone
+            ? 'YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes.'
+            : 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.');
           setExtractedData(prev => ({
             ...prev,
             title: errData.title || prev.title || 'Video Spoken Dialogue',
@@ -657,7 +667,8 @@ export const ScriptFetcher: React.FC = () => {
             hasTranscript: false,
             transcriptErrorCode: 'AUTH_REQUIRED_FOR_MULTIMODAL',
             transcriptErrorDetails: msg,
-            isCaptionsThrottled: Boolean(errData.isCaptionsThrottled || errData.canRetryCaptions || msg.includes('YouTube is limiting')),
+            captionStatus: errData.captionStatus || (isThrottledOrNotNone ? 'blocked' : 'none'),
+            isCaptionsThrottled: isThrottledOrNotNone,
             fullTranscript: `[Notice: ${msg}]`
           }));
           addToast(msg, 'warning');
@@ -926,7 +937,10 @@ export const ScriptFetcher: React.FC = () => {
                 const audioCode = audioErrData.code || audioErrData.errorCode;
                 if (audioCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' || audioRes.status === 403) {
                   transcriptErrorCode = 'AUTH_REQUIRED_FOR_MULTIMODAL';
-                  transcriptErrorDetails = audioErrData.error || 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.';
+                  const isThrottledOrNotNone = audioErrData.captionStatus ? audioErrData.captionStatus !== 'none' : Boolean(audioErrData.isCaptionsThrottled);
+                  transcriptErrorDetails = audioErrData.error || (isThrottledOrNotNone
+                    ? 'YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes.'
+                    : 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.');
                   addToast(transcriptErrorDetails, 'warning');
                 } else if (audioCode === 'MULTIMODAL_QUOTA_EXCEEDED') {
                   transcriptErrorCode = 'MULTIMODAL_QUOTA_EXCEEDED';
@@ -1009,7 +1023,9 @@ export const ScriptFetcher: React.FC = () => {
         transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
         clientDelegationUrl: data.clientDelegationUrl || '',
         videoId: targetVideoId || '',
-        status: hasTranscript ? 'SUCCESS' : (data.status || (isUnavailable ? 'VIDEO_UNAVAILABLE' : ''))
+        status: hasTranscript ? 'SUCCESS' : (data.status || (isUnavailable ? 'VIDEO_UNAVAILABLE' : '')),
+        captionStatus: data.captionStatus || undefined,
+        isCaptionsThrottled: Boolean(data.isCaptionsThrottled || (data.captionStatus && data.captionStatus !== 'none'))
       });
 
       if (targetVideoId && hasTranscript) {
@@ -1756,7 +1772,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                           <div className="space-y-1">
                             <h3 className="text-sm font-bold text-white tracking-tight">
                               {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
-                                ? (extractedData.transcriptErrorDetails?.includes("YouTube is limiting")
+                                ? (extractedData.transcriptErrorDetails?.includes("YouTube is limiting") || (extractedData.captionStatus && extractedData.captionStatus !== "none") || extractedData.isCaptionsThrottled
                                     ? "Caption Requests Limited by YouTube"
                                     : "Sign In Required for AI Audio Transcription")
                                 : extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED'
@@ -1769,7 +1785,9 @@ ${extractedData.fullTranscript || 'N/A'}`;
                             </h3>
                             <p className="text-xs text-gray-300 leading-relaxed font-sans">
                               {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
-                                ? (extractedData.transcriptErrorDetails || "This video has no official captions. Sign in for free to run AI Audio/Video Transcription.")
+                                ? (extractedData.transcriptErrorDetails || ((extractedData.captionStatus && extractedData.captionStatus !== "none") || extractedData.isCaptionsThrottled
+                                    ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
+                                    : "This video has no official captions. Sign in for free to run AI Audio/Video Transcription."))
                                 : extractedData.transcriptErrorCode === 'MULTIMODAL_QUOTA_EXCEEDED'
                                 ? (extractedData.transcriptErrorDetails || "Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription.")
                                 : extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION'

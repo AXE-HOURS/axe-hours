@@ -7,3 +7,5 @@ coverage/
 .env*
 !.env.example
 .server_quotas.json
+.transcript_cache.json
+scratch/

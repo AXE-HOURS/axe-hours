@@ -9,7 +9,8 @@ import { rateLimit } from "express-rate-limit";
 import { gunzipSync, inflateSync } from "node:zlib";
 import { PREFERRED_MODEL_ORDER, DEFAULT_FALLBACK_MODELS } from "./src/constants/models";
 import { calculateHookScore, extractPunchyThumbnailOverlay, formatThumbnailSpec } from "./src/utils/hookScorer";
-import { SEED_TRANSCRIPTS } from "./src/data/seedTranscripts.ts";
+import { initializeApp as initAdminApp, getApps as getAdminApps, cert as adminCert } from "firebase-admin/app";
+import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 
 dotenv.config();
 
@@ -104,74 +105,387 @@ interface PersistedQuota {
 
 const userDailyQuotaMap = new Map<string, PersistedQuota>();
 
-// In-Memory Transcript Cache (24-hour TTL, max 500 entries)
+// 30-Day TTL for persistent transcript cache (Firestore & Disk)
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const TRANSCRIPT_CACHE_TTL = THIRTY_DAYS_MS;
+const DISK_CACHE_FILE = path.resolve(process.cwd(), ".transcript_cache.json");
+
+// Firebase Admin SDK Initialization
+let firestoreAdmin: any = null;
+try {
+  let credential: any = undefined;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      const saRaw = process.env.FIREBASE_SERVICE_ACCOUNT.trim();
+      const saJson = saRaw.startsWith("{") ? JSON.parse(saRaw) : JSON.parse(Buffer.from(saRaw, "base64").toString("utf-8"));
+      credential = adminCert(saJson);
+    } catch (e) {
+      console.warn("[FirebaseAdmin] Failed parsing FIREBASE_SERVICE_ACCOUNT:", e);
+    }
+  } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+    try {
+      const saJson = JSON.parse(fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, "utf-8"));
+      credential = adminCert(saJson);
+    } catch (e) {}
+  }
+
+  if (!getAdminApps().length) {
+    if (credential) {
+      initAdminApp({ credential, projectId: FIREBASE_PROJECT_ID });
+    } else {
+      initAdminApp({ projectId: FIREBASE_PROJECT_ID });
+    }
+  }
+  firestoreAdmin = getAdminFirestore();
+  console.log(`[FirebaseAdmin] Firestore Admin initialized for project ${FIREBASE_PROJECT_ID}`);
+} catch (adminErr: any) {
+  console.warn("[FirebaseAdmin] Firestore Admin not initialized:", adminErr?.message || adminErr);
+}
+
+// Disk Cache Helper Functions (.transcript_cache.json)
+function readDiskCacheFile(): Record<string, any> {
+  try {
+    if (fs.existsSync(DISK_CACHE_FILE)) {
+      const content = fs.readFileSync(DISK_CACHE_FILE, "utf-8");
+      return JSON.parse(content) || {};
+    }
+  } catch (err) {
+    console.warn("[DiskCache] Failed reading .transcript_cache.json:", err);
+  }
+  return {};
+}
+
+function writeDiskCacheFile(cache: Record<string, any>) {
+  try {
+    fs.writeFileSync(DISK_CACHE_FILE, JSON.stringify(cache, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("[DiskCache] Failed writing .transcript_cache.json:", err);
+  }
+}
+
+// In-Memory Transcript Cache
 interface TranscriptCacheEntry {
   data: any;
   cachedAt: number;
 }
-const TRANSCRIPT_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
 const transcriptCache = new Map<string, TranscriptCacheEntry>();
 
-// Seed pre-verified transcripts so cache is permanently hot on fresh server boots
-if (typeof SEED_TRANSCRIPTS === "object" && SEED_TRANSCRIPTS !== null) {
-  for (const [vId, payload] of Object.entries(SEED_TRANSCRIPTS)) {
-    if (vId && payload) {
-      transcriptCache.set(vId, {
-        data: payload,
-        cachedAt: 0 // permanent/seeded, never expires via TTL check
-      });
+function formatDialogueLines(lines: any[]): string {
+  if (!lines || !Array.isArray(lines)) return "";
+  return lines.map(line => {
+    const startSec = typeof line.start === "number" ? line.start : 0;
+    const min = Math.floor(startSec / 60);
+    const sec = Math.floor(startSec % 60).toString().padStart(2, "0");
+    return `${min}:${sec} - ${line.text || ""}`;
+  }).join("\n");
+}
+
+// Pre-load valid entries from disk cache on server boot
+try {
+  const diskMap = readDiskCacheFile();
+  const now = Date.now();
+  let loadedCount = 0;
+  for (const [vId, entry] of Object.entries(diskMap)) {
+    if (vId && entry && typeof entry.createdAt === "number" && (now - entry.createdAt < THIRTY_DAYS_MS)) {
+      if (entry.lines && Array.isArray(entry.lines) && entry.lines.length > 0) {
+        transcriptCache.set(vId, {
+          data: {
+            hasTranscript: true,
+            transcript: entry.lines,
+            transcriptArray: entry.lines,
+            fullTranscript: entry.fullTranscript,
+            isAiGenerated: Boolean(entry.isAiGenerated),
+            isClipped: Boolean(entry.isClipped),
+            transcriptionMethod: entry.method || "OFFICIAL_CAPTIONS",
+            hookText: entry.hookText,
+            hookScore: entry.hookScore,
+            pacingSpeed: entry.pacingSpeed,
+            calculatedWpm: entry.calculatedWpm,
+            title: entry.title,
+            author: entry.author,
+            platform: entry.platform,
+            ...(entry.data || {})
+          },
+          cachedAt: entry.createdAt
+        });
+        loadedCount++;
+      }
     }
   }
-  console.log(`[Cache] Initialized transcriptCache with ${transcriptCache.size} seeded transcripts (e.g. iCvmsMzlF7o).`);
+  if (loadedCount > 0) {
+    console.log(`[Cache] Pre-loaded ${loadedCount} persistent transcripts from disk cache into memory.`);
+  }
+} catch (loadErr) {
+  console.warn("[Cache] Failed preloading disk cache:", loadErr);
+}
+
+// Retrieve from Persistent Cache (Firestore -> Disk -> In-Memory)
+async function getTranscriptFromPersistentCache(videoId: string): Promise<any | null> {
+  if (!videoId) return null;
+  const now = Date.now();
+
+  // 1. Try Firestore Admin SDK first (collection: transcript_cache)
+  if (firestoreAdmin) {
+    try {
+      const snap = await firestoreAdmin.collection("transcript_cache").doc(videoId).get();
+      if (snap.exists) {
+        const d = snap.data() as any;
+        if (d && typeof d.createdAt === "number" && (now - d.createdAt < THIRTY_DAYS_MS)) {
+          if (d.lines && Array.isArray(d.lines) && d.lines.length > 0) {
+            console.log(`[Cache] Persistent Firestore cache HIT for videoId: ${videoId} (${d.lines.length} lines, method: ${d.method || 'unknown'})`);
+            // Sync to in-memory
+            transcriptCache.set(videoId, {
+              data: {
+                hasTranscript: true,
+                transcript: d.lines,
+                transcriptArray: d.lines,
+                fullTranscript: d.fullTranscript,
+                isAiGenerated: Boolean(d.isAiGenerated),
+                isClipped: Boolean(d.isClipped),
+                transcriptionMethod: d.method,
+                hookText: d.hookText,
+                hookScore: d.hookScore,
+                pacingSpeed: d.pacingSpeed,
+                calculatedWpm: d.calculatedWpm,
+                title: d.title,
+                author: d.author,
+                platform: d.platform,
+                ...(d.data || {})
+              },
+              cachedAt: d.createdAt
+            });
+            return d;
+          }
+        } else if (d && d.createdAt && (now - d.createdAt >= THIRTY_DAYS_MS)) {
+          console.log(`[Cache] Firestore cache entry expired (>30d) for videoId: ${videoId}`);
+        }
+      }
+    } catch (fsErr: any) {
+      console.warn(`[Cache] Firestore read error for videoId ${videoId}:`, fsErr?.message || fsErr);
+    }
+  }
+
+  // 2. Try Disk Cache fallback (.transcript_cache.json)
+  try {
+    const diskMap = readDiskCacheFile();
+    const diskEntry = diskMap[videoId];
+    if (diskEntry && typeof diskEntry.createdAt === "number" && (now - diskEntry.createdAt < THIRTY_DAYS_MS)) {
+      if (diskEntry.lines && Array.isArray(diskEntry.lines) && diskEntry.lines.length > 0) {
+        console.log(`[Cache] Persistent Disk cache HIT for videoId: ${videoId} (${diskEntry.lines.length} lines, method: ${diskEntry.method || 'unknown'})`);
+        // Sync to in-memory
+        transcriptCache.set(videoId, {
+          data: {
+            hasTranscript: true,
+            transcript: diskEntry.lines,
+            transcriptArray: diskEntry.lines,
+            fullTranscript: diskEntry.fullTranscript,
+            isAiGenerated: Boolean(diskEntry.isAiGenerated),
+            isClipped: Boolean(diskEntry.isClipped),
+            transcriptionMethod: diskEntry.method,
+            hookText: diskEntry.hookText,
+            hookScore: diskEntry.hookScore,
+            pacingSpeed: diskEntry.pacingSpeed,
+            calculatedWpm: diskEntry.calculatedWpm,
+            title: diskEntry.title,
+            author: diskEntry.author,
+            platform: diskEntry.platform,
+            ...(diskEntry.data || {})
+          },
+          cachedAt: diskEntry.createdAt
+        });
+        return diskEntry;
+      }
+    }
+  } catch (diskErr: any) {
+    console.warn(`[Cache] Disk cache read error for videoId ${videoId}:`, diskErr?.message || diskErr);
+  }
+
+  // 3. Try In-Memory Cache
+  if (transcriptCache.has(videoId)) {
+    const mem = transcriptCache.get(videoId)!;
+    const isFresh = (now - mem.cachedAt < THIRTY_DAYS_MS);
+    if (isFresh && mem.data && (mem.data.hasTranscript || (mem.data.fullTranscript && !mem.data.fullTranscript.startsWith("[Notice:")))) {
+      console.log(`[Cache] In-memory cache HIT for videoId: ${videoId}`);
+      return {
+        videoId,
+        lines: mem.data.transcript || mem.data.transcriptArray || [],
+        method: mem.data.transcriptionMethod || "IN_MEMORY_CACHE",
+        isClipped: Boolean(mem.data.isClipped),
+        isAiGenerated: Boolean(mem.data.isAiGenerated),
+        createdAt: mem.cachedAt || now,
+        ...mem.data
+      };
+    }
+  }
+
+  return null;
+}
+
+// Save to Persistent Cache (In-Memory + Disk + Firestore Admin SDK)
+async function saveTranscriptToPersistentCache(videoId: string, payload: {
+  lines: Array<{ text: string; start: number; duration?: number }>;
+  method: string;
+  isClipped: boolean;
+  isAiGenerated: boolean;
+  createdAt?: number;
+  fullTranscript?: string;
+  hookText?: string;
+  hookScore?: number;
+  pacingSpeed?: string;
+  calculatedWpm?: number;
+  title?: string;
+  author?: string;
+  platform?: string;
+  data?: any;
+}) {
+  if (!videoId || !payload.lines || payload.lines.length === 0) return;
+  const createdAt = payload.createdAt || Date.now();
+  const entry = {
+    videoId,
+    lines: payload.lines,
+    method: payload.method,
+    isClipped: Boolean(payload.isClipped),
+    isAiGenerated: Boolean(payload.isAiGenerated),
+    createdAt,
+    fullTranscript: payload.fullTranscript || payload.lines.map(l => `${Math.floor(l.start / 60)}:${Math.floor(l.start % 60).toString().padStart(2, "0")} - ${l.text}`).join("\n"),
+    hookText: payload.hookText || payload.lines.slice(0, 4).map(l => l.text).join(' '),
+    hookScore: payload.hookScore || 85,
+    pacingSpeed: payload.pacingSpeed || "140 words/min",
+    calculatedWpm: payload.calculatedWpm || 140,
+    title: payload.title || "YouTube Video",
+    author: payload.author || "Creator",
+    platform: payload.platform || "youtube",
+    data: payload.data || null
+  };
+
+  // 1. Update In-Memory Cache
+  transcriptCache.set(videoId, {
+    data: {
+      hasTranscript: true,
+      transcript: entry.lines,
+      transcriptArray: entry.lines,
+      fullTranscript: entry.fullTranscript,
+      isAiGenerated: entry.isAiGenerated,
+      isClipped: entry.isClipped,
+      transcriptionMethod: entry.method,
+      hookText: entry.hookText,
+      hookScore: entry.hookScore,
+      pacingSpeed: entry.pacingSpeed,
+      calculatedWpm: entry.calculatedWpm,
+      title: entry.title,
+      author: entry.author,
+      platform: entry.platform,
+      ...(payload.data || {})
+    },
+    cachedAt: createdAt
+  });
+  if (transcriptCache.size > 500) {
+    const oldestKey = transcriptCache.keys().next().value;
+    if (oldestKey) transcriptCache.delete(oldestKey);
+  }
+
+  // 2. Persist to Disk (.transcript_cache.json)
+  try {
+    const diskMap = readDiskCacheFile();
+    diskMap[videoId] = entry;
+    // Evict entries older than 30 days
+    const now = Date.now();
+    for (const [k, v] of Object.entries(diskMap)) {
+      if (v && typeof v.createdAt === "number" && (now - v.createdAt >= THIRTY_DAYS_MS)) {
+        delete diskMap[k];
+      }
+    }
+    writeDiskCacheFile(diskMap);
+    console.log(`[Cache] Successfully persisted transcript to disk (.transcript_cache.json) for videoId: ${videoId}`);
+  } catch (err: any) {
+    console.warn(`[Cache] Failed persisting transcript to disk for ${videoId}:`, err?.message || err);
+  }
+
+  // 3. Persist to Firestore Admin SDK (collection: transcript_cache)
+  if (firestoreAdmin) {
+    try {
+      await firestoreAdmin.collection("transcript_cache").doc(videoId).set({
+        videoId,
+        lines: entry.lines,
+        method: entry.method,
+        isClipped: entry.isClipped,
+        isAiGenerated: entry.isAiGenerated,
+        createdAt: entry.createdAt,
+        title: entry.title,
+        author: entry.author,
+        fullTranscript: entry.fullTranscript,
+        hookText: entry.hookText,
+        hookScore: entry.hookScore,
+        pacingSpeed: entry.pacingSpeed,
+        calculatedWpm: entry.calculatedWpm,
+        platform: entry.platform
+      }, { merge: true });
+      console.log(`[Cache] Successfully persisted transcript to Firestore (transcript_cache/${videoId})`);
+    } catch (fsErr: any) {
+      console.warn(`[Cache] Failed persisting transcript to Firestore for ${videoId}:`, fsErr?.message || fsErr);
+    }
+  }
 }
 
 // Track caption retry bypass per IP (max 1 retry bypass per minute)
 const captionRetryByIpMap = new Map<string, number>();
 
-// Fast-Path Cache Middleware: checks cache BEFORE any auth/quota/duration checks
+// Fast-Path Cache Middleware: checks persistent cache BEFORE any auth/quota/duration checks
 function checkTranscriptCacheFastPath(mode: "fetch-script" | "transcribe-audio") {
-  return (req: any, res: any, next: any) => {
+  return async (req: any, res: any, next: any) => {
     try {
       const rawUrl = req.body?.videoUrl || req.body?.url;
       const videoUrl = typeof rawUrl === "string" ? rawUrl.trim() : "";
       if (!videoUrl) return next();
 
       const normalizedVideoId = extractYoutubeVideoId(videoUrl);
-      if (normalizedVideoId && transcriptCache.has(normalizedVideoId)) {
-        const cached = transcriptCache.get(normalizedVideoId)!;
-        const isFresh = (cached.cachedAt === 0) || ((Date.now() - cached.cachedAt) < TRANSCRIPT_CACHE_TTL);
-        const hasValidData = cached.data && (
-          cached.data.hasTranscript === true || 
-          (cached.data.fullTranscript && !cached.data.fullTranscript.startsWith("[Notice:"))
-        );
+      if (!normalizedVideoId) return next();
 
-        if (isFresh && hasValidData) {
-          console.log(`[fastPathCache] Cache HIT for videoId: ${normalizedVideoId} ("${cached.data.title || 'Untitled'}") in mode ${mode}. Bypassing auth, quota, and duration limits.`);
-          // Touch LRU
-          transcriptCache.delete(normalizedVideoId);
-          transcriptCache.set(normalizedVideoId, cached);
+      const cached = await getTranscriptFromPersistentCache(normalizedVideoId);
+      if (cached && cached.lines && Array.isArray(cached.lines) && cached.lines.length > 0) {
+        console.log(`[fastPathCache] Cache HIT for videoId: ${normalizedVideoId} ("${cached.title || 'Untitled'}") in mode ${mode}. Bypassing auth, quota, and duration limits.`);
 
-          if (mode === "transcribe-audio") {
-            return res.json({
-              success: true,
-              hasTranscript: true,
-              isAiGenerated: cached.data.isAiGenerated ?? true,
-              transcriptionMethod: cached.data.transcriptionMethod || "SERVER_CACHE_HIT",
-              warningLabel: cached.data.warningLabel || null,
-              transcript: cached.data.transcript || [],
-              fullTranscript: cached.data.fullTranscript || "",
-              hookScore: cached.data.hookScore || 85,
-              pacingSpeed: cached.data.pacingSpeed || "140 words/min",
-              cached: true
-            });
-          } else {
-            return res.json({
-              ...cached.data,
-              cached: true
-            });
-          }
-        } else if (!isFresh) {
-          transcriptCache.delete(normalizedVideoId);
+        if (mode === "transcribe-audio") {
+          return res.json({
+            success: true,
+            hasTranscript: true,
+            isAiGenerated: cached.isAiGenerated ?? true,
+            transcriptionMethod: cached.method || "SERVER_CACHE_HIT",
+            warningLabel: cached.warningLabel || null,
+            isClipped: Boolean(cached.isClipped),
+            transcript: cached.lines,
+            fullTranscript: cached.fullTranscript || formatDialogueLines(cached.lines),
+            hookText: cached.hookText || cached.lines.slice(0, 4).map((l: any) => l.text).join(' '),
+            hookScore: cached.hookScore || 85,
+            pacingSpeed: cached.pacingSpeed || "140 words/min",
+            calculatedWpm: cached.calculatedWpm || 140,
+            method: cached.method || "SERVER_CACHE_HIT",
+            cached: true
+          });
+        } else {
+          const fullPayload = cached.data || {
+            title: cached.title || "YouTube Video",
+            author: cached.author || "Creator",
+            duration: cached.isClipped ? "10:00m" : "Video",
+            hasTranscript: true,
+            fullTranscript: cached.fullTranscript || formatDialogueLines(cached.lines),
+            transcript: cached.lines,
+            transcriptArray: cached.lines,
+            isAiGenerated: Boolean(cached.isAiGenerated),
+            isClipped: Boolean(cached.isClipped),
+            transcriptionMethod: cached.method || "SERVER_CACHE_HIT",
+            hookScore: cached.hookScore || 85,
+            pacingSpeed: cached.pacingSpeed || "140 words/min",
+            calculatedWpm: cached.calculatedWpm || 140,
+            hookAnalysis: {
+              score: cached.hookScore || 85,
+              hookText: cached.hookText || cached.lines.slice(0, 4).map((l: any) => l.text).join(' ')
+            }
+          };
+          return res.json({
+            ...fullPayload,
+            cached: true
+          });
         }
       }
     } catch (cacheErr) {
@@ -425,7 +739,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
       }
 
       // Multimodal Token Protection Guard Check
-      req.checkMultimodalAllowed = (durationSec?: number, opts?: { isCaptionsThrottled?: boolean }) => {
+      req.checkMultimodalAllowed = (durationSec?: number, opts?: { isCaptionsThrottled?: boolean; captionStatus?: "none" | "blocked" | "skipped_cooldown" | "error" }) => {
         if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
           return { allowed: true };
         }
@@ -438,11 +752,12 @@ function enforceDailyQuota(type: "extraction" | "generation") {
           };
         }
         if (isGuest || req.user?.role === "guest" || !req.userId || req.userId.startsWith("guest_")) {
+          const isThrottledOrNotNone = opts?.captionStatus ? opts.captionStatus !== "none" : Boolean(opts?.isCaptionsThrottled);
           return {
             allowed: false,
             status: 403,
             code: "AUTH_REQUIRED_FOR_MULTIMODAL",
-            error: opts?.isCaptionsThrottled
+            error: isThrottledOrNotNone
               ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
               : "This video has no official captions. Sign in for free to run AI Audio/Video Transcription."
           };
@@ -2063,6 +2378,7 @@ ${
     status?: string;
     strategySummary?: string;
     isThrottled?: boolean;
+    captionStatus?: "none" | "blocked" | "skipped_cooldown" | "error";
   }> {
     const strategyLog: string[] = [];
     try {
@@ -2076,6 +2392,7 @@ ${
           errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
           status: "CAPTION_FETCH_FAILED",
           isThrottled: true,
+          captionStatus: "skipped_cooldown",
           strategySummary: `blocked-429-cooldown (${remainingSec}s remaining)`
         };
       }
@@ -2138,6 +2455,7 @@ ${
             errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
             status: "CAPTION_FETCH_FAILED",
             isThrottled: true,
+            captionStatus: "blocked",
             strategySummary: strategyLog.join("; ")
           };
         }
@@ -2240,6 +2558,8 @@ ${
             errorCode: "CAPTION_FETCH_FAILED",
             errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
             status: "CAPTION_FETCH_FAILED",
+            isThrottled: true,
+            captionStatus: "blocked",
             strategySummary: strategyLog.join("; ")
           };
         }
@@ -2320,6 +2640,8 @@ ${
             errorCode: "CAPTION_FETCH_FAILED",
             errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
             status: "CAPTION_FETCH_FAILED",
+            isThrottled: true,
+            captionStatus: "blocked",
             strategySummary: strategyLog.join("; ")
           };
         }
@@ -2400,6 +2722,8 @@ ${
           errorCode: "CAPTION_FETCH_FAILED",
           errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
           status: "CAPTION_FETCH_FAILED",
+          isThrottled: true,
+          captionStatus: "blocked",
           strategySummary: strategyLog.join("; ")
         };
       }
@@ -2439,24 +2763,32 @@ ${
         Date.now() < captionsBlockedUntil
       );
 
+      let captionStatus: "none" | "blocked" | "skipped_cooldown" | "error" = "error";
+
       if (candidateTrackUrl || totalTracksSeen > 0) {
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = `Discovered ${totalTracksSeen} caption track(s), but server timedtext requests failed or timed out. Retry, or use AI audio transcription.`;
         finalStatus = "CAPTION_FETCH_FAILED";
+        captionStatus = isThrottled ? "blocked" : "error";
       } else if (isThrottled) {
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.";
+        captionStatus = Date.now() < captionsBlockedUntil ? "skipped_cooldown" : "blocked";
       } else if (step1Status === 403 || step2Status === 403 || watchHttpStatus === 403 || xmlResult.errorCode?.includes("403")) {
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = "YouTube rejected extractor requests with HTTP 403 Forbidden. Retry, or use AI audio transcription.";
+        captionStatus = "blocked";
       } else if (watchHttpStatus === 200 || step1Status === 200 || step2Status === 200) {
         // Only if YouTube successfully answered 200 and explicitly reported 0 caption tracks
         finalErrorCode = "NO_OFFICIAL_CAPTIONS";
         finalErrorDetails = "0 tracks found across Web HTML, Android, iOS, XML, and Cloud Proxies. Video may be non-verbal or captions disabled by creator.";
+        captionStatus = "none";
+      } else {
+        captionStatus = "error";
       }
 
       const strategySummary = strategyLog.join("; ");
-      console.log(`[Captions] Cascade finished with status: ${finalStatus || 'FAILED'} | error: ${finalErrorCode} | summary: ${strategySummary}`);
+      console.log(`[Captions] Cascade finished with status: ${finalStatus || 'FAILED'} | error: ${finalErrorCode} | captionStatus: ${captionStatus} | summary: ${strategySummary}`);
       return { 
         lines: null, 
         hasTracks: totalTracksSeen > 0, 
@@ -2465,6 +2797,7 @@ ${
         clientDelegationUrl: candidateTrackUrl || undefined,
         status: finalStatus,
         isThrottled,
+        captionStatus,
         strategySummary
       };
     } catch (err: any) {
@@ -2474,6 +2807,7 @@ ${
         hasTracks: false, 
         errorCode: 'CAPTION_FETCH_FAILED',
         errorDetails: err.message || "Unknown pipeline exception",
+        captionStatus: "error",
         strategySummary: `pipeline error: ${err.message || 'unknown'}`
       };
     }
@@ -2588,6 +2922,7 @@ ${
     status?: string;
     strategySummary?: string;
     isThrottled?: boolean;
+    captionStatus?: "none" | "blocked" | "skipped_cooldown" | "error";
   }> {
     let timer: NodeJS.Timeout;
     const timeoutPromise = new Promise<{
@@ -2597,6 +2932,7 @@ ${
       errorDetails: string;
       strategySummary: string;
       isThrottled: boolean;
+      captionStatus: "none" | "blocked" | "skipped_cooldown" | "error";
     }>((resolve) => {
       timer = setTimeout(() => {
         console.warn(`[SubtitleFetcher] Subtitle extraction timed out after ${timeoutMs / 1000}s for video ${videoId}`);
@@ -2606,7 +2942,8 @@ ${
           errorCode: "CAPTION_FETCH_FAILED",
           errorDetails: `Subtitle fetch timed out after ${timeoutMs / 1000} seconds. Retry, or use AI audio transcription.`,
           strategySummary: `timeout after ${timeoutMs / 1000}s`,
-          isThrottled: false
+          isThrottled: false,
+          captionStatus: "error"
         });
       }, timeoutMs);
     });
@@ -2782,25 +3119,28 @@ ${
           console.log(`[fetch-script] Closed captions unavailable or datacenter IP throttled for video ${videoId}. Executing Gemini native video transcription...`);
           const durationSec = metadata.lengthSeconds || (metadata.duration ? getDurationSeconds(metadata.duration) : 0) || (subResult as any).lengthSeconds || 0;
 
-          const isCaptionsThrottled = Boolean(
-            subResult?.isThrottled ||
-            subResult?.errorCode === 'CAPTION_FETCH_FAILED' ||
-            (subResult?.strategySummary && subResult.strategySummary.includes('429')) ||
-            (captionsBlockedUntil > Date.now())
-          );
+          const currentCaptionStatus: "none" | "blocked" | "skipped_cooldown" | "error" = 
+            subResult?.captionStatus || (
+              captionsBlockedUntil > Date.now() 
+                ? "skipped_cooldown" 
+                : (subResult?.isThrottled ? "blocked" : (subResult?.hasTracks ? "error" : "none"))
+            );
+
+          const isCaptionsThrottled = currentCaptionStatus !== "none";
 
           // Multimodal Token Protection Guard Check
           if (req.checkMultimodalAllowed) {
-            const guardCheck = req.checkMultimodalAllowed(durationSec, { isCaptionsThrottled });
+            const guardCheck = req.checkMultimodalAllowed(durationSec, { isCaptionsThrottled, captionStatus: currentCaptionStatus });
             if (!guardCheck.allowed) {
-              const errorMessage = (guardCheck.code === "AUTH_REQUIRED_FOR_MULTIMODAL" && isCaptionsThrottled)
+              const errorMessage = (guardCheck.code === "AUTH_REQUIRED_FOR_MULTIMODAL" && currentCaptionStatus !== "none")
                 ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
                 : guardCheck.error;
-              console.warn(`[fetch-script] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${errorMessage}`);
+              console.warn(`[fetch-script] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${errorMessage} (captionStatus: ${currentCaptionStatus})`);
               return res.status(guardCheck.status || 403).json({
                 ok: false,
                 code: guardCheck.code,
                 error: errorMessage,
+                captionStatus: currentCaptionStatus,
                 isCaptionsThrottled,
                 canRetryCaptions: isCaptionsThrottled,
                 title: realTitle,
@@ -3182,14 +3522,27 @@ Return exactly this JSON schema:
 
       if (normalizedVideoId && parsedData && (parsedData.hasTranscript || (parsedData.fullTranscript && !parsedData.fullTranscript.startsWith("[Notice:")))) {
         req.consumeExtractionQuota?.(normalizedVideoId);
-        transcriptCache.set(normalizedVideoId, {
-          data: parsedData,
-          cachedAt: Date.now()
+        const transcriptLines = (parsedData.transcriptArray && parsedData.transcriptArray.length > 0)
+          ? parsedData.transcriptArray
+          : (parsedData.transcript && Array.isArray(parsedData.transcript) && parsedData.transcript.length > 0)
+          ? parsedData.transcript
+          : parseTimestampedDialogueText(parsedData.fullTranscript || "");
+
+        saveTranscriptToPersistentCache(normalizedVideoId, {
+          lines: transcriptLines,
+          method: parsedData.transcriptionMethod || (parsedData.isAiGenerated ? "NATIVE_VIDEO_INPUT" : "OFFICIAL_CAPTIONS"),
+          isClipped: Boolean(parsedData.isClipped),
+          isAiGenerated: Boolean(parsedData.isAiGenerated),
+          title: parsedData.title || realTitle || "YouTube Video",
+          author: parsedData.author || realAuthor || "Creator",
+          fullTranscript: parsedData.fullTranscript,
+          hookText: parsedData.hookText,
+          hookScore: parsedData.hookScore,
+          pacingSpeed: parsedData.pacingSpeed,
+          calculatedWpm: parsedData.calculatedWpm,
+          platform: "youtube",
+          data: parsedData
         });
-        if (transcriptCache.size > 500) {
-          const oldestKey = transcriptCache.keys().next().value;
-          if (oldestKey) transcriptCache.delete(oldestKey);
-        }
       }
 
       console.log(`[fetch-script] metadata ${metaDuration}ms ${metaOk ? 'ok' : 'fallback'} | captions ${captionsDuration}ms ${captionsOk ? 'ok' : 'fail'} (${subResult?.strategySummary || 'none'}) | fallback ${fallbackDuration}ms | gemini ${geminiDuration}ms ${geminiOk ? 'ok' : 'fallback'}`);
@@ -3824,18 +4177,27 @@ When analyzing how this exact sequence unfolds, we find that the leading example
       // Multimodal Token Protection Guard Check
       if (req.checkMultimodalAllowed) {
         const isCaptionsThrottled = Boolean(req.body?.isCaptionsThrottled || (captionsBlockedUntil > Date.now()));
-        const guardCheck = req.checkMultimodalAllowed(durationSec, { isCaptionsThrottled });
+        const passedCaptionStatus = req.body?.captionStatus as ("none" | "blocked" | "skipped_cooldown" | "error") | undefined;
+        const effectiveCaptionStatus: "none" | "blocked" | "skipped_cooldown" | "error" = 
+          passedCaptionStatus || (
+            captionsBlockedUntil > Date.now() 
+              ? "skipped_cooldown" 
+              : (isCaptionsThrottled ? "blocked" : "none")
+          );
+
+        const guardCheck = req.checkMultimodalAllowed(durationSec, { isCaptionsThrottled, captionStatus: effectiveCaptionStatus });
         if (!guardCheck.allowed) {
-          const errorMessage = (guardCheck.code === "AUTH_REQUIRED_FOR_MULTIMODAL" && isCaptionsThrottled)
+          const errorMessage = (guardCheck.code === "AUTH_REQUIRED_FOR_MULTIMODAL" && effectiveCaptionStatus !== "none")
             ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
             : guardCheck.error;
-          console.warn(`[/api/transcribe-audio] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${errorMessage}`);
+          console.warn(`[/api/transcribe-audio] Multimodal guard blocked AI transcription for ${videoId}: ${guardCheck.code} - ${errorMessage} (captionStatus: ${effectiveCaptionStatus})`);
           return res.status(guardCheck.status || 403).json({
             ok: false,
             code: guardCheck.code,
             error: errorMessage,
-            isCaptionsThrottled,
-            canRetryCaptions: isCaptionsThrottled
+            captionStatus: effectiveCaptionStatus,
+            isCaptionsThrottled: effectiveCaptionStatus !== "none",
+            canRetryCaptions: effectiveCaptionStatus !== "none"
           });
         }
       }
@@ -3961,31 +4323,22 @@ Return ONLY a valid JSON array of dialogue objects:
         const pacingSpeed = `${calculatedWpm} words/min (${transcriptionMethod === 'NATIVE_VIDEO_INPUT' ? 'Native Video Transcription' : 'Online Transcript Recovery'})`;
         const computedHookScore = calculateHookScore(hookText, calculatedWpm, "youtube");
 
-        // Cache in server transcriptCache
+        // Cache in persistent transcript cache
         if (videoId) {
-          transcriptCache.set(videoId, {
-            data: {
-              hasTranscript: true,
-              isAiGenerated: true,
-              transcriptionMethod,
-              warningLabel,
-              isClipped,
-              transcript: lines,
-              fullTranscript,
-              hookText: hookText || "Extracted spoken hook.",
-              hookScore: computedHookScore,
-              pacingSpeed,
-              calculatedWpm,
-              title: title || "YouTube Video",
-              author: author || "Creator",
-              platform: "youtube"
-            },
-            cachedAt: Date.now()
+          saveTranscriptToPersistentCache(videoId, {
+            lines,
+            method: transcriptionMethod,
+            isClipped,
+            isAiGenerated: true,
+            title: title || "YouTube Video",
+            author: author || "Creator",
+            fullTranscript,
+            hookText: hookText || "Extracted spoken hook.",
+            hookScore: computedHookScore,
+            pacingSpeed,
+            calculatedWpm,
+            platform: "youtube"
           });
-          if (transcriptCache.size > 500) {
-            const oldestKey = transcriptCache.keys().next().value;
-            if (oldestKey) transcriptCache.delete(oldestKey);
-          }
         }
 
         req.consumeExtractionQuota?.(videoId);
