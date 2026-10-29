@@ -2407,6 +2407,7 @@ ${
       console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
 
       let candidateTrackUrl: string | null = null;
+      let youtubeReportedZeroTracks = false;
 
       const defaultInnertubeApiKey = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
       const playerEndpoint = `https://www.youtube.com/youtubei/v1/player?key=${defaultInnertubeApiKey}`;
@@ -2417,7 +2418,7 @@ ${
       // Directly returns authenticated fmt=srv3 XML tracks in < 1s
       // -------------------------------------------------------------
       let tracks: any[] | undefined = undefined;
-      let step1Status = 200;
+      let step1Status = 0;
       try {
         console.log("[SubtitleFetcher] Strategy 1: Querying Innertube Android player API...");
         const androidHeaders: Record<string, string> = {
@@ -2507,6 +2508,9 @@ ${
             }
           }
           strategyLog.push(`android: HTTP ${step1Status}, ${tracks.length} tracks, fetch failed`);
+        } else if (step1Status === 200) {
+          youtubeReportedZeroTracks = true;
+          strategyLog.push(`android: HTTP ${step1Status}, ${tracks?.length || 0} tracks`);
         } else {
           strategyLog.push(`android: HTTP ${step1Status}, ${tracks?.length || 0} tracks`);
         }
@@ -2518,7 +2522,7 @@ ${
       // STRATEGY 2: Innertube iOS Client Fallback
       // -------------------------------------------------------------
       let iosTracks: any[] | undefined = undefined;
-      let step2Status = 200;
+      let step2Status = 0;
       try {
         console.log("[SubtitleFetcher] Strategy 2: Retrying with IOS client context...");
         const iosHeaders: Record<string, string> = {
@@ -2607,6 +2611,9 @@ ${
             }
           }
           strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks.length} tracks, fetch failed`);
+        } else if (step2Status === 200) {
+          youtubeReportedZeroTracks = true;
+          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks?.length || 0} tracks`);
         } else {
           strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks?.length || 0} tracks`);
         }
@@ -2619,7 +2626,7 @@ ${
       // -------------------------------------------------------------
       let watchHtml = "";
       let watchCookie = "";
-      let watchHttpStatus = 200;
+      let watchHttpStatus = 0;
       let webTracks: any[] | null = null;
       const watchUserAgent = getRandomUserAgent();
       try {
@@ -2707,6 +2714,9 @@ ${
           }
         }
         strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks.length} tracks, fetch failed`);
+      } else if (watchHttpStatus === 200) {
+        youtubeReportedZeroTracks = true;
+        strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks?.length || 0} tracks`);
       } else {
         strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks?.length || 0} tracks`);
       }
@@ -2782,12 +2792,14 @@ ${
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = "YouTube rejected extractor requests with HTTP 403 Forbidden. Retry, or use AI audio transcription.";
         captionStatus = "blocked";
-      } else if (watchHttpStatus === 200 || step1Status === 200 || step2Status === 200) {
+      } else if (youtubeReportedZeroTracks && !isThrottled && (step1Status === 200 || step2Status === 200 || watchHttpStatus === 200)) {
         // Only if YouTube successfully answered 200 and explicitly reported 0 caption tracks
         finalErrorCode = "NO_OFFICIAL_CAPTIONS";
         finalErrorDetails = "0 tracks found across Web HTML, Android, iOS, XML, and Cloud Proxies. Video may be non-verbal or captions disabled by creator.";
         captionStatus = "none";
       } else {
+        finalErrorCode = "CAPTION_FETCH_FAILED";
+        finalErrorDetails = "YouTube caption requests failed or timed out. Retry, or use AI audio transcription.";
         captionStatus = "error";
       }
 
