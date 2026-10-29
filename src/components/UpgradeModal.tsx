@@ -20,7 +20,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
   const [selectedTier, setSelectedTier] = useState<'pro' | 'agency'>(defaultTier);
   const [isProcessing, setIsProcessing] = useState(false);
   const { addToast } = useToast();
-  const { user, dbUser, updateProfile } = useFirebase();
+  const { user, dbUser, refreshProfile } = useFirebase();
 
   useEscapeKey(isOpen, onClose);
 
@@ -50,12 +50,8 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({
         throw new Error(data.error || "Failed to unlock Beta Access.");
       }
 
-      if (dbUser) {
-        await updateProfile({
-          tier: selectedTier,
-          betaSignature: data.signature
-        });
-      }
+      // Re-fetch server-verified profile document via Admin SDK
+      await refreshProfile();
 
       addToast(`🎉 Successfully unlocked Beta ${selectedTier === 'pro' ? 'Pro Creator' : 'Agency Elite'}! Generous daily creator quotas active.`, 'success');
       onClose();

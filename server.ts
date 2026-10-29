@@ -558,7 +558,21 @@ function parseTimestampedDialogueText(text: string): Array<{ text: string; start
 }
 
 function persistQuotaRecord(docId: string, quota: PersistedQuota, authToken?: string) {
-  // Asynchronously write-through to Firestore collection 'server_usage_quotas'
+  // 1. Primary write-through via Firestore Admin SDK
+  if (firestoreAdmin) {
+    firestoreAdmin.collection("server_usage_quotas").doc(docId).set({
+      extractions: Number(quota.extractions),
+      generations: Number(quota.generations),
+      multimodalCount: Number(quota.multimodalCount || 0),
+      updatedAt: Number(quota.updatedAt),
+      date: String(quota.date)
+    }, { merge: true }).catch((err: any) => {
+      console.warn(`[Quota] Admin SDK write failed for ${docId}:`, err?.message || err);
+    });
+    return;
+  }
+
+  // 2. Fallback REST API
   if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (authToken) {
@@ -585,6 +599,26 @@ function persistQuotaRecord(docId: string, quota: PersistedQuota, authToken?: st
 }
 
 async function fetchQuotaFromFirestore(docId: string): Promise<PersistedQuota | null> {
+  // 1. Primary read via Firestore Admin SDK
+  if (firestoreAdmin) {
+    try {
+      const snap = await firestoreAdmin.collection("server_usage_quotas").doc(docId).get();
+      if (snap.exists) {
+        const d = snap.data() as any;
+        return {
+          date: d.date || getTodayString(),
+          extractions: Number(d.extractions || 0),
+          generations: Number(d.generations || 0),
+          multimodalCount: Number(d.multimodalCount || 0),
+          updatedAt: Number(d.updatedAt || Date.now())
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[Quota] Admin SDK read failed for ${docId}:`, e?.message || e);
+    }
+  }
+
+  // 2. Fallback REST API
   if (!FIREBASE_PROJECT_ID || !FIREBASE_API_KEY) return null;
   try {
     const res = await fetch(
@@ -620,6 +654,32 @@ async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agenc
     return cached.tier;
   }
 
+  // 1. Primary: Server-side lookup via Firestore Admin SDK
+  if (firestoreAdmin) {
+    try {
+      const snap = await firestoreAdmin.collection("users").doc(uid).get();
+      if (snap.exists) {
+        const d = snap.data() as any;
+        const tier = d?.tier;
+        const role = d?.role;
+        const betaSig = d?.betaSignature;
+        const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
+
+        if (tier === "agency" || role === "agency" || role === "Agency") {
+          userTierCache.set(uid, { tier: "agency", exp: Date.now() + 300_000 });
+          return "agency";
+        }
+        if ((tier === "pro" || role === "pro" || role === "Pro Creator") && betaSig === expectedSig) {
+          userTierCache.set(uid, { tier: "pro", exp: Date.now() + 300_000 });
+          return "pro";
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[getVerifiedUserTier] Admin SDK lookup failed for ${uid}:`, e?.message || e);
+    }
+  }
+
+  // 2. Fallback REST API check
   if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
     try {
       const res = await fetch(
@@ -629,14 +689,15 @@ async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agenc
       if (res.ok) {
         const json = await res.json();
         const tier = json?.fields?.tier?.stringValue;
+        const role = json?.fields?.role?.stringValue;
         const betaSig = json?.fields?.betaSignature?.stringValue;
         const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
 
-        if (tier === "agency") {
+        if (tier === "agency" || role === "agency" || role === "Agency") {
           userTierCache.set(uid, { tier: "agency", exp: Date.now() + 300_000 });
           return "agency";
         }
-        if (tier === "pro" && betaSig === expectedSig) {
+        if ((tier === "pro" || role === "pro" || role === "Pro Creator") && betaSig === expectedSig) {
           userTierCache.set(uid, { tier: "pro", exp: Date.now() + 300_000 });
           return "pro";
         }
@@ -669,15 +730,9 @@ function enforceDailyQuota(type: "extraction" | "generation") {
     if (isGuest) {
       tier = "guest";
     } else {
+      // Strictly resolve tier server-side (never trust client headers or body)
       const verifiedTier = await getVerifiedUserTier(req.userId);
-      const claimedTier = req.headers["x-user-tier"] || (req.body && req.body.tier);
-      if (verifiedTier === "agency" || claimedTier === "agency") {
-        tier = "agency";
-      } else if (verifiedTier === "pro" || claimedTier === "pro") {
-        tier = "pro";
-      } else {
-        tier = "free";
-      }
+      tier = verifiedTier;
     }
 
     // Hard Daily Caps Per Tier:
@@ -1261,7 +1316,8 @@ async function startServer() {
     res.json({
       status: "ok",
       timestamp: Date.now(),
-      gitCommit: "b4501a4",
+      gitCommit: process.env.RENDER_GIT_COMMIT || "unknown",
+      firestoreAdmin: !!firestoreAdmin,
       modelCascade: activeModelCascade,
       captionsBlockedUntil: captionsBlockedUntil > Date.now() ? new Date(captionsBlockedUntil).toISOString() : null
     });
@@ -1293,10 +1349,22 @@ async function startServer() {
     // Update in-memory tier cache
     userTierCache.set(uid, { tier: "pro", exp: Date.now() + 86400_000 * 30 }); // 30 days cache
 
-    // If Firestore is available, attempt to write server-verified tier & betaSignature to user doc
-    if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
+    // Write server-verified tier & betaSignature to user doc directly via Admin SDK
+    if (firestoreAdmin) {
+      try {
+        await firestoreAdmin.collection("users").doc(uid).set({
+          tier: "pro",
+          role: "Pro Creator",
+          betaSignature: signature,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+        console.log(`[billing/unlock-beta] Successfully upgraded ${uid} to Pro tier via Admin SDK.`);
+      } catch (err: any) {
+        console.warn(`[billing/unlock-beta] Admin SDK upgrade write failed for ${uid}:`, err?.message || err);
+      }
+    } else if (FIREBASE_PROJECT_ID && FIREBASE_API_KEY) {
       fetch(
-        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}?updateMask.fieldPaths=tier&updateMask.fieldPaths=betaSignature&updateMask.fieldPaths=updatedAt&key=${FIREBASE_API_KEY}`,
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${uid}?updateMask.fieldPaths=tier&updateMask.fieldPaths=betaSignature&updateMask.fieldPaths=role&updateMask.fieldPaths=updatedAt&key=${FIREBASE_API_KEY}`,
         {
           method: "PATCH",
           headers: {
@@ -1306,6 +1374,7 @@ async function startServer() {
           body: JSON.stringify({
             fields: {
               tier: { stringValue: "pro" },
+              role: { stringValue: "Pro Creator" },
               betaSignature: { stringValue: signature },
               updatedAt: { stringValue: new Date().toISOString() }
             }
@@ -1323,11 +1392,32 @@ async function startServer() {
   });
 
   // API Health and Security Diagnostics
-  app.get("/api/diagnose", (req, res) => {
-    const serverKeySet = !!process.env.GEMINI_API_KEY;
+  app.get("/api/diagnose", async (req, res) => {
+    let transcriptDocs: string[] = [];
+    let quotaDocs: string[] = [];
+
+    if (firestoreAdmin) {
+      try {
+        const tSnap = await firestoreAdmin.collection("transcript_cache").select().limit(10).get();
+        transcriptDocs = tSnap.docs.map((d: any) => d.id);
+      } catch (e: any) {
+        transcriptDocs = [`error: ${e.message}`];
+      }
+      try {
+        const qSnap = await firestoreAdmin.collection("server_usage_quotas").select().limit(10).get();
+        quotaDocs = qSnap.docs.map((d: any) => d.id);
+      } catch (e: any) {
+        quotaDocs = [`error: ${e.message}`];
+      }
+    }
+
     res.json({
       status: "ok",
-      geminiKeyConfigured: serverKeySet,
+      firestoreAdminInitialized: !!firestoreAdmin,
+      geminiKeyConfigured: !!process.env.GEMINI_API_KEY,
+      gitCommit: process.env.RENDER_GIT_COMMIT || "unknown",
+      transcriptCacheDocIds: transcriptDocs,
+      serverUsageQuotaDocIds: quotaDocs,
       environment: process.env.NODE_ENV || "development"
     });
   });

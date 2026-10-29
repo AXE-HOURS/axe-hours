@@ -93,6 +93,7 @@ interface FirebaseContextType {
   updateIdeaDB?: (id: number, updatedFields: Partial<{ title: string; content: string }>) => Promise<void>;
   removeIdeaDB: (id: number) => Promise<void>;
   updateProfile: (profileUpdates: Partial<UserProfile>) => Promise<void>;
+  refreshProfile: () => Promise<void>;
   logUserActivity: (
     actionType: ActivityActionType,
     actionTitle: string,
@@ -637,6 +638,19 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  const refreshProfile = async () => {
+    if (!user) return;
+    try {
+      const userDocRef = doc(db, 'users', user.uid);
+      const userSnap = await getDoc(userDocRef);
+      if (userSnap.exists()) {
+        setDbUser(userSnap.data() as UserProfile);
+      }
+    } catch (e) {
+      console.warn("Failed refreshing profile from server:", e);
+    }
+  };
+
   const logUserActivity = async (
     actionType: ActivityActionType,
     actionTitle: string,
@@ -718,6 +732,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       updateIdeaDB,
       removeIdeaDB,
       updateProfile,
+      refreshProfile,
       logUserActivity,
       logActivity,
       clearActivitiesDB
