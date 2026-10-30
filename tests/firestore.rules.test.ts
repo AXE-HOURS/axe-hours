@@ -86,6 +86,36 @@ describe('Firestore Security Rules', () => {
       );
     });
 
+    it('MUST DENY: create with plan "pro"', async () => {
+      const aliceContext = testEnv.authenticatedContext('user_alice', { email: 'alice@example.com' });
+      const userRef = doc(aliceContext.firestore(), 'users', 'user_alice');
+
+      await assertFails(
+        setDoc(userRef, {
+          uid: 'user_alice',
+          email: 'alice@example.com',
+          name: 'Alice',
+          handle: 'alice',
+          plan: 'pro',
+        })
+      );
+    });
+
+    it('MUST DENY: create with an unknown field "isAdmin": true', async () => {
+      const aliceContext = testEnv.authenticatedContext('user_alice', { email: 'alice@example.com' });
+      const userRef = doc(aliceContext.firestore(), 'users', 'user_alice');
+
+      await assertFails(
+        setDoc(userRef, {
+          uid: 'user_alice',
+          email: 'alice@example.com',
+          name: 'Alice',
+          handle: 'alice',
+          isAdmin: true,
+        })
+      );
+    });
+
     it('MUST ALLOW: create with only name, handle and avatar (no paid/role fields)', async () => {
       const aliceContext = testEnv.authenticatedContext('user_alice', { email: 'alice@example.com' });
       const userRef = doc(aliceContext.firestore(), 'users', 'user_alice');
@@ -139,6 +169,17 @@ describe('Firestore Security Rules', () => {
       await assertFails(
         updateDoc(userRef, {
           tier: 'pro',
+        })
+      );
+    });
+
+    it('MUST DENY: client updating plan', async () => {
+      const aliceContext = testEnv.authenticatedContext('user_alice', { email: 'alice@example.com' });
+      const userRef = doc(aliceContext.firestore(), 'users', 'user_alice');
+
+      await assertFails(
+        updateDoc(userRef, {
+          plan: 'pro',
         })
       );
     });

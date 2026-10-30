@@ -652,12 +652,21 @@ async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agenc
     return cached.tier;
   }
 
-  // Helper verifying HMAC signature for elevated tiers (pro / agency)
+  // Helper verifying HMAC signature for elevated tiers (pro / agency) with timing-safe comparison
   const verifyTierSignature = (targetTier: "pro" | "agency", sig: string | undefined): boolean => {
     if (!sig || typeof sig !== "string") return false;
-    const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_${targetTier}_v1`).digest("hex");
-    const legacyProSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
-    return sig === expectedSig || (targetTier === "pro" && sig === legacyProSig);
+    const sigBuffer = Buffer.from(sig, "hex");
+    if (sigBuffer.length !== 32) return false;
+
+    const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_${targetTier}_v1`).digest();
+    if (crypto.timingSafeEqual(sigBuffer, expectedSig)) return true;
+
+    if (targetTier === "pro") {
+      const legacyProSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest();
+      if (crypto.timingSafeEqual(sigBuffer, legacyProSig)) return true;
+    }
+
+    return false;
   };
 
   // 1. Primary: Server-side lookup via Firestore Admin SDK

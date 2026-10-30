@@ -35,16 +35,20 @@ service cloud.firestore {
     // 3. User Entity Validation
     function isValidUser(data) {
       return data.keys().hasAll(['uid', 'email'])
+        && data.keys().hasOnly(['uid', 'email', 'name', 'handle', 'avatar', 'bio', 'customInstructions', 'createdAt', 'updatedAt', 'role', 'tier', 'plan', 'betaSignature'])
         && data.uid is string && data.uid.size() <= 128
         && data.email is string && data.email.size() <= 256
         && (!data.keys().hasAny(['role']) || (data.role is string && data.role.size() <= 64))
         && (!data.keys().hasAny(['tier']) || (data.tier is string && data.tier.size() <= 32 && data.tier in ['free', 'pro', 'agency']))
+        && (!data.keys().hasAny(['plan']) || (data.plan is string && data.plan.size() <= 32 && data.plan in ['free', 'pro', 'agency']))
         && (!data.keys().hasAny(['name']) || (data.name is string && data.name.size() <= 128))
         && (!data.keys().hasAny(['handle']) || (data.handle is string && data.handle.size() <= 128))
         && (!data.keys().hasAny(['avatar']) || (data.avatar is string && data.avatar.size() <= 1000))
         && (!data.keys().hasAny(['bio']) || (data.bio is string && data.bio.size() <= 1000))
         && (!data.keys().hasAny(['betaSignature']) || (data.betaSignature is string && data.betaSignature.size() <= 256))
-        && (!data.keys().hasAny(['customInstructions']) || (data.customInstructions is string && data.customInstructions.size() <= 5000));
+        && (!data.keys().hasAny(['customInstructions']) || (data.customInstructions is string && data.customInstructions.size() <= 5000))
+        && (!data.keys().hasAny(['createdAt']) || (data.createdAt is string && data.createdAt.size() <= 64))
+        && (!data.keys().hasAny(['updatedAt']) || (data.updatedAt is string && data.updatedAt.size() <= 64));
     }
 
     // 4. SavedIdea Entity Validation
