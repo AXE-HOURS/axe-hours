@@ -225,18 +225,15 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           if (userSnap && userSnap.exists()) {
             profileData = userSnap.data() as UserProfile;
           } else {
-            // Auto promote VIP developer to Administrator / Agency license tier
-            const isDeveloper = firebaseUser.email === "atharvsharma1259@gmail.com";
-            
             profileData = {
               uid: firebaseUser.uid,
               email: firebaseUser.email || '',
               name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Axe Creator',
               handle: (firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'creator').toLowerCase().replace(/\s+/g, '_'),
               avatar: firebaseUser.photoURL || '',
-              bio: isDeveloper ? 'Lead AI Architect & System Administrator for Axe Hours.' : 'Content Creator & Hook Architect',
-              role: isDeveloper ? 'Administrator' : 'Creator',
-              tier: isDeveloper ? 'agency' : 'free', // Default new accounts to 'free' Starter tier
+              bio: 'Content Creator & Hook Architect',
+              role: 'Creator',
+              tier: 'free', // Default new accounts to 'free' Starter tier (never paid tier)
               customInstructions: "",
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString()

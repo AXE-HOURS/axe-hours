@@ -128,12 +128,12 @@ export const Settings: React.FC = () => {
     setIsTesting(true);
     const results = { gemini: { status: 'Offline' }, ollama: { status: 'Offline' } };
     
-    // Check Server-side secure credentials first
+    // Check Server-side health and model availability first
     try {
-      const res = await fetch('/api/diagnose');
+      const res = await fetch('/api/health');
       if (res.ok) {
         const data = await res.json();
-        if (data.geminiKeyConfigured) {
+        if (data.status === 'ok' && data.modelCascade && data.modelCascade.length > 0) {
           results.gemini = { status: 'Online (Cloud)' };
         }
       }

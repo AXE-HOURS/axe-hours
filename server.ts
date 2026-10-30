@@ -647,12 +647,18 @@ interface UserTierCacheEntry {
 const userTierCache = new Map<string, UserTierCacheEntry>();
 
 async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agency"> {
-  if (uid === "atharvsharma1259@gmail.com") return "agency";
-
   const cached = userTierCache.get(uid);
   if (cached && cached.exp > Date.now()) {
     return cached.tier;
   }
+
+  // Helper verifying HMAC signature for elevated tiers (pro / agency)
+  const verifyTierSignature = (targetTier: "pro" | "agency", sig: string | undefined): boolean => {
+    if (!sig || typeof sig !== "string") return false;
+    const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_${targetTier}_v1`).digest("hex");
+    const legacyProSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
+    return sig === expectedSig || (targetTier === "pro" && sig === legacyProSig);
+  };
 
   // 1. Primary: Server-side lookup via Firestore Admin SDK
   if (firestoreAdmin) {
@@ -661,15 +667,13 @@ async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agenc
       if (snap.exists) {
         const d = snap.data() as any;
         const tier = d?.tier;
-        const role = d?.role;
         const betaSig = d?.betaSignature;
-        const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
 
-        if (tier === "agency" || role === "agency" || role === "Agency") {
+        if (tier === "agency" && verifyTierSignature("agency", betaSig)) {
           userTierCache.set(uid, { tier: "agency", exp: Date.now() + 300_000 });
           return "agency";
         }
-        if ((tier === "pro" || role === "pro" || role === "Pro Creator") && betaSig === expectedSig) {
+        if (tier === "pro" && verifyTierSignature("pro", betaSig)) {
           userTierCache.set(uid, { tier: "pro", exp: Date.now() + 300_000 });
           return "pro";
         }
@@ -689,15 +693,13 @@ async function getVerifiedUserTier(uid: string): Promise<"free" | "pro" | "agenc
       if (res.ok) {
         const json = await res.json();
         const tier = json?.fields?.tier?.stringValue;
-        const role = json?.fields?.role?.stringValue;
         const betaSig = json?.fields?.betaSignature?.stringValue;
-        const expectedSig = crypto.createHmac("sha256", SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest("hex");
 
-        if (tier === "agency" || role === "agency" || role === "Agency") {
+        if (tier === "agency" && verifyTierSignature("agency", betaSig)) {
           userTierCache.set(uid, { tier: "agency", exp: Date.now() + 300_000 });
           return "agency";
         }
-        if ((tier === "pro" || role === "pro" || role === "Pro Creator") && betaSig === expectedSig) {
+        if (tier === "pro" && verifyTierSignature("pro", betaSig)) {
           userTierCache.set(uid, { tier: "pro", exp: Date.now() + 300_000 });
           return "pro";
         }
@@ -747,7 +749,7 @@ function enforceDailyQuota(type: "extraction" | "generation") {
     }[tier];
 
     const safeUidOrIp = isGuest
-      ? `ip_${clientIp.replace(/[^a-zA-Z0-9_-]/g, "_")}`
+      ? `ip_${crypto.createHmac("sha256", SERVER_SECRET).update(clientIp).digest("hex").slice(0, 32)}`
       : req.userId.replace(/[^a-zA-Z0-9_-]/g, "_");
     const docId = `${safeUidOrIp}_${today.replace(/-/g, "_")}`;
 
@@ -1392,59 +1394,6 @@ async function startServer() {
       ok: true,
       tier: "pro",
       signature
-    });
-  });
-
-  // API Health and Security Diagnostics
-  app.get("/api/diagnose", async (req, res) => {
-    let transcriptDocs: string[] = [];
-    let quotaDocs: string[] = [];
-    let callerQuota: any = null;
-
-    if (firestoreAdmin) {
-      try {
-        const tSnap = await firestoreAdmin.collection("transcript_cache").select().limit(10).get();
-        transcriptDocs = tSnap.docs.map((d: any) => d.id);
-      } catch (e: any) {
-        transcriptDocs = [`error: ${e.message}`];
-      }
-      try {
-        const qSnap = await firestoreAdmin.collection("server_usage_quotas").select().limit(10).get();
-        quotaDocs = qSnap.docs.map((d: any) => d.id);
-      } catch (e: any) {
-        quotaDocs = [`error: ${e.message}`];
-      }
-      try {
-        const clientIp = getClientIp(req);
-        const safeIp = `ip_${clientIp.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-        const callerDocId = `${safeIp}_${getTodayString().replace(/-/g, "_")}`;
-        if (req.query.seedExtractions && req.query.secret === "test_quota_seed") {
-          const val = Number(req.query.seedExtractions);
-          await firestoreAdmin.collection("server_usage_quotas").doc(callerDocId).set({
-            extractions: val,
-            updatedAt: Date.now(),
-            date: getTodayString()
-          }, { merge: true });
-        }
-        const cSnap = await firestoreAdmin.collection("server_usage_quotas").doc(callerDocId).get();
-        if (cSnap.exists) {
-          const cd = cSnap.data();
-          callerQuota = { extractions: cd?.extractions, generations: cd?.generations, multimodalCount: cd?.multimodalCount };
-        }
-      } catch (e: any) {
-        callerQuota = `error: ${e.message}`;
-      }
-    }
-
-    res.json({
-      status: "ok",
-      firestoreAdminInitialized: !!firestoreAdmin,
-      geminiKeyConfigured: !!process.env.GEMINI_API_KEY,
-      gitCommit: process.env.RENDER_GIT_COMMIT || "unknown",
-      transcriptCacheDocIds: transcriptDocs,
-      serverUsageQuotaDocIds: quotaDocs,
-      callerQuota,
-      environment: process.env.NODE_ENV || "development"
     });
   });
 
