@@ -33,17 +33,24 @@ const db = getFirestore(app);
 // SERVER_SECRET for betaSignature generation
 const SERVER_SECRET = process.env.SERVER_SECRET || process.env.GUEST_TOKEN_SECRET || 'secret';
 
-// Load allowlist of UIDs to keep on Pro
+// Load allowlist of UIDs to keep on Pro (checks scripts/pro-allowlist.json or ./pro-allowlist.json)
 let allowlistUids = new Set();
-const allowlistPath = path.resolve(process.cwd(), 'pro-allowlist.json');
-if (fs.existsSync(allowlistPath)) {
-  try {
-    const raw = JSON.parse(fs.readFileSync(allowlistPath, 'utf8'));
-    if (Array.isArray(raw)) {
-      allowlistUids = new Set(raw.filter(id => typeof id === 'string' && id.trim()));
+const candidatePaths = [
+  path.resolve(process.cwd(), 'scripts', 'pro-allowlist.json'),
+  path.resolve(process.cwd(), 'pro-allowlist.json'),
+  path.resolve(__dirname, 'pro-allowlist.json')
+];
+for (const p of candidatePaths) {
+  if (fs.existsSync(p)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (Array.isArray(raw) && raw.length > 0) {
+        allowlistUids = new Set(raw.filter(id => typeof id === 'string' && id.trim()));
+        break;
+      }
+    } catch (e) {
+      console.warn(`[reconcile-tiers] Error reading allowlist at ${p}:`, e.message);
     }
-  } catch (e) {
-    console.warn('[reconcile-tiers] Error reading pro-allowlist.json:', e.message);
   }
 }
 
@@ -111,12 +118,16 @@ async function reconcile() {
     if (allowlistUids.has(uid)) {
       // User is on allowlist: ensure valid Pro tier & signature
       const validSig = crypto.createHmac('sha256', SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest('hex');
-      updates.tier = 'pro';
-      updates.role = 'Pro Creator';
-      updates.plan = 'pro';
-      updates.betaSignature = validSig;
-      updates.updatedAt = new Date().toISOString();
-      allowlistedKeptCount++;
+      if (currentTier === 'pro' && currentRole === 'Pro Creator' && currentSig === validSig) {
+        alreadyCompliantCount++;
+      } else {
+        updates.tier = 'pro';
+        updates.role = 'Pro Creator';
+        updates.plan = 'pro';
+        updates.betaSignature = validSig;
+        updates.updatedAt = new Date().toISOString();
+        allowlistedKeptCount++;
+      }
     } else if (isPaid && !hasValidSig) {
       // Unsigned paid user: demote to Free Starter
       updates.tier = 'free';
