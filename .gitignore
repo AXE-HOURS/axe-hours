@@ -9,3 +9,5 @@ coverage/
 .server_quotas.json
 .transcript_cache.json
 scratch/
+pro-allowlist.json
+*allowlist*

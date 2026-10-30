@@ -206,6 +206,91 @@ describe('Firestore Security Rules', () => {
         })
       );
     });
+
+    it('MUST ALLOW: updating existing profile when re-sending full profile data with only bio changed', async () => {
+      const aliceContext = testEnv.authenticatedContext('user_alice', { email: 'alice@example.com' });
+      const userRef = doc(aliceContext.firestore(), 'users', 'user_alice');
+
+      // Re-send entire existing profile model (including role, tier, betaSignature unchanged), modifying only bio
+      await assertSucceeds(
+        setDoc(userRef, {
+          uid: 'user_alice',
+          email: 'alice@example.com',
+          name: 'Alice Creator',
+          handle: 'alice_creator',
+          bio: 'Updated creator bio re-sending complete profile model',
+          customInstructions: '',
+          role: 'Creator',
+          tier: 'free',
+          betaSignature: 'legit_signature',
+          createdAt: '2026-10-30T00:00:00.000Z',
+          updatedAt: new Date().toISOString(),
+        })
+      );
+    });
+
+    it('MUST ALLOW: stored user doc has tier "pro", client updateDoc modifies ONLY bio and updatedAt', async () => {
+      // Seed a user doc with tier: 'pro'
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const proRef = doc(context.firestore(), 'users', 'user_pro');
+        await setDoc(proRef, {
+          uid: 'user_pro',
+          email: 'pro@example.com',
+          name: 'Pro Creator',
+          handle: 'pro_creator',
+          bio: 'Initial Pro Bio',
+          role: 'Pro Creator',
+          tier: 'pro',
+          plan: 'pro',
+          betaSignature: 'server_sig_123',
+          createdAt: '2026-10-30T00:00:00.000Z',
+          updatedAt: '2026-10-30T00:00:00.000Z',
+        });
+      });
+
+      const proContext = testEnv.authenticatedContext('user_pro', { email: 'pro@example.com' });
+      const userRef = doc(proContext.firestore(), 'users', 'user_pro');
+
+      // Client calls updateDoc sending ONLY editable fields (bio, updatedAt) without touching tier
+      await assertSucceeds(
+        updateDoc(userRef, {
+          bio: 'Updated bio via isolated fields',
+          updatedAt: new Date().toISOString(),
+        })
+      );
+    });
+
+    it('MUST DENY: stored user doc has tier "pro", client attempts to overwrite tier with "free"', async () => {
+      // Seed a user doc with tier: 'pro'
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const proRef = doc(context.firestore(), 'users', 'user_pro');
+        await setDoc(proRef, {
+          uid: 'user_pro',
+          email: 'pro@example.com',
+          name: 'Pro Creator',
+          handle: 'pro_creator',
+          bio: 'Initial Pro Bio',
+          role: 'Pro Creator',
+          tier: 'pro',
+          plan: 'pro',
+          betaSignature: 'server_sig_123',
+          createdAt: '2026-10-30T00:00:00.000Z',
+          updatedAt: '2026-10-30T00:00:00.000Z',
+        });
+      });
+
+      const proContext = testEnv.authenticatedContext('user_pro', { email: 'pro@example.com' });
+      const userRef = doc(proContext.firestore(), 'users', 'user_pro');
+
+      // Attempting to overwrite tier to 'free' from client MUST be denied
+      await assertFails(
+        updateDoc(userRef, {
+          bio: 'Attempted downgrade bio',
+          tier: 'free',
+          updatedAt: new Date().toISOString(),
+        })
+      );
+    });
   });
 
   describe('Internal Server Collections Lockdown', () => {

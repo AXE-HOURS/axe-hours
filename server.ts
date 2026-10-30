@@ -1338,6 +1338,34 @@ async function startServer() {
     });
   });
 
+  // GET /api/me/tier - returns the server-verified tier for the authenticated user
+  app.get("/api/me/tier", async (req: any, res) => {
+    const authHeader = req.headers["authorization"] || "";
+    if (!authHeader || typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        ok: false,
+        error: "Authentication required."
+      });
+    }
+
+    const token = authHeader.slice(7).trim();
+    const firebaseUser = parseFirebaseJwt(token);
+    if (!firebaseUser || !firebaseUser.uid) {
+      return res.status(401).json({
+        ok: false,
+        error: "Invalid or expired authorization token."
+      });
+    }
+
+    const uid = firebaseUser.uid;
+    const tier = await getVerifiedUserTier(uid);
+    return res.json({
+      ok: true,
+      uid,
+      tier
+    });
+  });
+
   // Dedicated Authenticated Endpoint to Unlock Beta Pro Access
   app.post("/api/billing/unlock-beta", async (req: any, res) => {
     const authHeader = req.headers["authorization"] || "";

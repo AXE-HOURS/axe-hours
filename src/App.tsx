@@ -93,6 +93,7 @@ export default function App() {
   const { 
     user: firebaseUser, 
     dbUser, 
+    verifiedTier,
     recentGenerations: dbRecentGenerations,
     savedIdeas, 
     userActivities,
@@ -161,17 +162,16 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", savedTheme);
   }, [dbUser?.uid, firebaseUser?.uid, localUser?.uid]);
 
-  const handleLogin = async (userData: UserData) => {
+  const handleLogin = async (userData: Partial<UserData>) => {
     if (dbUser) {
       await updateProfile({
         name: userData.name || '',
         handle: userData.handle || '',
         avatar: userData.avatar || '',
         bio: userData.bio || '',
-        role: userData.role || ''
       });
     } else {
-      setLocalUser(userData);
+      setLocalUser(userData as UserData);
       localStorage.setItem("axe_hours_user", JSON.stringify(userData));
     }
     setCurrentView('dashboard');
@@ -202,17 +202,17 @@ export default function App() {
     bio: dbUser.bio,
     role: dbUser.role,
     uid: dbUser.uid,
-    tier: dbUser.tier,
+    tier: verifiedTier || dbUser.tier || 'free',
     customInstructions: dbUser.customInstructions || ""
   } : (firebaseUser ? {
     email: firebaseUser.email || '',
     name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Axe Creator',
     handle: (firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'creator').toLowerCase().replace(/\s+/g, '_'),
     avatar: firebaseUser.photoURL || '',
-    bio: firebaseUser.email === "atharvsharma1259@gmail.com" ? 'Lead AI Architect & System Administrator for Axe Hours.' : 'Content Creator & Hook Architect',
-    role: firebaseUser.email === "atharvsharma1259@gmail.com" ? 'Administrator' : 'Creator',
+    bio: 'Content Creator & Hook Architect',
+    role: 'Creator',
     uid: firebaseUser.uid,
-    tier: firebaseUser.email === "atharvsharma1259@gmail.com" ? 'agency' : 'free',
+    tier: verifiedTier || 'free',
     customInstructions: ""
   } : localUser);
 

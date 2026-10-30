@@ -13,6 +13,7 @@ import {
   doc, 
   setDoc, 
   getDoc, 
+  updateDoc,
   deleteDoc, 
   query, 
   where, 
@@ -78,6 +79,7 @@ export interface UserActivityItem {
 interface FirebaseContextType {
   user: FirebaseUser | null;
   dbUser: UserProfile | null;
+  verifiedTier: 'free' | 'pro' | 'agency';
   recentGenerations: GenerationItem[];
   savedIdeas: SavedIdeaItem[];
   userActivities: UserActivityItem[];
@@ -112,6 +114,7 @@ const FirebaseContext = createContext<FirebaseContextType | undefined>(undefined
 export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ children }: { children?: React.ReactNode }) => {
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [dbUser, setDbUser] = useState<UserProfile | null>(null);
+  const [verifiedTier, setVerifiedTier] = useState<'free' | 'pro' | 'agency'>('free');
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => {
     return typeof window !== 'undefined' ? sessionStorage.getItem('yt_access_token') : null;
   });
@@ -195,6 +198,25 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // Fetch server-verified tier for authenticated user (never rely solely on client-readable doc)
+  const fetchServerVerifiedTier = async (firebaseUser: FirebaseUser): Promise<'free' | 'pro' | 'agency' | null> => {
+    try {
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch('/api/me/tier', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.ok && (data.tier === 'free' || data.tier === 'pro' || data.tier === 'agency')) {
+          return data.tier;
+        }
+      }
+    } catch (err) {
+      console.warn('[fetchServerVerifiedTier] Server tier lookup failed:', err);
+    }
+    return null;
+  };
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setLoading(true);
@@ -248,6 +270,12 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               }
             }
           }
+
+          // Hydrate with server-verified tier (authoritative server lookup)
+          const vTier = await fetchServerVerifiedTier(firebaseUser);
+          const activeTier = vTier || 'free';
+          setVerifiedTier(activeTier);
+          profileData.tier = activeTier;
 
           setDbUser(profileData);
           
@@ -497,6 +525,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // Purge state variables
       setUser(null);
       setDbUser(null);
+      setVerifiedTier('free');
       setGoogleAccessToken(null);
       setRecentGenerations([]);
       setSavedIdeas([]);
@@ -623,13 +652,24 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const path = `users/${user.uid}`;
     try {
       const userDocRef = doc(db, 'users', user.uid);
-      const updatedData = {
-        ...dbUser,
-        ...profileUpdates,
+      
+      // ONLY send user-editable fields to Firestore; NEVER send role, tier, plan, or betaSignature
+      const allowedPayload: Record<string, any> = {
         updatedAt: new Date().toISOString()
       };
-      await setDoc(userDocRef, updatedData);
-      setDbUser(updatedData);
+      if (profileUpdates.name !== undefined) allowedPayload.name = profileUpdates.name;
+      if (profileUpdates.handle !== undefined) allowedPayload.handle = profileUpdates.handle;
+      if (profileUpdates.avatar !== undefined) allowedPayload.avatar = profileUpdates.avatar;
+      if (profileUpdates.bio !== undefined) allowedPayload.bio = profileUpdates.bio;
+      if (profileUpdates.customInstructions !== undefined) allowedPayload.customInstructions = profileUpdates.customInstructions;
+
+      await updateDoc(userDocRef, allowedPayload);
+
+      setDbUser(prev => prev ? {
+        ...prev,
+        ...allowedPayload,
+        tier: verifiedTier
+      } : null);
     } catch (e) {
       handleFirestoreError(e, OperationType.UPDATE, path);
     }
@@ -641,7 +681,12 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const userDocRef = doc(db, 'users', user.uid);
       const userSnap = await getDoc(userDocRef);
       if (userSnap.exists()) {
-        setDbUser(userSnap.data() as UserProfile);
+        const data = userSnap.data() as UserProfile;
+        const vTier = await fetchServerVerifiedTier(user);
+        const activeTier = vTier || 'free';
+        setVerifiedTier(activeTier);
+        data.tier = activeTier;
+        setDbUser(data);
       }
     } catch (e) {
       console.warn("Failed refreshing profile from server:", e);
@@ -714,6 +759,7 @@ export const FirebaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     <FirebaseContext.Provider value={{
       user,
       dbUser,
+      verifiedTier,
       recentGenerations,
       savedIdeas,
       userActivities,

@@ -257,16 +257,14 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, savedIdeas
     localStorage.setItem(`axe_hours_groups_${uid}`, JSON.stringify(groups));
   }, [groups, uid]);
 
-  // Handle saving the core creator settings
+  // Handle saving the core creator settings (isolated editable fields only)
   const handleProfileSave = (e: React.FormEvent) => {
     e.preventDefault();
     const updatedUserData = {
-      ...user,
       name,
       handle,
       avatar,
-      bio,
-      role
+      bio
     };
     onUpdateUser(updatedUserData);
     setIsSaved(true);
