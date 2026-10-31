@@ -4,6 +4,7 @@ import { useFirebase } from '../context/FirebaseContext';
 import { GlassCard } from '../components/GlassCard';
 import { getSecureGeminiKey } from '../utils/secureStorage';
 import { getAuthOrGuestToken } from '../utils/authSession';
+import { useQuota } from '../hooks/useQuota';
 import { 
   Download, 
   Video, 
@@ -66,6 +67,7 @@ async function parseSafeJsonResponse(res: Response): Promise<any> {
 
 export const ScriptFetcher: React.FC = () => {
   const { addToast } = useToast();
+  const { quota } = useQuota();
   const { logUserActivity, logActivity, user, dbUser, saveIdeaDB } = useFirebase();
   const { calibrationHook, setCalibrationHook } = useCalibrationBridge();
   const uid = user?.uid || "guest";
@@ -106,6 +108,23 @@ export const ScriptFetcher: React.FC = () => {
     window.addEventListener('load-script-fetcher-url', checkPendingUrl);
     return () => window.removeEventListener('load-script-fetcher-url', checkPendingUrl);
   }, [addToast]);
+
+  useEffect(() => {
+    const handleAnalyzeScript = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.videoUrl) {
+        const targetUrl = customEvent.detail.videoUrl;
+        setVideoUrl(targetUrl);
+        if (customEvent.detail.autoExtract) {
+          setTimeout(() => {
+            handleFetchScript(false, false, targetUrl);
+          }, 100);
+        }
+      }
+    };
+    window.addEventListener('axe-analyze-script', handleAnalyzeScript);
+    return () => window.removeEventListener('axe-analyze-script', handleAnalyzeScript);
+  }, []);
 
   useEffect(() => {
     if (calibrationHook) {
@@ -268,6 +287,18 @@ export const ScriptFetcher: React.FC = () => {
           window.dispatchEvent(new CustomEvent('open-auth-modal'));
           return;
         }
+        if (errCode === 'GUEST_MULTIMODAL_TRIAL_USED') {
+          setIsTranscribingAudio(false);
+          const msg = errData.error || "You've used your 1 free guest AI audio transcription today! Create a free account or unlock Beta Pro for up to 5 AI audio transcriptions per day.";
+          setExtractedData(prev => ({
+            ...prev,
+            transcriptErrorCode: 'GUEST_MULTIMODAL_TRIAL_USED',
+            transcriptErrorDetails: msg
+          }));
+          setQuotaError(msg);
+          addToast(msg, 'warning');
+          return;
+        }
         if (errCode === 'MULTIMODAL_QUOTA_EXCEEDED') {
           setIsTranscribingAudio(false);
           const msg = errData.error || 'Daily AI Audio/Video Transcription limit reached.';
@@ -349,6 +380,7 @@ export const ScriptFetcher: React.FC = () => {
       }
     } finally {
       setIsTranscribingAudio(false);
+      window.dispatchEvent(new CustomEvent('axe-refresh-quota'));
     }
   };
 
@@ -552,12 +584,12 @@ export const ScriptFetcher: React.FC = () => {
     addToast('Extraction cancelled.', 'info');
   };
 
-  const handleFetchScript = async (eOrBypass?: React.FormEvent | boolean, explicitBypass?: boolean) => {
+  const handleFetchScript = async (eOrBypass?: React.FormEvent | boolean, explicitBypass?: boolean, overrideUrl?: string) => {
     if (eOrBypass && typeof eOrBypass === 'object' && 'preventDefault' in eOrBypass) {
       eOrBypass.preventDefault();
     }
     const bypassCooldown = (typeof eOrBypass === 'boolean' && eOrBypass) || Boolean(explicitBypass);
-    const rawUrl = videoUrl.trim();
+    const rawUrl = (overrideUrl || videoUrl).trim();
     if (!rawUrl) return;
 
     let cleanedUrl = rawUrl;
@@ -669,6 +701,25 @@ export const ScriptFetcher: React.FC = () => {
             transcriptErrorDetails: msg,
             captionStatus: errData.captionStatus || (isThrottledOrNotNone ? 'blocked' : 'none'),
             isCaptionsThrottled: isThrottledOrNotNone,
+            fullTranscript: `[Notice: ${msg}]`
+          }));
+          addToast(msg, 'warning');
+          return;
+        }
+
+        if (errData.code === 'GUEST_MULTIMODAL_TRIAL_USED') {
+          setIsLoading(false);
+          setProgressVal(0);
+          setProgressText('');
+          setExtractionDone(true);
+          const msg = errData.error || "You've used your 1 free guest AI audio transcription today! Create a free account or unlock Beta Pro for up to 5 AI audio transcriptions per day.";
+          setExtractedData(prev => ({
+            ...prev,
+            title: errData.title || prev.title || 'Video Spoken Dialogue',
+            author: errData.author || prev.author || '',
+            hasTranscript: false,
+            transcriptErrorCode: 'GUEST_MULTIMODAL_TRIAL_USED',
+            transcriptErrorDetails: msg,
             fullTranscript: `[Notice: ${msg}]`
           }));
           addToast(msg, 'warning');
@@ -942,6 +993,10 @@ export const ScriptFetcher: React.FC = () => {
                     ? 'YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes.'
                     : 'This video has no official captions. Sign in for free to run AI Audio/Video Transcription.');
                   addToast(transcriptErrorDetails, 'warning');
+                } else if (audioCode === 'GUEST_MULTIMODAL_TRIAL_USED') {
+                  transcriptErrorCode = 'GUEST_MULTIMODAL_TRIAL_USED';
+                  transcriptErrorDetails = audioErrData.error || "You've used your 1 free guest AI audio transcription today! Create a free account or unlock Beta Pro for up to 5 AI audio transcriptions per day.";
+                  addToast(transcriptErrorDetails, 'warning');
                 } else if (audioCode === 'MULTIMODAL_QUOTA_EXCEEDED') {
                   transcriptErrorCode = 'MULTIMODAL_QUOTA_EXCEEDED';
                   transcriptErrorDetails = audioErrData.error || 'Daily AI Audio/Video Transcription limit reached.';
@@ -1062,6 +1117,7 @@ export const ScriptFetcher: React.FC = () => {
       setProgressText('');
       setIsLoading(false);
       setExtractionDone(true);
+      window.dispatchEvent(new CustomEvent('axe-refresh-quota'));
 
       const hasValidLines = Boolean(
         fullTranscript && 
@@ -1407,6 +1463,15 @@ ${extractedData.fullTranscript || 'N/A'}`;
               <span className="text-xs font-extrabold uppercase text-gray-300 tracking-wider">MEDIA CONSOLE</span>
               <span className="text-[9px] font-mono px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full">ACTIVE EXTRACTOR</span>
             </div>
+
+            {quota && (
+              <div id="script-fetcher-quota-pill" className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs font-mono text-purple-200">
+                <Zap size={13} className="text-purple-400 shrink-0" />
+                <span><strong>{quota.extractions.remaining} of {quota.extractions.limit}</strong> extractions left today</span>
+                <span className="text-purple-400/40">•</span>
+                <span className="text-gray-400"><strong>{quota.multimodal.remaining} of {quota.multimodal.limit}</strong> AI audio {quota.tier === 'guest' ? 'guest trial' : 'transcription(s)'} left</span>
+              </div>
+            )}
 
             {quotaError && (
               <div className="flex items-start gap-3 p-3.5 mb-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-200 text-xs animate-in fade-in slide-in-from-top-1 duration-200">
@@ -1761,7 +1826,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                       <div className="p-5 bg-[#0e0a1a] border border-purple-500/30 rounded-2xl space-y-4 shadow-lg shadow-purple-950/20 animate-in fade-in duration-300">
                         <div className="flex items-start gap-3.5">
                           <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shrink-0">
-                            {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' ? (
+                            {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' || extractedData.transcriptErrorCode === 'GUEST_MULTIMODAL_TRIAL_USED' ? (
                               <Lock size={20} className="text-amber-400" />
                             ) : extractedData.transcriptErrorCode === 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION' ? (
                               <Clock size={20} className="text-amber-400" />
@@ -1771,7 +1836,9 @@ ${extractedData.fullTranscript || 'N/A'}`;
                           </div>
                           <div className="space-y-1">
                             <h3 className="text-sm font-bold text-white tracking-tight">
-                              {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
+                              {extractedData.transcriptErrorCode === 'GUEST_MULTIMODAL_TRIAL_USED'
+                                ? "Guest AI Audio Transcription Trial Used"
+                                : extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
                                 ? (extractedData.transcriptErrorDetails?.includes("YouTube is limiting") || (extractedData.captionStatus && extractedData.captionStatus !== "none") || extractedData.isCaptionsThrottled
                                     ? "Caption Requests Limited by YouTube"
                                     : "Sign In Required for AI Audio Transcription")
@@ -1784,7 +1851,9 @@ ${extractedData.fullTranscript || 'N/A'}`;
                                 : "No Official Captions Found on YouTube"}
                             </h3>
                             <p className="text-xs text-gray-300 leading-relaxed font-sans">
-                              {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
+                              {extractedData.transcriptErrorCode === 'GUEST_MULTIMODAL_TRIAL_USED'
+                                ? (extractedData.transcriptErrorDetails || "You've used your 1 free guest AI audio transcription today! Create a free account or unlock Beta Pro for up to 5 AI audio transcriptions per day.")
+                                : extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL'
                                 ? (extractedData.transcriptErrorDetails || ((extractedData.captionStatus && extractedData.captionStatus !== "none") || extractedData.isCaptionsThrottled
                                     ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
                                     : "This video has no official captions. Sign in for free to run AI Audio/Video Transcription."))
@@ -1801,6 +1870,30 @@ ${extractedData.fullTranscript || 'N/A'}`;
 
                         {/* Prominently Presented Action Buttons */}
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 border-t border-white/5">
+                          {extractedData.transcriptErrorCode === 'GUEST_MULTIMODAL_TRIAL_USED' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsAuthModalOpen(true);
+                                  window.dispatchEvent(new CustomEvent('open-auth-modal'));
+                                }}
+                                className="px-4 py-2.5 rounded-xl bg-primary-gradient hover:opacity-95 text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-md shadow-purple-500/15 active:scale-[0.99]"
+                              >
+                                <User size={14} />
+                                <span>Create Free Account for 5/Day</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => window.dispatchEvent(new CustomEvent('open-upgrade-modal'))}
+                                className="px-4 py-2.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 hover:text-white text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer transition-all shadow-sm active:scale-[0.99]"
+                              >
+                                <Zap size={14} />
+                                <span>Unlock Beta Pro</span>
+                              </button>
+                            </>
+                          )}
+
                           {extractedData.transcriptErrorCode === 'AUTH_REQUIRED_FOR_MULTIMODAL' && (
                             <>
                               <button
@@ -1863,6 +1956,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                           )}
 
                           {extractedData.transcriptErrorCode !== 'AUTH_REQUIRED_FOR_MULTIMODAL' &&
+                           extractedData.transcriptErrorCode !== 'GUEST_MULTIMODAL_TRIAL_USED' &&
                            extractedData.transcriptErrorCode !== 'MULTIMODAL_QUOTA_EXCEEDED' &&
                            extractedData.transcriptErrorCode !== 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION' && (
                             <button

@@ -18,8 +18,9 @@ const isProd = process.env.NODE_ENV === "production";
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Dynamic cryptographic secret at runtime (never hardcoded in source)
-const SERVER_SECRET = process.env.SERVER_SECRET || process.env.GUEST_TOKEN_SECRET || crypto.randomBytes(32).toString("hex");
+const SERVER_SECRET = process.env.SERVER_SECRET || process.env.GUEST_TOKEN_SECRET || "axe-hours-production-secret-key-32b";
 const GUEST_TOKEN_SECRET = process.env.GUEST_TOKEN_SECRET || SERVER_SECRET;
+const YOUTUBE_API_KEY = process.env.YOUTUBE_DATA_API_KEY || process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY || "";
 
 process.on("unhandledRejection", (reason: any) => {
   console.warn("[Process] Handled unhandled rejection (non-fatal):", reason?.message || reason);
@@ -822,25 +823,27 @@ function enforceDailyQuota(type: "extraction" | "generation") {
           };
         }
         if (isGuest || req.user?.role === "guest" || !req.userId || req.userId.startsWith("guest_")) {
-          const isThrottledOrNotNone = opts?.captionStatus ? opts.captionStatus !== "none" : Boolean(opts?.isCaptionsThrottled);
-          return {
-            allowed: false,
-            status: 403,
-            code: "AUTH_REQUIRED_FOR_MULTIMODAL",
-            error: isThrottledOrNotNone
-              ? "YouTube is limiting our caption requests right now. Sign in free to transcribe with AI, or try again in a few minutes."
-              : "This video has no official captions. Sign in for free to run AI Audio/Video Transcription."
-          };
-        }
-        const multimodalLimit = (tier === "pro" || tier === "agency") ? 5 : 1;
-        const currentCount = quota.multimodalCount || 0;
-        if (currentCount >= multimodalLimit) {
-          return {
-            allowed: false,
-            status: 429,
-            code: "MULTIMODAL_QUOTA_EXCEEDED",
-            error: "Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription."
-          };
+          const guestCount = quota.multimodalCount || 0;
+          if (guestCount >= 1) {
+            return {
+              allowed: false,
+              status: 429,
+              code: "GUEST_MULTIMODAL_TRIAL_USED",
+              error: "You've used your 1 free guest AI audio transcription today! Create a free account or unlock Beta Pro for up to 5 AI audio transcriptions per day."
+            };
+          }
+          // 1 free multimodal trial allowed for unauthenticated guests!
+        } else {
+          const multimodalLimit = (tier === "pro" || tier === "agency") ? 5 : 1;
+          const currentCount = quota.multimodalCount || 0;
+          if (currentCount >= multimodalLimit) {
+            return {
+              allowed: false,
+              status: 429,
+              code: "MULTIMODAL_QUOTA_EXCEEDED",
+              error: "Daily AI Audio/Video Transcription limit reached (standard captioned videos remain available). Add a custom Gemini API key in Settings for unlimited audio transcription."
+            };
+          }
         }
         return { allowed: true };
       };
@@ -1364,6 +1367,79 @@ async function startServer() {
       uid,
       tier
     });
+  });
+
+  // GET /api/me/quota - returns live usage and limits for today
+  app.get("/api/me/quota", async (req: any, res) => {
+    try {
+      const authHeader = req.headers["authorization"] || "";
+      let uid = "";
+      let tier: "guest" | "free" | "pro" | "agency" = "guest";
+      const clientIp = getClientIp(req);
+      const today = getTodayString();
+
+      if (authHeader && typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.slice(7).trim();
+        const guestResult = verifyGuestToken(token, clientIp);
+        if (!guestResult.valid) {
+          const firebaseUser = parseFirebaseJwt(token);
+          if (firebaseUser && firebaseUser.uid) {
+            uid = firebaseUser.uid;
+            tier = await getVerifiedUserTier(uid);
+          }
+        }
+      }
+
+      const isGuest = !uid || tier === "guest";
+      const safeUidOrIp = isGuest
+        ? `ip_${crypto.createHmac("sha256", SERVER_SECRET).update(clientIp).digest("hex").slice(0, 32)}`
+        : uid.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const docId = `${safeUidOrIp}_${today.replace(/-/g, "_")}`;
+
+      let quota = userDailyQuotaMap.get(docId);
+      if (!quota || quota.date !== today) {
+        const remote = await fetchQuotaFromFirestore(docId);
+        if (remote && remote.date === today) {
+          quota = remote;
+        } else {
+          quota = { date: today, extractions: 0, generations: 0, multimodalCount: 0, updatedAt: Date.now() };
+        }
+        userDailyQuotaMap.set(docId, quota);
+      }
+
+      const limits = {
+        guest: { extractions: 3, generations: 3, multimodal: 1 },
+        free: { extractions: 5, generations: 5, multimodal: 1 },
+        pro: { extractions: 25, generations: 30, multimodal: 5 },
+        agency: { extractions: 25, generations: 30, multimodal: 5 }
+      }[tier];
+
+      const extractionsUsed = Number(quota.extractions || 0);
+      const generationsUsed = Number(quota.generations || 0);
+      const multimodalUsed = Number(quota.multimodalCount || 0);
+
+      return res.json({
+        ok: true,
+        tier,
+        extractions: {
+          used: extractionsUsed,
+          limit: limits.extractions,
+          remaining: Math.max(0, limits.extractions - extractionsUsed)
+        },
+        generations: {
+          used: generationsUsed,
+          limit: limits.generations,
+          remaining: Math.max(0, limits.generations - generationsUsed)
+        },
+        multimodal: {
+          used: multimodalUsed,
+          limit: limits.multimodal,
+          remaining: Math.max(0, limits.multimodal - multimodalUsed)
+        }
+      });
+    } catch (err: any) {
+      return res.status(500).json({ ok: false, error: err?.message || "Failed to fetch quota" });
+    }
   });
 
   // Dedicated Authenticated Endpoint to Unlock Beta Pro Access

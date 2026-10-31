@@ -16,6 +16,7 @@ import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { useCalibrationBridge } from '../context/CalibrationBridgeContext';
 import { getSecureGeminiKey } from '../utils/secureStorage';
 import { getAuthOrGuestToken } from '../utils/authSession';
+import { useQuota } from '../hooks/useQuota';
 import VisualBlueprintParser from '../components/VisualBlueprintParser';
 import { calculateHookScore } from '../utils/transcriptParser';
 
@@ -555,6 +556,7 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
   clearSelectedHistoryItem
 }) => {
   const { user, dbUser, updateProfile, saveIdeaDB, logUserActivity, logActivity } = useFirebase();
+  const { quota } = useQuota();
   const { sendToCalibrationLab } = useCalibrationBridge();
   const uid = user?.uid || "guest";
 
@@ -1905,10 +1907,12 @@ Ensure the script contains sections for [CORE CONCEPT & VIRAL ANGLE], [THE HOOK 
             desc: `Generated script: "${(prompt || 'Untitled Generation').slice(0, 45)}${(prompt || '').length > 45 ? '...' : ''}"`
           }
         }));
+        window.dispatchEvent(new CustomEvent('axe-refresh-quota'));
       }
     } catch (error: any) {
       if (inactivityTimer) clearTimeout(inactivityTimer);
       setIsLoading(false);
+      window.dispatchEvent(new CustomEvent('axe-refresh-quota'));
       if (generatedText && generatedText.trim().length > 80) {
         const partialTitle = `[Partial] ${(prompt || 'Untitled Generation').slice(0, 40)}`;
         saveToHistory(partialTitle, generatedText);
@@ -2210,8 +2214,14 @@ Drop your thoughts in the comments below! What angle would you take on this? ${d
           </p>
         </div>
 
-        {/* Engine switcher bar */}
-        <div className="flex flex-wrap items-center gap-2">
+        {/* Engine switcher bar & Live Quota Counter */}
+        <div className="flex flex-wrap items-center gap-3">
+          {quota && (
+            <div id="ai-generator-quota-pill" className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs font-mono text-purple-200">
+              <Sparkles size={13} className="text-amber-400 shrink-0" />
+              <span><strong>{quota.generations.remaining} of {quota.generations.limit}</strong> scripts left today</span>
+            </div>
+          )}
           <div id="ai-gen-engine-tabs-deck" className="bg-white/5 p-1 rounded-xl border border-white/10 flex items-center gap-1.5 text-xs font-bold font-mono">
             {(["gemini", "ollama"] as const).map((engName) => (
               <button

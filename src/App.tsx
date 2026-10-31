@@ -132,6 +132,40 @@ export default function App() {
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isColdStarting, setIsColdStarting] = useState(false);
+
+  // Cold-Start Wake-Up Detection for Cloud Engine
+  useEffect(() => {
+    let isMounted = true;
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        setIsColdStarting(true);
+      }
+    }, 2500);
+
+    const pingHealth = async () => {
+      try {
+        const res = await fetch("/api/health");
+        if (res.ok && isMounted) {
+          clearTimeout(timeoutId);
+          setIsColdStarting(false);
+        } else if (isMounted) {
+          setTimeout(pingHealth, 3000);
+        }
+      } catch {
+        if (isMounted) {
+          setTimeout(pingHealth, 3000);
+        }
+      }
+    };
+
+    pingHealth();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, []);
 
   // General tab switcher and modal listener
   useEffect(() => {
@@ -286,6 +320,17 @@ export default function App() {
 
   return (
     <div id="axe-hours-main-app-shell" className="relative min-h-screen bg-black text-white font-sans overflow-y-auto">
+      {/* Cold-Start Wake-Up Floating Banner */}
+      {isColdStarting && (
+        <div 
+          id="cold-start-wake-up-banner"
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-[#120b24]/95 border border-purple-500/40 text-purple-200 px-5 py-2.5 rounded-full shadow-2xl backdrop-blur-md flex items-center gap-3 text-xs font-medium animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-none select-none"
+        >
+          <div className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping shrink-0" />
+          <span>Waking up cloud AI engine (takes ~20–30s on first connection)...</span>
+        </div>
+      )}
+
       {/* Ambient Atmospheric Orbs */}
       <div id="ambient-bg-orb-left" className="fixed -top-48 -left-48 w-[600px] h-[600px] bg-primary/20 blur-[150px] rounded-full pointer-events-none" />
       <div id="ambient-bg-orb-right" className="fixed -bottom-48 -right-48 w-[600px] h-[600px] bg-secondary/20 blur-[150px] rounded-full pointer-events-none" />

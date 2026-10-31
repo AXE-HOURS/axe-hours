@@ -11,6 +11,7 @@ import { getSecureGeminiKey } from '../utils/secureStorage';
 import { auth } from '../lib/firebase';
 import { getAuthOrGuestToken } from '../utils/authSession';
 import { renderChatMarkdown } from './AIPopoutAssistant';
+import { useQuota } from '../hooks/useQuota';
 
 interface GenerationItem {
   id: number;
@@ -58,6 +59,7 @@ export const TopNav: React.FC<TopNavProps> = ({
   currentView,
   onOpenTour
 }) => {
+  const { quota } = useQuota();
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -392,6 +394,18 @@ export const TopNav: React.FC<TopNavProps> = ({
           )}
         </button>
         
+        {quota && (
+          <div 
+            id="topnav-quota-pill"
+            className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] font-mono font-medium text-gray-300"
+            title={`Today's Server Quota: ${quota.extractions.remaining} extractions left, ${quota.generations.remaining} scripts left, ${quota.multimodal.remaining} AI audio transcriptions left`}
+          >
+            <span><strong className="text-purple-400 font-bold">{quota.extractions.remaining} of {quota.extractions.limit}</strong> extractions left today</span>
+            <span className="text-white/20">•</span>
+            <span><strong className="text-amber-400 font-bold">{quota.generations.remaining} of {quota.generations.limit}</strong> scripts left today</span>
+          </div>
+        )}
+
         <div className="h-6 w-px bg-white/10 hidden xs:block"></div>
 
         <button 

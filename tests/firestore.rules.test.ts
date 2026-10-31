@@ -260,7 +260,7 @@ describe('Firestore Security Rules', () => {
       );
     });
 
-    it('MUST DENY: stored user doc has tier "pro", client attempts to overwrite tier with "free"', async () => {
+    it('MUST DENY: stored user doc has tier "pro", client attempts to overwrite tier with "free" via setDoc or updateDoc', async () => {
       // Seed a user doc with tier: 'pro'
       await testEnv.withSecurityRulesDisabled(async (context) => {
         const proRef = doc(context.firestore(), 'users', 'user_pro');
@@ -282,10 +282,24 @@ describe('Firestore Security Rules', () => {
       const proContext = testEnv.authenticatedContext('user_pro', { email: 'pro@example.com' });
       const userRef = doc(proContext.firestore(), 'users', 'user_pro');
 
-      // Attempting to overwrite tier to 'free' from client MUST be denied
+      // Attempting to overwrite tier to 'free' via updateDoc MUST be denied
       await assertFails(
         updateDoc(userRef, {
           bio: 'Attempted downgrade bio',
+          tier: 'free',
+          updatedAt: new Date().toISOString(),
+        })
+      );
+
+      // Client calls setDoc with tier: "free" over stored "pro" -> MUST be denied
+      await assertFails(
+        setDoc(userRef, {
+          uid: 'user_pro',
+          email: 'pro@example.com',
+          name: 'Pro Creator',
+          handle: 'pro_creator',
+          bio: 'Attempted overwrite bio',
+          role: 'Creator',
           tier: 'free',
           updatedAt: new Date().toISOString(),
         })

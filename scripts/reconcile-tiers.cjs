@@ -6,6 +6,8 @@
  *   node scripts/reconcile-tiers.cjs --apply  (Execute database updates)
  */
 
+try { require('dotenv').config(); } catch {}
+
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 const crypto = require('crypto');
@@ -118,7 +120,7 @@ async function reconcile() {
     if (allowlistUids.has(uid)) {
       // User is on allowlist: ensure valid Pro tier & signature
       const validSig = crypto.createHmac('sha256', SERVER_SECRET).update(`${uid}_beta_pro_v1`).digest('hex');
-      if (currentTier === 'pro' && currentRole === 'Pro Creator' && currentSig === validSig) {
+      if (currentTier === 'pro' && currentRole === 'Pro Creator' && currentPlan === 'pro' && currentSig === validSig) {
         alreadyCompliantCount++;
       } else {
         updates.tier = 'pro';

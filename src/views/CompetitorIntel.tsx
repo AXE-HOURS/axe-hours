@@ -113,6 +113,8 @@ export const formatRelativePublishTime = (dateStr?: string): string => {
 };
 
 interface CompetitorVideo {
+  videoId?: string;
+  link?: string;
   title: string;
   views: string;
   duration: string;
@@ -182,6 +184,15 @@ export const CompetitorIntel: React.FC = () => {
   useEffect(() => {
     setIsEditingCompetitor(false);
   }, [selectedCompetitorId]);
+
+  const handleAnalyzeScriptHandoff = (vidId: string) => {
+    const url = `https://www.youtube.com/watch?v=${vidId}`;
+    sessionStorage.setItem('pending_script_fetcher_url', url);
+    window.dispatchEvent(new CustomEvent('change-active-view', { detail: { view: 'script-fetcher' } }));
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('axe-analyze-script', { detail: { videoUrl: url, autoExtract: true } }));
+    }, 100);
+  };
 
   const startEditingActiveCompetitor = () => {
     if (!activeCompetitor) return;
@@ -2808,21 +2819,34 @@ export const CompetitorIntel: React.FC = () => {
                           </div>
                         </div>
 
-                        <div className="flex justify-between items-center pt-1 select-none gap-2">
+                        <div className="flex flex-wrap justify-between items-center pt-1 select-none gap-2">
                           <span className="text-[10px] text-gray-400 font-mono italic">
-                            Click remix to auto-generate a custom script template using this style
+                            Analyze script or remix hook style into prompt contexts
                           </span>
-                          <button
-                            onClick={() => {
-                              playAudio(880);
-                              addToast(`Successfully remixed: "${video.title}"! Template copied into script workspace. 🚀`, "success");
-                              logUserActivity('script_generator', `Remixed Creator Style: ${activeCompetitor?.name || "Creator"}`, `Loaded structural template of "${video.title}" into pacing engine prompt contexts.`);
-                            }}
-                            className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:opacity-95 text-white text-[10px] uppercase font-black tracking-wider rounded-lg shadow-md shadow-fuchsia-500/10 cursor-pointer active:scale-95 transition-transform flex items-center gap-1 shrink-0"
-                          >
-                            <Sparkles size={10} />
-                            <span>Remix Hook</span>
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const targetVidId = video.videoId || "dQw4w9WgXcQ";
+                                handleAnalyzeScriptHandoff(targetVidId);
+                              }}
+                              className="px-3 py-1.5 bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 hover:text-white text-[10px] uppercase font-bold tracking-wider rounded-lg cursor-pointer active:scale-95 transition-all flex items-center gap-1 shrink-0 shadow-sm"
+                              title="Switch to Script Fetcher and automatically extract transcript"
+                            >
+                              <span>Analyze Script →</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                playAudio(880);
+                                addToast(`Successfully remixed: "${video.title}"! Template copied into script workspace. 🚀`, "success");
+                                logUserActivity('script_generator', `Remixed Creator Style: ${activeCompetitor?.name || "Creator"}`, `Loaded structural template of "${video.title}" into pacing engine prompt contexts.`);
+                              }}
+                              className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:opacity-95 text-white text-[10px] uppercase font-black tracking-wider rounded-lg shadow-md shadow-fuchsia-500/10 cursor-pointer active:scale-95 transition-transform flex items-center gap-1 shrink-0"
+                            >
+                              <Sparkles size={10} />
+                              <span>Remix Hook</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
