@@ -4,16 +4,18 @@
 
 // Preference order for dynamic model discovery cascade
 export const PREFERRED_MODEL_ORDER = [
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-2.5-flash'
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash'
 ] as const;
 
 export const DEFAULT_FALLBACK_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-2.5-flash'
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash'
 ];
 
+export const FALLBACK_MODELS = DEFAULT_FALLBACK_MODELS;
+
 export const AI_MODEL_DISPLAY_NAME = 'Gemini Flash';
-export const AI_MODEL_ENGINE_NAME = 'gemini-3.5-flash';
+export const AI_MODEL_ENGINE_NAME = 'gemini-2.5-flash';

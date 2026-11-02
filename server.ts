@@ -7,7 +7,7 @@ import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import { rateLimit } from "express-rate-limit";
 import { gunzipSync, inflateSync } from "node:zlib";
-import { PREFERRED_MODEL_ORDER, DEFAULT_FALLBACK_MODELS } from "./src/constants/models";
+import { PREFERRED_MODEL_ORDER } from "./src/constants/models";
 import { calculateHookScore, extractPunchyThumbnailOverlay, formatThumbnailSpec } from "./src/utils/hookScorer";
 import { initializeApp as initAdminApp, getApps as getAdminApps, cert as adminCert } from "firebase-admin/app";
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
@@ -1041,7 +1041,8 @@ function verifyAiAccess(req: any, res: any, next: any) {
   });
 }
 
-let activeModelCascade: string[] = [...DEFAULT_FALLBACK_MODELS];
+export const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+let activeModelCascade: string[] = [...FALLBACK_MODELS];
 
 async function resolveModelCascade(apiKey?: string): Promise<string[]> {
   const key = apiKey || process.env.GEMINI_API_KEY || "";
@@ -1187,7 +1188,7 @@ async function generateContentWithCascade(
     preferredModel?: string;
   }
 ) {
-  const cascade = activeModelCascade.length > 0 ? activeModelCascade : DEFAULT_FALLBACK_MODELS;
+  const cascade = activeModelCascade.length > 0 ? activeModelCascade : FALLBACK_MODELS;
   const models = [
     ...(params.preferredModel && !cascade.includes(params.preferredModel) ? [params.preferredModel] : []),
     ...cascade
@@ -1242,7 +1243,7 @@ async function generateContentStreamWithCascade(
     preferredModel?: string;
   }
 ) {
-  const cascade = activeModelCascade.length > 0 ? activeModelCascade : DEFAULT_FALLBACK_MODELS;
+  const cascade = activeModelCascade.length > 0 ? activeModelCascade : FALLBACK_MODELS;
   const models = [
     ...(params.preferredModel && !cascade.includes(params.preferredModel) ? [params.preferredModel] : []),
     ...cascade
