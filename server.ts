@@ -439,7 +439,7 @@ const captionRetryByIpMap = new Map<string, number>();
 function checkTranscriptCacheFastPath(mode: "fetch-script" | "transcribe-audio") {
   return async (req: any, res: any, next: any) => {
     try {
-      const rawUrl = req.body?.videoUrl || req.body?.url;
+      const rawUrl = req.body?.videoUrl || req.body?.url || (req.body?.videoId ? `https://www.youtube.com/watch?v=${req.body.videoId}` : '');
       const videoUrl = typeof rawUrl === "string" ? rawUrl.trim() : "";
       if (!videoUrl) return next();
 
@@ -3166,7 +3166,7 @@ ${
 
   // Secure Script Fetcher and Analyzer with Google Search grounding
   app.post("/api/fetch-script", checkTranscriptCacheFastPath("fetch-script"), verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
-    const rawUrl = req.body?.videoUrl || req.body?.url;
+    const rawUrl = req.body?.videoUrl || req.body?.url || (req.body?.videoId ? `https://www.youtube.com/watch?v=${req.body.videoId}` : '');
     const videoUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
     const isLive = !!req.body?.isLive;
 
@@ -4313,7 +4313,7 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
   // AI Audio Transcription / Speech-to-Text Fallback Pipeline (Consolidated with extraction quota)
   app.post("/api/transcribe-audio", checkTranscriptCacheFastPath("transcribe-audio"), verifyAiAccess, enforceFreeTierQuota("extraction"), async (req: any, res) => {
-    const rawUrl = req.body?.videoUrl || req.body?.url;
+    const rawUrl = req.body?.videoUrl || req.body?.url || (req.body?.videoId ? `https://www.youtube.com/watch?v=${req.body.videoId}` : '');
     const videoUrl = typeof rawUrl === 'string' ? rawUrl.trim() : '';
     const { title, author, duration } = req.body || {};
     const usingCustomKey = !!req.usingCustomKey || !!req.customApiKey;
