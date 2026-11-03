@@ -1506,6 +1506,7 @@ ${extractedData.fullTranscript || 'N/A'}`;
                 <div className="relative">
                   <Play className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 select-none" size={13} />
                   <input 
+                    id="script-fetcher-url-input"
                     type="text"
                     required
                     placeholder="e.g. https://www.youtube.com/watch?v=dQw4w9WgXcQ"
