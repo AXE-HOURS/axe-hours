@@ -538,6 +538,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
 
           {/* Spoken Only Toggle Chip */}
           <button
+            id="teleprompter-spoken-chip"
             type="button"
             onClick={() => {
               setIsSpokenOnly(prev => {
@@ -662,6 +663,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
           {/* Primary Action Buttons: Play/Pause, Reset, Mirror */}
           <div className="flex items-center gap-2">
             <button
+              id="teleprompter-play-btn"
               type="button"
               onClick={handleTogglePlay}
               disabled={isScriptEmpty && !isPlaying}
@@ -687,6 +689,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
             )}
 
             <button
+              id="teleprompter-reset-btn"
               type="button"
               onClick={handleResetToTop}
               className="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 hover:text-white transition-all cursor-pointer active:scale-95"
@@ -696,6 +699,7 @@ export const TeleprompterView: React.FC<TeleprompterViewProps> = ({
             </button>
 
             <button
+              id="teleprompter-mirror-btn"
               type="button"
               onClick={handleToggleMirror}
               className={`px-3 py-2 rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 border transition-all cursor-pointer active:scale-95 ${

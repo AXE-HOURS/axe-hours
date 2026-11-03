@@ -2825,6 +2825,7 @@ export const CompetitorIntel: React.FC = () => {
                           </span>
                           <div className="flex items-center gap-2">
                             <button
+                              id="analyze-script-handoff-btn"
                               type="button"
                               onClick={() => {
                                 const targetVidId = video.videoId || "dQw4w9WgXcQ";

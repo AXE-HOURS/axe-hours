@@ -172,7 +172,10 @@ export default function App() {
     const handleViewChange = (e: Event) => {
       const customEvent = e as CustomEvent;
       if (customEvent.detail && customEvent.detail.view) {
-        const target = customEvent.detail.view === 'generate-ideas' ? 'generator' : customEvent.detail.view;
+        let target = customEvent.detail.view;
+        if (target === 'generate-ideas') target = 'generator';
+        if (target === 'competitor' || target === 'intel') target = 'competitor-intel';
+        if (target === 'saved-ideas' || target === 'vault') target = 'saved';
         setCurrentView(target);
       }
     };

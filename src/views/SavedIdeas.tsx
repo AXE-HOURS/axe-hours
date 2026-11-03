@@ -142,6 +142,7 @@ Save this blueprint and comment "WORKFLOW" to get my free full automation checkl
           </p>
           <div className="flex flex-wrap gap-3 mt-6 justify-center">
             <button
+              id="load-starter-blueprint-btn"
               onClick={handleInjectStarterSample}
               className="px-4 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-lg shadow-primary/20 transition-all"
             >
