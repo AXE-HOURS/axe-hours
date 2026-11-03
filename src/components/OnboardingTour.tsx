@@ -30,22 +30,10 @@ export const OnboardingTour: React.FC<OnboardingTourProps> = ({ isOpen: propIsOp
 
   useEscapeKey(isOpen, handleCloseTrigger);
 
-  // Check if tour should auto-trigger on first load
+  // Tour only triggers when explicitly requested
   useEffect(() => {
     if (propIsOpen !== undefined) {
       setIsOpen(propIsOpen);
-      return;
-    }
-    const hasCompletedTour = 
-      localStorage.getItem('quick_tour_completed') === 'true' ||
-      localStorage.getItem('axe_hours_completed_tour') === 'true' || 
-      localStorage.getItem('completed_onboarding_v1') === 'true';
-    if (!hasCompletedTour) {
-      // Small timeout to allow the site layout to fully settle
-      const timer = setTimeout(() => {
-        setIsOpen(true);
-      }, 1500);
-      return () => clearTimeout(timer);
     }
   }, [propIsOpen]);
 

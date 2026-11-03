@@ -1633,7 +1633,11 @@ export const AIGenerator: React.FC<AIGeneratorProps> = ({
 
       const data = await response.json();
       if (data.enhancedPrompt) {
-        setPrompt(data.enhancedPrompt);
+        const cleaned = data.enhancedPrompt
+          .replace(/^(\*\*|#+\s*)?(synthesized prompt|enhanced prompt|amplified prompt|boosted prompt|prompt):?(\*\*)?\s*/i, "")
+          .replace(/\*\*/g, "")
+          .trim();
+        setPrompt(cleaned);
         showToast("Gemini mixed & amplified your prompt structure!");
         playAudioCue(880, "triangle"); // A5
       } else {

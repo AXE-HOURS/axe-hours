@@ -4923,8 +4923,13 @@ RULES:
         },
       });
 
-      const enhancedText = response.text || "";
-      res.json({ enhancedPrompt: enhancedText.trim() });
+      let enhancedText = (response.text || "").trim();
+      enhancedText = enhancedText
+        .replace(/^(\*\*|#+\s*)?(synthesized prompt|enhanced prompt|amplified prompt|boosted prompt|prompt):?(\*\*)?\s*/i, "")
+        .replace(/^\*\*([^*]+)\*\*$/g, "$1")
+        .replace(/^["']|["']$/g, "")
+        .trim();
+      res.json({ enhancedPrompt: enhancedText });
     } catch (error: any) {
       console.error("Gemini enhance prompt error:", error);
       const cleanMsg = cleanGeminiErrorMessage(error);
@@ -5048,6 +5053,204 @@ RULES:
     handler: (req, res) => {
       res.status(429).json({ ok: false, error: "Too many YouTube proxy requests. Please wait a few minutes." });
     }
+  });
+
+  // GET /api/youtube/channel-intel?handleOrId=
+  // Unified endpoint returning channel stats & recent videos via server key or RSS fallback with 0 client key exposure
+  app.get("/api/youtube/channel-intel", checkAuthFallback, youtubeProxyLimiter, async (req: any, res) => {
+    const handleOrId = (req.query.handleOrId || req.query.channelId || req.query.handle || req.query.q || "").toString().trim();
+    if (!handleOrId || handleOrId.length > 150) {
+      return res.status(400).json({ ok: false, error: "handleOrId parameter is required (max 150 characters)." });
+    }
+
+    const cacheKey = `intel_${handleOrId.toLowerCase()}`;
+    const cached = getCachedYoutubeProxy(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const apiKey = getYoutubeApiKey();
+    let channelId = "";
+    let title = "";
+    let handle = "";
+    let avatarUrl = "";
+    let subscriberCount = "N/A";
+    let videoCount = "N/A";
+    let viewCount = "N/A";
+    let recentVideos: Array<{ videoId: string; title: string; views: string; publishedAt: string; thumbnail?: string; link?: string }> = [];
+    let source: "api" | "rss_fallback" = "rss_fallback";
+
+    // 1. Resolve Known Fast-Path Creators
+    const KNOWN_CREATORS: Record<string, { channelId: string; title: string; handle: string; avatarUrl: string }> = {
+      "mkbhd": { channelId: "UCBJycsmduvYEL83R_U4JriQ", title: "Marques Brownlee", handle: "@mkbhd", avatarUrl: "https://yt3.googleusercontent.com/lkH37D712tiyphnu0Id0D5MwwQ7IRuwgQLVD05iMXlDWO-kDHut3uI4MgIE0pdAnK7LqiQAv=s176-c-k-c0x00ffffff-no-rj" },
+      "aliabdaal": { channelId: "UCoGdS1Tz2tqQZ8iXgGvhc6g", title: "Ali Abdaal", handle: "@aliabdaal", avatarUrl: "https://yt3.googleusercontent.com/ytc/AIdro_n8t9x12J6z4k9K4aJ5=s176-c-k-c0x00ffffff-no-rj" },
+      "mrbeast": { channelId: "UCX6OQ3DkcsbYNE6H8uQQuVA", title: "MrBeast", handle: "@mrbeast", avatarUrl: "https://yt3.googleusercontent.com/fxGKYucJAVme-YzgnnvYENeuP9xSaNuioGwp_DAw3-FRJpwMrLapueOioMiDkDZdNxOBpMavenI=s176-c-k-c0x00ffffff-no-rj" },
+      "fireship": { channelId: "UCsBjURrPoezykLs9EqgamOA", title: "Fireship", handle: "@fireship", avatarUrl: "https://yt3.googleusercontent.com/ytc/AIdro_mPjZ-30Vv5Jg-o=s176-c-k-c0x00ffffff-no-rj" }
+    };
+    const cleanLookup = handleOrId.toLowerCase().replace(/^(https?:\/\/)?(www\.)?youtube\.com\//, '').replace(/^@/, '').split('/')[0];
+    if (KNOWN_CREATORS[cleanLookup]) {
+      const known = KNOWN_CREATORS[cleanLookup];
+      channelId = known.channelId;
+      title = known.title;
+      handle = known.handle;
+      avatarUrl = known.avatarUrl;
+    }
+
+    // 2. Direct Channel ID Check
+    if (!channelId) {
+      const idMatch = handleOrId.match(/(?:youtube\.com\/channel\/)?(UC[a-zA-Z0-9_-]{22})/);
+      if (idMatch) {
+        channelId = idMatch[1];
+      }
+    }
+
+    // 3. Try YouTube Data API if key is present
+    if (apiKey) {
+      try {
+        let apiUrl = "";
+        if (channelId) {
+          apiUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&id=${encodeURIComponent(channelId)}&key=${apiKey}`;
+        } else {
+          const cleanHandle = handleOrId.startsWith("@") ? handleOrId.slice(1) : handleOrId;
+          apiUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&forHandle=${encodeURIComponent(cleanHandle)}&key=${apiKey}`;
+        }
+
+        const ytRes = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) });
+        if (ytRes.ok) {
+          const data = await ytRes.json() as any;
+          if (data.items && data.items.length > 0) {
+            const ch = data.items[0];
+            channelId = channelId || ch.id;
+            title = title || ch.snippet?.title || "Creator";
+            handle = handle || (ch.snippet?.customUrl ? (ch.snippet.customUrl.startsWith("@") ? ch.snippet.customUrl : `@${ch.snippet.customUrl}`) : `@${cleanLookup}`);
+            avatarUrl = avatarUrl || ch.snippet?.thumbnails?.medium?.url || ch.snippet?.thumbnails?.default?.url || "";
+            if (ch.statistics) {
+              subscriberCount = ch.statistics.subscriberCount || "N/A";
+              videoCount = ch.statistics.videoCount || "N/A";
+              viewCount = ch.statistics.viewCount || "N/A";
+            }
+
+            // Fetch recent uploads from uploads playlist
+            const uploadsPlaylistId = ch.contentDetails?.relatedPlaylists?.uploads;
+            if (uploadsPlaylistId) {
+              const plRes = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${encodeURIComponent(uploadsPlaylistId)}&maxResults=8&key=${apiKey}`, {
+                signal: AbortSignal.timeout(8000)
+              });
+              if (plRes.ok) {
+                const plData = await plRes.json() as any;
+                if (plData.items && plData.items.length > 0) {
+                  recentVideos = plData.items.map((it: any) => ({
+                    videoId: it.contentDetails?.videoId || it.snippet?.resourceId?.videoId || "",
+                    title: it.snippet?.title || "Untitled Video",
+                    views: "N/A",
+                    publishedAt: it.snippet?.publishedAt || new Date().toISOString(),
+                    thumbnail: it.snippet?.thumbnails?.medium?.url || it.snippet?.thumbnails?.default?.url || "",
+                    link: `https://www.youtube.com/watch?v=${it.contentDetails?.videoId || it.snippet?.resourceId?.videoId || ""}`
+                  })).filter((v: any) => Boolean(v.videoId));
+                  source = "api";
+                }
+              }
+            }
+          }
+        }
+      } catch (apiErr) {
+        console.warn("[/api/youtube/channel-intel] YouTube Data API lookup warning:", apiErr);
+      }
+    }
+
+    // 4. Scrape / Resolve channelId if still unknown
+    if (!channelId) {
+      try {
+        const targetUrl = handleOrId.startsWith("http") ? handleOrId : `https://www.youtube.com/${handleOrId.startsWith("@") ? handleOrId : `@${handleOrId}`}`;
+        const pageRes = await fetch(targetUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept-Language": "en-US,en;q=0.9"
+          },
+          signal: AbortSignal.timeout(6000)
+        });
+        if (pageRes.ok) {
+          const html = await pageRes.text();
+          const idMatch = html.match(/"channelId":"(UC[a-zA-Z0-9_-]{22})"/i) || html.match(/<meta itemprop="channelId" content="(UC[a-zA-Z0-9_-]{22})"/i);
+          if (idMatch) channelId = idMatch[1];
+          const titleMatch = html.match(/<meta property="og:title" content="([^"]+)"/i);
+          if (titleMatch && !title) title = titleMatch[1].replace(/ - YouTube$/i, "").trim();
+          const avatarMatch = html.match(/<meta property="og:image" content="([^"]+)"/i);
+          if (avatarMatch && !avatarUrl) avatarUrl = avatarMatch[1];
+        }
+      } catch (scrapeErr) {
+        console.warn("[/api/youtube/channel-intel] Scrape resolution warning:", scrapeErr);
+      }
+    }
+
+    // 5. Fallback to native Atom RSS feed if API returned no videos or failed
+    if (channelId && recentVideos.length === 0) {
+      try {
+        const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+        const rssRes = await fetch(rssUrl, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.8"
+          },
+          signal: AbortSignal.timeout(8000)
+        });
+        if (rssRes.ok) {
+          const xmlText = await rssRes.text();
+          const feedTitleMatch = xmlText.match(/<title>([^<]+)<\/title>/);
+          if (feedTitleMatch && !title) title = feedTitleMatch[1];
+
+          const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+          let match: RegExpExecArray | null;
+          while ((match = entryRegex.exec(xmlText)) !== null) {
+            const entryBlock = match[1];
+            const videoIdMatch = entryBlock.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i) || entryBlock.match(/<id>yt:video:([^<]+)<\/id>/i);
+            const videoId = videoIdMatch ? videoIdMatch[1].trim() : "";
+            const titleMatch = entryBlock.match(/<title>([^<]+)<\/title>/i);
+            const videoTitle = titleMatch ? titleMatch[1].trim() : "Untitled Video";
+            const publishedMatch = entryBlock.match(/<published>([^<]+)<\/published>/i);
+            const publishedAt = publishedMatch ? publishedMatch[1].trim() : new Date().toISOString();
+            const viewsMatch = entryBlock.match(/<media:statistics[^>]+views="(\d+)"/i);
+            const views = viewsMatch ? viewsMatch[1] : "N/A";
+
+            if (videoId) {
+              recentVideos.push({
+                videoId,
+                title: videoTitle,
+                views,
+                publishedAt,
+                thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                link: `https://www.youtube.com/watch?v=${videoId}`
+              });
+            }
+          }
+          source = "rss_fallback";
+        }
+      } catch (rssErr) {
+        console.warn("[/api/youtube/channel-intel] Atom RSS fallback warning:", rssErr);
+      }
+    }
+
+    if (!channelId && !title) {
+      return res.status(404).json({ ok: false, error: "Could not resolve a valid YouTube channel for: " + handleOrId });
+    }
+
+    const payload = {
+      ok: true,
+      channel: {
+        channelId: channelId || "UC_unknown",
+        title: title || handleOrId,
+        handle: handle || (handleOrId.startsWith("@") ? handleOrId : `@${handleOrId}`),
+        avatarUrl: avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(title || handleOrId)}&background=9d50bb&color=fff`,
+        subscriberCount,
+        videoCount,
+        viewCount
+      },
+      recentVideos,
+      source
+    };
+
+    setCachedYoutubeProxy(cacheKey, payload);
+    return res.json(payload);
   });
 
   // GET /api/youtube/channel?handleOrId=
