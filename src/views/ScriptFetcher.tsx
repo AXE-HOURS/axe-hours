@@ -153,6 +153,8 @@ export const ScriptFetcher: React.FC = () => {
     transcriptionMethod: '',
     warningLabel: '',
     isClipped: false,
+    partialLongVideo: false,
+    transcribedWindow: '' as string | undefined,
     transcriptErrorCode: '',
     transcriptErrorDetails: '',
     transcript: [] as Array<{ text: string; start: number; duration: number }>,
@@ -346,6 +348,8 @@ export const ScriptFetcher: React.FC = () => {
           return parseInt(parts[0], 10) || 0;
         };
         const isClipped = Boolean(data.isClipped) || (parseDurationSec(extractedData.duration) > 600);
+        const partialLongVideo = Boolean(data.partialLongVideo);
+        const transcribedWindow = data.transcribedWindow || '';
 
         setExtractedData(prev => ({
           ...prev,
@@ -354,6 +358,8 @@ export const ScriptFetcher: React.FC = () => {
           transcriptionMethod: data.transcriptionMethod || '',
           warningLabel: data.warningLabel || '',
           isClipped: isClipped,
+          partialLongVideo,
+          transcribedWindow,
           fullTranscript: data.fullTranscript,
           hookText,
           hookScore: hookScore || prev.hookScore,
@@ -717,6 +723,8 @@ export const ScriptFetcher: React.FC = () => {
             ...prev,
             title: errData.title || prev.title || 'Video Spoken Dialogue',
             author: errData.author || prev.author || '',
+            duration: errData.duration || prev.duration || 'Video',
+            views: errData.views || prev.views || 'Public Video',
             hasTranscript: false,
             transcriptErrorCode: 'GUEST_MULTIMODAL_TRIAL_USED',
             transcriptErrorDetails: msg,
@@ -736,6 +744,8 @@ export const ScriptFetcher: React.FC = () => {
             ...prev,
             title: errData.title || prev.title || 'Video Spoken Dialogue',
             author: errData.author || prev.author || '',
+            duration: errData.duration || prev.duration || 'Video',
+            views: errData.views || prev.views || 'Public Video',
             hasTranscript: false,
             transcriptErrorCode: 'MULTIMODAL_QUOTA_EXCEEDED',
             transcriptErrorDetails: msg,
@@ -755,6 +765,8 @@ export const ScriptFetcher: React.FC = () => {
             ...prev,
             title: errData.title || prev.title || 'Video Spoken Dialogue',
             author: errData.author || prev.author || '',
+            duration: errData.duration || prev.duration || 'Video',
+            views: errData.views || prev.views || 'Public Video',
             hasTranscript: false,
             transcriptErrorCode: 'VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION',
             transcriptErrorDetails: msg,
@@ -1055,12 +1067,21 @@ export const ScriptFetcher: React.FC = () => {
       const finalErrorCode = hasTranscript ? '' : (transcriptErrorCode ? getClientFriendlyDiagnosisCode(transcriptErrorCode) : 'NO_OFFICIAL_CAPTIONS');
       const finalErrorDetails = hasTranscript ? '' : (transcriptErrorDetails ? getClientFriendlyErrorMessage(transcriptErrorCode, transcriptErrorDetails) : getClientFriendlyErrorMessage('NO_OFFICIAL_CAPTIONS'));
 
+      const partialLongVideo = Boolean(data.partialLongVideo);
+      const transcribedWindow = data.transcribedWindow || '';
+      const displayDuration = (data.duration && data.duration !== '-' && data.duration !== 'N/A')
+        ? data.duration
+        : (data.lengthSeconds ? `${Math.floor(data.lengthSeconds / 60)}:${(data.lengthSeconds % 60).toString().padStart(2, '0')}m` : 'Video');
+      const displayViews = (data.views && data.views !== '-' && data.views !== 'N/A')
+        ? data.views
+        : 'Public Video';
+
       setExtractedData({
         title: data.title || 'Untitled Extraction',
         author: data.author || '',
         platform: data.platform || 'youtube',
-        duration: data.duration || 'N/A',
-        views: data.views || 'N/A',
+        duration: displayDuration,
+        views: displayViews,
         hookScore: hookScore,
         pacingSpeed: pacingSpeed,
         thumbnailSuggestion: formatThumbnailSpec(data.thumbnailSuggestion, data.title, hookText),
@@ -1073,6 +1094,8 @@ export const ScriptFetcher: React.FC = () => {
         transcriptionMethod: transcriptionMethod,
         warningLabel: warningLabel,
         isClipped: isClipped,
+        partialLongVideo: partialLongVideo,
+        transcribedWindow: transcribedWindow,
         transcriptErrorCode: finalErrorCode,
         transcriptErrorDetails: finalErrorDetails,
         transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
@@ -1088,8 +1111,8 @@ export const ScriptFetcher: React.FC = () => {
           title: data.title || 'Untitled Extraction',
           author: data.author || '',
           platform: data.platform || 'youtube',
-          duration: data.duration || 'N/A',
-          views: data.views || 'N/A',
+          duration: displayDuration,
+          views: displayViews,
           hookScore: hookScore,
           pacingSpeed: pacingSpeed,
           thumbnailSuggestion: formatThumbnailSpec(data.thumbnailSuggestion, data.title, hookText),
@@ -1102,6 +1125,8 @@ export const ScriptFetcher: React.FC = () => {
           transcriptionMethod: transcriptionMethod,
           warningLabel: warningLabel,
           isClipped: isClipped,
+          partialLongVideo: partialLongVideo,
+          transcribedWindow: transcribedWindow,
           transcriptErrorCode: finalErrorCode,
           transcriptErrorDetails: finalErrorDetails,
           transcript: (data.transcript as Array<{ text: string; start: number; duration: number }>) || [],
@@ -1625,12 +1650,17 @@ ${extractedData.fullTranscript || 'N/A'}`;
                       <span className="text-[10px] text-purple-300 font-mono uppercase font-black tracking-widest block whitespace-nowrap">
                         Fetched Analytics Report
                       </span>
-                      {extractedData.isClipped && (
+                      {extractedData.partialLongVideo ? (
+                        <span className="text-[10px] text-purple-300 font-bold uppercase tracking-widest font-mono inline-flex items-center gap-1 bg-purple-500/15 border border-purple-500/30 px-2 py-0.5 rounded-full" title="First 4:00 (Hook & Intro) transcribed">
+                          <Clock size={11} className="text-purple-400" />
+                          First 4:00 (Intro Sliced)
+                        </span>
+                      ) : extractedData.isClipped ? (
                         <span className="text-[10px] text-blue-300 font-bold uppercase tracking-widest font-mono inline-flex items-center gap-1 bg-blue-500/15 border border-blue-500/30 px-2 py-0.5 rounded-full" title="Video clipped to first 10 minutes for AI transcription">
                           <Info size={11} className="text-blue-400" />
                           Clipped to 10m
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <h2 className="text-lg md:text-xl font-bold text-white leading-snug break-words mt-1">
                       {extractedData.title}
@@ -1762,12 +1792,17 @@ ${extractedData.fullTranscript || 'N/A'}`;
                                 <AlertTriangle size={11} className="text-amber-400" />
                                 {extractedData.warningLabel || "AI-generated transcript (may be inaccurate)"}
                               </span>
-                              {extractedData.isClipped && (
+                              {extractedData.partialLongVideo ? (
+                                <span className="text-[10px] text-purple-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-purple-500/15 border border-purple-500/30 px-2.5 py-0.5 rounded" title="First 4:00 (Hook & Intro) transcribed">
+                                  <Clock size={11} className="text-purple-400" />
+                                  First 4:00 (Hook &amp; Intro)
+                                </span>
+                              ) : extractedData.isClipped ? (
                                 <span className="text-[10px] text-blue-300 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded" title="Video clipped to first 10 minutes for AI transcription">
                                   <Info size={11} className="text-blue-400" />
                                   Clipped to 10m
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           ) : (
                             <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest font-mono flex items-center gap-1.5">
@@ -1989,39 +2024,25 @@ ${extractedData.fullTranscript || 'N/A'}`;
                               <AlertTriangle size={14} className="text-amber-400 shrink-0" />
                               <span>{extractedData.warningLabel || "AI-generated transcript (may be inaccurate)"}</span>
                             </div>
-                            {extractedData.isClipped && (
+                            {extractedData.partialLongVideo ? (
+                              <div className="px-3.5 py-2.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-200 text-xs font-mono flex items-start gap-2.5">
+                                <Clock size={15} className="text-purple-400 shrink-0 mt-0.5" />
+                                <span className="leading-relaxed">
+                                  Long-form video (&gt;5m): Extracted first 4:00 (Hook &amp; Intro Setup) to protect cloud quota. Add a custom Gemini key in Settings for full-length podcast transcription.
+                                </span>
+                              </div>
+                            ) : extractedData.isClipped ? (
                               <div className="px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-mono flex items-center gap-2">
                                 <Info size={14} className="text-blue-400 shrink-0" />
                                 <span>Video clipped to first 10 minutes for AI transcription.</span>
                               </div>
-                            )}
+                            ) : null}
                           </div>
                         )}
                         <p className="text-xs leading-relaxed whitespace-pre-line font-light text-white">
                           {extractedData.fullTranscript}
                         </p>
                       </>
-                    )}
-
-                    {!extractedData.hasTranscript && (
-                      <div className="flex items-center flex-wrap gap-2 px-3 py-2 bg-black/50 border border-white/10 rounded-lg text-[11px] font-mono">
-                        <span className="text-gray-400 font-semibold flex items-center gap-1.5 shrink-0">
-                          <Info size={12} className="text-amber-400" />
-                          <span>Diagnosis:</span>
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[10px]">
-                          {getClientFriendlyDiagnosisCode(extractedData.transcriptErrorCode)}
-                        </span>
-                        <span className="text-gray-400 text-[10.5px]">
-                          {getClientFriendlyErrorMessage(extractedData.transcriptErrorCode)}
-                        </span>
-                        {isResolvingClientSide && (
-                          <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 font-bold text-[10px] flex items-center gap-1.5 animate-pulse">
-                            <RefreshCw size={10} className="animate-spin text-amber-400" />
-                            Resolving transcript...
-                          </span>
-                        )}
-                      </div>
                     )}
 
                     {/* Collapsible Manual Transcript Input */}

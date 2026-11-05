@@ -332,6 +332,8 @@ async function saveTranscriptToPersistentCache(videoId: string, payload: {
   method: string;
   isClipped: boolean;
   isAiGenerated: boolean;
+  partialLongVideo?: boolean;
+  transcribedWindow?: string;
   createdAt?: number;
   fullTranscript?: string;
   hookText?: string;
@@ -351,6 +353,8 @@ async function saveTranscriptToPersistentCache(videoId: string, payload: {
     method: payload.method,
     isClipped: Boolean(payload.isClipped),
     isAiGenerated: Boolean(payload.isAiGenerated),
+    partialLongVideo: Boolean(payload.partialLongVideo),
+    transcribedWindow: payload.transcribedWindow || (payload.partialLongVideo ? "0:00 - 4:00" : undefined),
     createdAt,
     fullTranscript: payload.fullTranscript || payload.lines.map(l => `${Math.floor(l.start / 60)}:${Math.floor(l.start % 60).toString().padStart(2, "0")} - ${l.text}`).join("\n"),
     hookText: payload.hookText || payload.lines.slice(0, 4).map(l => l.text).join(' '),
@@ -415,6 +419,8 @@ async function saveTranscriptToPersistentCache(videoId: string, payload: {
         method: entry.method,
         isClipped: entry.isClipped,
         isAiGenerated: entry.isAiGenerated,
+        partialLongVideo: entry.partialLongVideo,
+        transcribedWindow: entry.transcribedWindow || null,
         createdAt: entry.createdAt,
         title: entry.title,
         author: entry.author,
@@ -458,6 +464,8 @@ function checkTranscriptCacheFastPath(mode: "fetch-script" | "transcribe-audio")
             transcriptionMethod: cached.method || "SERVER_CACHE_HIT",
             warningLabel: cached.warningLabel || null,
             isClipped: Boolean(cached.isClipped),
+            partialLongVideo: Boolean(cached.partialLongVideo),
+            transcribedWindow: cached.transcribedWindow || (cached.partialLongVideo ? "0:00 - 4:00" : null),
             transcript: cached.lines,
             fullTranscript: cached.fullTranscript || formatDialogueLines(cached.lines),
             hookText: cached.hookText || cached.lines.slice(0, 4).map((l: any) => l.text).join(' '),
@@ -471,13 +479,16 @@ function checkTranscriptCacheFastPath(mode: "fetch-script" | "transcribe-audio")
           const fullPayload = cached.data || {
             title: cached.title || "YouTube Video",
             author: cached.author || "Creator",
-            duration: cached.isClipped ? "10:00m" : "Video",
+            duration: cached.duration || (cached.partialLongVideo ? "0:00 - 4:00 (Hook & Intro)" : (cached.isClipped ? "10:00m" : "Video")),
+            views: cached.views || "Public Video",
             hasTranscript: true,
             fullTranscript: cached.fullTranscript || formatDialogueLines(cached.lines),
             transcript: cached.lines,
             transcriptArray: cached.lines,
             isAiGenerated: Boolean(cached.isAiGenerated),
             isClipped: Boolean(cached.isClipped),
+            partialLongVideo: Boolean(cached.partialLongVideo),
+            transcribedWindow: cached.transcribedWindow || (cached.partialLongVideo ? "0:00 - 4:00" : null),
             transcriptionMethod: cached.method || "SERVER_CACHE_HIT",
             hookScore: cached.hookScore || 85,
             pacingSpeed: cached.pacingSpeed || "140 words/min",
@@ -814,14 +825,9 @@ function enforceDailyQuota(type: "extraction" | "generation") {
         if (req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]) {
           return { allowed: true };
         }
-        if (typeof durationSec === "number" && durationSec > 300) {
-          return {
-            allowed: false,
-            status: 400,
-            code: "VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION",
-            error: "AI Audio Transcription is capped at videos under 5 minutes on the shared server key. Use a captioned video or add your own Gemini API key in Settings."
-          };
-        }
+        // NOTE: For long videos (>5m) on the shared server key, we do NOT reject them with
+        // VIDEO_TOO_LONG_FOR_AI_TRANSCRIPTION. Instead, we slice the first 4:00 (Hook & Intro)
+        // using videoMetadata { startOffset: "0s", endOffset: "240s" } to protect cloud quota.
         if (isGuest || req.user?.role === "guest" || !req.userId || req.userId.startsWith("guest_")) {
           const guestCount = quota.multimodalCount || 0;
           if (guestCount >= 1) {
@@ -2194,6 +2200,48 @@ ${
     return lines;
   }
 
+  // Helper to extract video details from Innertube player responses
+  function extractInnertubeVideoDetails(playerJson: any): {
+    title?: string;
+    author?: string;
+    lengthSeconds?: number;
+    duration?: string;
+    views?: string;
+    description?: string;
+  } | null {
+    if (!playerJson?.videoDetails) return null;
+    const vd = playerJson.videoDetails;
+    const lengthSec = parseInt(vd.lengthSeconds || "0", 10) || undefined;
+    let duration: string | undefined = undefined;
+    if (lengthSec && lengthSec > 0) {
+      const hours = Math.floor(lengthSec / 3600);
+      const mins = Math.floor((lengthSec % 3600) / 60);
+      const secs = lengthSec % 60;
+      if (hours > 0) {
+        duration = `${hours * 60 + mins}:${secs.toString().padStart(2, "0")}m`;
+      } else {
+        duration = `${mins}:${secs.toString().padStart(2, "0")}m`;
+      }
+    }
+    const viewCount = parseInt(vd.viewCount || "0", 10);
+    let views: string | undefined = undefined;
+    if (viewCount >= 1000000) {
+      views = `${(viewCount / 1000000).toFixed(1)}M views`;
+    } else if (viewCount >= 1000) {
+      views = `${(viewCount / 1000).toFixed(0)}K views`;
+    } else if (viewCount > 0) {
+      views = `${viewCount.toLocaleString()} views`;
+    }
+    return {
+      title: vd.title || undefined,
+      author: vd.author || undefined,
+      lengthSeconds: lengthSec,
+      duration,
+      views,
+      description: vd.shortDescription || undefined
+    };
+  }
+
   /**
    * Node.js 18+ / 20+ Native Fetch Connection Pooling & Proxy Architecture Note:
    * Native global fetch is implemented via Undici.
@@ -2237,10 +2285,10 @@ ${
       } else {
         if (directRes.status === 429) {
           captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
-          console.warn("[SubtitleFetcher] Direct track fetch returned HTTP 429. Setting captionsBlockedUntil (+15m).");
-          return null;
+          console.warn("[SubtitleFetcher] Direct track fetch returned HTTP 429. Setting captionsBlockedUntil indicator.");
+        } else {
+          console.warn(`[SubtitleFetcher] Direct track fetch returned HTTP ${directRes.status} (${directRes.statusText})`);
         }
-        console.warn(`[SubtitleFetcher] Direct track fetch returned HTTP ${directRes.status} (${directRes.statusText})`);
       }
     } catch (e) {
       console.warn("[SubtitleFetcher] Direct track fetch error:", e);
@@ -2563,28 +2611,38 @@ ${
     strategySummary?: string;
     isThrottled?: boolean;
     captionStatus?: "none" | "blocked" | "skipped_cooldown" | "error";
+    discoveredMetadata?: {
+      title?: string;
+      author?: string;
+      lengthSeconds?: number;
+      duration?: string;
+      views?: string;
+      description?: string;
+    } | null;
   }> {
     const strategyLog: string[] = [];
-    try {
-      if (!bypassCooldown && Date.now() < captionsBlockedUntil) {
-        const remainingSec = Math.ceil((captionsBlockedUntil - Date.now()) / 1000);
-        console.log(`[SubtitleFetcher] Server IP is currently rate-limited by YouTube (429 cooling down for another ${remainingSec}s). Fast-failing captions.`);
-        return {
-          lines: null,
-          hasTracks: false,
-          errorCode: "CAPTION_FETCH_FAILED",
-          errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
-          status: "CAPTION_FETCH_FAILED",
-          isThrottled: true,
-          captionStatus: "skipped_cooldown",
-          strategySummary: `blocked-429-cooldown (${remainingSec}s remaining)`
-        };
-      }
-      if (bypassCooldown && Date.now() < captionsBlockedUntil) {
-        console.log(`[SubtitleFetcher] bypassCooldown requested for video: ${videoId}. Bypassing 15m cooldown to re-attempt caption extraction.`);
-      }
+    let discoveredMetadata: {
+      title?: string;
+      author?: string;
+      lengthSeconds?: number;
+      duration?: string;
+      views?: string;
+      description?: string;
+    } | null = null;
 
-      console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
+    const captureDetails = (pj: any) => {
+      if (!discoveredMetadata && pj?.videoDetails) {
+        discoveredMetadata = extractInnertubeVideoDetails(pj);
+      }
+    };
+
+    try {
+      if (Date.now() < captionsBlockedUntil) {
+        const remainingSec = Math.ceil((captionsBlockedUntil - Date.now()) / 1000);
+        console.log(`[SubtitleFetcher] Server IP cooldown indicator active (${remainingSec}s remaining). Attempting per-video multi-layer extraction for: ${videoId}`);
+      } else {
+        console.log(`[SubtitleFetcher] Initiating resilient multi-layer subtitle extraction for: ${videoId}`);
+      }
 
       let candidateTrackUrl: string | null = null;
       let youtubeReportedZeroTracks = false;
@@ -2632,25 +2690,11 @@ ${
         step1Status = playerRes.status;
         if (step1Status === 429) {
           captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
-          console.warn("[SubtitleFetcher] Strategy 1 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
-          strategyLog.push("android: HTTP 429 (IP blocked)");
-          return {
-            lines: null,
-            hasTracks: false,
-            errorCode: "CAPTION_FETCH_FAILED",
-            errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
-            status: "CAPTION_FETCH_FAILED",
-            isThrottled: true,
-            captionStatus: "blocked",
-            strategySummary: strategyLog.join("; ")
-          };
-        }
-        if (playerRes.ok) {
-          if (captionsBlockedUntil > 0) {
-            console.log("[SubtitleFetcher] Strategy 1 received HTTP 200. Clearing captionsBlockedUntil cooldown.");
-            captionsBlockedUntil = 0;
-          }
+          console.warn("[SubtitleFetcher] Strategy 1 received HTTP 429 (throttled). Continuing to WEB_EMBEDDED_PLAYER and iOS fallbacks...");
+          strategyLog.push("android: HTTP 429 (throttled)");
+        } else if (playerRes.ok) {
           const playerJson = await playerRes.json() as any;
+          captureDetails(playerJson);
           const playability = playerJson.playabilityStatus;
           if (
             playability?.status === 'LOGIN_REQUIRED' ||
@@ -2664,7 +2708,8 @@ ${
               errorCode: 'VIDEO_UNAVAILABLE',
               errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
               status: 'VIDEO_UNAVAILABLE',
-              strategySummary: "android: private/removed"
+              strategySummary: "android: private/removed",
+              discoveredMetadata
             };
           }
           if (playability?.status === 'OK') {
@@ -2672,49 +2717,153 @@ ${
           }
           const tracklist = playerJson.captions?.playerCaptionsTracklistRenderer || playerJson.playerCaptionsTracklistRenderer;
           tracks = tracklist?.captionTracks;
-        }
 
-        if (tracks && Array.isArray(tracks) && tracks.length > 0) {
-          const sessionCookie = playerRes.headers.get("set-cookie") || "";
-          const sessionHeaders: Record<string, string> = {
-            "User-Agent": androidHeaders["User-Agent"],
-            "Cookie": sessionCookie ? `${standardConsentCookie}; ${sessionCookie}` : standardConsentCookie
-          };
-          const sortedTracks = sortCaptionTracks(tracks).slice(0, 3);
-          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
-            candidateTrackUrl = sortedTracks[0].baseUrl;
-          }
-          for (const track of sortedTracks) {
-            const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
-            if (lines && lines.length > 0) {
-              strategyLog.push(`android: ok (${lines.length} lines)`);
-              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
+          if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+            const sessionCookie = playerRes.headers.get("set-cookie") || "";
+            const sessionHeaders: Record<string, string> = {
+              "User-Agent": androidHeaders["User-Agent"],
+              "Cookie": sessionCookie ? `${standardConsentCookie}; ${sessionCookie}` : standardConsentCookie
+            };
+            const sortedTracks = sortCaptionTracks(tracks).slice(0, 3);
+            if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+              candidateTrackUrl = sortedTracks[0].baseUrl;
             }
+            for (const track of sortedTracks) {
+              const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
+              if (lines && lines.length > 0) {
+                strategyLog.push(`android: ok (${lines.length} lines)`);
+                captionsBlockedUntil = 0;
+                return { lines, hasTracks: true, strategySummary: strategyLog.join("; "), discoveredMetadata };
+              }
+            }
+            strategyLog.push(`android: HTTP ${step1Status}, ${tracks.length} tracks, fetch failed`);
+          } else if (androidPlayabilityOk && tracks && Array.isArray(tracks) && tracks.length === 0) {
+            youtubeReportedZeroTracks = true;
+            strategyLog.push(`android: HTTP 200, status=OK, 0 tracks`);
+          } else {
+            strategyLog.push(`android: HTTP ${step1Status}, ${tracks?.length || 0} tracks`);
           }
-          strategyLog.push(`android: HTTP ${step1Status}, ${tracks.length} tracks, fetch failed`);
-        } else if (androidPlayabilityOk && tracks && Array.isArray(tracks) && tracks.length === 0) {
-          youtubeReportedZeroTracks = true;
-          strategyLog.push(`android: HTTP 200, status=OK, 0 tracks`);
-        } else {
-          strategyLog.push(`android: HTTP ${step1Status}, ${tracks?.length || 0} tracks`);
         }
       } catch (l1Err: any) {
         strategyLog.push(`android: error (${l1Err?.message || 'failed'})`);
       }
 
       // -------------------------------------------------------------
-      // STRATEGY 2: Innertube iOS Client Fallback
+      // STRATEGY 2: Innertube WEB_EMBEDDED_PLAYER Client Fallback
+      // YouTube frequently allows embedded player caption tracks from cloud IPs
+      // -------------------------------------------------------------
+      let embedTracks: any[] | undefined = undefined;
+      let stepEmbedStatus = 0;
+      let embedPlayabilityOk = false;
+      try {
+        console.log("[SubtitleFetcher] Strategy 2: Querying Innertube WEB_EMBEDDED_PLAYER player API...");
+        const embedHeaders: Record<string, string> = {
+          "Content-Type": "application/json",
+          "User-Agent": getRandomUserAgent(),
+          "X-YouTube-Client-Name": "56",
+          "X-YouTube-Client-Version": "1.20260101.01.00",
+          "Referer": `https://www.youtube.com/embed/${videoId}`,
+          "Origin": "https://www.youtube.com",
+          "Accept-Encoding": "gzip, deflate, br",
+          "Cookie": standardConsentCookie
+        };
+
+        const embedRes = await fetch(playerEndpoint, {
+          method: "POST",
+          headers: embedHeaders,
+          body: JSON.stringify({
+            context: {
+              client: {
+                clientName: "WEB_EMBEDDED_PLAYER",
+                clientVersion: "1.20260101.01.00",
+                hl: "en",
+                gl: "US"
+              },
+              thirdParty: {
+                embedUrl: `https://www.youtube.com/embed/${videoId}`
+              }
+            },
+            videoId: videoId
+          }),
+          signal: AbortSignal.timeout(8000),
+          keepalive: true
+        });
+
+        stepEmbedStatus = embedRes.status;
+        if (stepEmbedStatus === 429) {
+          captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
+          console.warn("[SubtitleFetcher] Strategy 2 (WEB_EMBEDDED_PLAYER) received HTTP 429. Continuing to iOS fallback...");
+          strategyLog.push("web_embedded: HTTP 429 (throttled)");
+        } else if (embedRes.ok) {
+          const embedJson = await embedRes.json() as any;
+          captureDetails(embedJson);
+          const playability = embedJson.playabilityStatus;
+          if (
+            playability?.status === 'LOGIN_REQUIRED' ||
+            playability?.reason?.toLowerCase().includes('private') ||
+            playability?.reason?.toLowerCase().includes('deleted') ||
+            playability?.reason?.toLowerCase().includes('removed')
+          ) {
+            return {
+              lines: null,
+              hasTracks: false,
+              errorCode: 'VIDEO_UNAVAILABLE',
+              errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
+              status: 'VIDEO_UNAVAILABLE',
+              strategySummary: "web_embedded: private/removed",
+              discoveredMetadata
+            };
+          }
+          if (playability?.status === 'OK') {
+            embedPlayabilityOk = true;
+          }
+          const tracklist = embedJson.captions?.playerCaptionsTracklistRenderer || embedJson.playerCaptionsTracklistRenderer;
+          embedTracks = tracklist?.captionTracks;
+
+          if (embedTracks && Array.isArray(embedTracks) && embedTracks.length > 0) {
+            const sessionCookie = embedRes.headers.get("set-cookie") || "";
+            const sessionHeaders: Record<string, string> = {
+              "User-Agent": embedHeaders["User-Agent"],
+              "Cookie": sessionCookie ? `${standardConsentCookie}; ${sessionCookie}` : standardConsentCookie
+            };
+            const sortedTracks = sortCaptionTracks(embedTracks).slice(0, 3);
+            if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+              candidateTrackUrl = sortedTracks[0].baseUrl;
+            }
+            for (const track of sortedTracks) {
+              const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
+              if (lines && lines.length > 0) {
+                strategyLog.push(`web_embedded: ok (${lines.length} lines)`);
+                captionsBlockedUntil = 0;
+                return { lines, hasTracks: true, strategySummary: strategyLog.join("; "), discoveredMetadata };
+              }
+            }
+            strategyLog.push(`web_embedded: HTTP ${stepEmbedStatus}, ${embedTracks.length} tracks, fetch failed`);
+          } else if (embedPlayabilityOk && embedTracks && Array.isArray(embedTracks) && embedTracks.length === 0) {
+            youtubeReportedZeroTracks = true;
+            strategyLog.push(`web_embedded: HTTP 200, status=OK, 0 tracks`);
+          } else {
+            strategyLog.push(`web_embedded: HTTP ${stepEmbedStatus}, ${embedTracks?.length || 0} tracks`);
+          }
+        }
+      } catch (embErr: any) {
+        strategyLog.push(`web_embedded: error (${embErr?.message || 'failed'})`);
+      }
+
+      // -------------------------------------------------------------
+      // STRATEGY 3: Innertube iOS Client Fallback
+      // Client: IOS, clientVersion: 19.29.1
       // -------------------------------------------------------------
       let iosTracks: any[] | undefined = undefined;
       let step2Status = 0;
       let iosPlayabilityOk = false;
       try {
-        console.log("[SubtitleFetcher] Strategy 2: Retrying with IOS client context...");
+        console.log("[SubtitleFetcher] Strategy 3: Retrying with IOS client context...");
         const iosHeaders: Record<string, string> = {
           "Content-Type": "application/json",
-          "User-Agent": "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)",
+          "User-Agent": "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)",
           "X-YouTube-Client-Name": "5",
-          "X-YouTube-Client-Version": "19.45.4",
+          "X-YouTube-Client-Version": "19.29.1",
           "Accept-Encoding": "gzip, deflate, br",
           "Cookie": standardConsentCookie
         };
@@ -2726,10 +2875,10 @@ ${
             context: {
               client: {
                 clientName: "IOS",
-                clientVersion: "19.45.4",
+                clientVersion: "19.29.1",
                 deviceModel: "iPhone16,2",
                 osName: "iOS",
-                osVersion: "18.1.0.22B83",
+                osVersion: "17.5.1",
                 hl: "en",
                 gl: "US"
               }
@@ -2743,21 +2892,11 @@ ${
         step2Status = iosRes.status;
         if (step2Status === 429) {
           captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
-          console.warn("[SubtitleFetcher] Strategy 2 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
-          strategyLog.push("ios: HTTP 429 (IP blocked)");
-          return {
-            lines: null,
-            hasTracks: false,
-            errorCode: "CAPTION_FETCH_FAILED",
-            errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
-            status: "CAPTION_FETCH_FAILED",
-            isThrottled: true,
-            captionStatus: "blocked",
-            strategySummary: strategyLog.join("; ")
-          };
-        }
-        if (iosRes.ok) {
+          console.warn("[SubtitleFetcher] Strategy 3 (IOS) received HTTP 429. Continuing to HTML/XML fallbacks...");
+          strategyLog.push("ios: HTTP 429 (throttled)");
+        } else if (iosRes.ok) {
           const iosJson = await iosRes.json() as any;
+          captureDetails(iosJson);
           const playability = iosJson.playabilityStatus;
           if (
             playability?.status === 'LOGIN_REQUIRED' ||
@@ -2771,7 +2910,8 @@ ${
               errorCode: 'VIDEO_UNAVAILABLE',
               errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
               status: 'VIDEO_UNAVAILABLE',
-              strategySummary: "ios: private/removed"
+              strategySummary: "ios: private/removed",
+              discoveredMetadata
             };
           }
           if (playability?.status === 'OK') {
@@ -2779,38 +2919,39 @@ ${
           }
           const tracklist = iosJson.captions?.playerCaptionsTracklistRenderer || iosJson.playerCaptionsTracklistRenderer;
           iosTracks = tracklist?.captionTracks;
-        }
 
-        if (iosTracks && Array.isArray(iosTracks) && iosTracks.length > 0) {
-          const sessionCookie = iosRes.headers.get("set-cookie") || "";
-          const sessionHeaders: Record<string, string> = {
-            "User-Agent": iosHeaders["User-Agent"],
-            "Cookie": sessionCookie ? `${standardConsentCookie}; ${sessionCookie}` : standardConsentCookie
-          };
-          const sortedTracks = sortCaptionTracks(iosTracks).slice(0, 3);
-          if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
-            candidateTrackUrl = sortedTracks[0].baseUrl;
-          }
-          for (const track of sortedTracks) {
-            const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
-            if (lines && lines.length > 0) {
-              strategyLog.push(`ios: ok (${lines.length} lines)`);
-              return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
+          if (iosTracks && Array.isArray(iosTracks) && iosTracks.length > 0) {
+            const sessionCookie = iosRes.headers.get("set-cookie") || "";
+            const sessionHeaders: Record<string, string> = {
+              "User-Agent": iosHeaders["User-Agent"],
+              "Cookie": sessionCookie ? `${standardConsentCookie}; ${sessionCookie}` : standardConsentCookie
+            };
+            const sortedTracks = sortCaptionTracks(iosTracks).slice(0, 3);
+            if (sortedTracks.length > 0 && !candidateTrackUrl && sortedTracks[0].baseUrl) {
+              candidateTrackUrl = sortedTracks[0].baseUrl;
             }
+            for (const track of sortedTracks) {
+              const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
+              if (lines && lines.length > 0) {
+                strategyLog.push(`ios: ok (${lines.length} lines)`);
+                captionsBlockedUntil = 0;
+                return { lines, hasTracks: true, strategySummary: strategyLog.join("; "), discoveredMetadata };
+              }
+            }
+            strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks.length} tracks, fetch failed`);
+          } else if (iosPlayabilityOk && iosTracks && Array.isArray(iosTracks) && iosTracks.length === 0) {
+            youtubeReportedZeroTracks = true;
+            strategyLog.push(`ios: HTTP 200, status=OK, 0 tracks`);
+          } else {
+            strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks?.length || 0} tracks`);
           }
-          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks.length} tracks, fetch failed`);
-        } else if (iosPlayabilityOk && iosTracks && Array.isArray(iosTracks) && iosTracks.length === 0) {
-          youtubeReportedZeroTracks = true;
-          strategyLog.push(`ios: HTTP 200, status=OK, 0 tracks`);
-        } else {
-          strategyLog.push(`ios: HTTP ${step2Status}, ${iosTracks?.length || 0} tracks`);
         }
       } catch (l2Err: any) {
         strategyLog.push(`ios: error (${l2Err?.message || 'failed'})`);
       }
 
       // -------------------------------------------------------------
-      // STRATEGY 3: Web Watch-Page HTML Extraction
+      // STRATEGY 4: Web Watch-Page HTML Extraction
       // -------------------------------------------------------------
       let watchHtml = "";
       let watchCookie = "";
@@ -2819,7 +2960,7 @@ ${
       let webPlayabilityOk = false;
       const watchUserAgent = getRandomUserAgent();
       try {
-        console.log("[SubtitleFetcher] Strategy 3: Probing watch page HTML...");
+        console.log("[SubtitleFetcher] Strategy 4: Probing watch page HTML...");
         const probeRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
           headers: {
             "User-Agent": watchUserAgent,
@@ -2832,20 +2973,9 @@ ${
         watchHttpStatus = probeRes.status;
         if (watchHttpStatus === 429) {
           captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
-          console.warn("[SubtitleFetcher] Strategy 3 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
-          strategyLog.push("web: HTTP 429 (IP blocked)");
-          return {
-            lines: null,
-            hasTracks: false,
-            errorCode: "CAPTION_FETCH_FAILED",
-            errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
-            status: "CAPTION_FETCH_FAILED",
-            isThrottled: true,
-            captionStatus: "blocked",
-            strategySummary: strategyLog.join("; ")
-          };
-        }
-        if (probeRes.ok) {
+          console.warn("[SubtitleFetcher] Strategy 4 (HTML) received HTTP 429. Continuing to XML/Cloud fallbacks...");
+          strategyLog.push("web: HTTP 429 (throttled)");
+        } else if (probeRes.ok) {
           watchHtml = await probeRes.text();
           const setCookies = probeRes.headers.get("set-cookie") || "";
           watchCookie = setCookies ? `${standardConsentCookie}; ${setCookies}` : standardConsentCookie;
@@ -2857,6 +2987,7 @@ ${
       if (watchHtml) {
         const playerResponse = extractJsonBlock(watchHtml, "ytInitialPlayerResponse");
         if (playerResponse) {
+          captureDetails(playerResponse);
           const playability = playerResponse.playabilityStatus;
           if (playability?.status === 'LOGIN_REQUIRED' || playability?.reason?.toLowerCase().includes('private')) {
             return {
@@ -2865,7 +2996,8 @@ ${
               errorCode: 'VIDEO_UNAVAILABLE',
               errorDetails: 'This video is private, removed, or region-restricted by YouTube.',
               status: 'VIDEO_UNAVAILABLE',
-              strategySummary: "web: private"
+              strategySummary: "web: private",
+              discoveredMetadata
             };
           }
           if (playability?.status === 'OK') {
@@ -2876,6 +3008,7 @@ ${
 
         if (!webTracks) {
           const initialData = extractJsonBlock(watchHtml, "ytInitialData");
+          captureDetails(initialData?.playerResponse);
           webTracks = initialData?.playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks || null;
         }
 
@@ -2902,7 +3035,8 @@ ${
           const lines = await fetchCaptionTrackLines(track.baseUrl, sessionHeaders);
           if (lines && lines.length > 0) {
             strategyLog.push(`web: ok (${lines.length} lines)`);
-            return { lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
+            captionsBlockedUntil = 0;
+            return { lines, hasTracks: true, strategySummary: strategyLog.join("; "), discoveredMetadata };
           }
         }
         strategyLog.push(`web: HTTP ${watchHttpStatus}, ${webTracks.length} tracks, fetch failed`);
@@ -2911,28 +3045,18 @@ ${
       }
 
       // -------------------------------------------------------------
-      // STRATEGY 4: Direct XML Timedtext Fallback
+      // STRATEGY 5: Direct XML Timedtext Fallback
       // -------------------------------------------------------------
-      console.log("[SubtitleFetcher] Strategy 4: Running XML parser fallback...");
+      console.log("[SubtitleFetcher] Strategy 5: Running XML parser fallback...");
       const xmlResult = await fetchYoutubeSubtitlesFromXml(videoId);
       if (xmlResult.errorCode?.includes("429") || xmlResult.errorCode?.includes("THROTTLE")) {
         captionsBlockedUntil = Date.now() + 15 * 60 * 1000;
-        console.warn("[SubtitleFetcher] Strategy 4 received HTTP 429. Aborting remaining strategies immediately (15m cooldown).");
-        strategyLog.push("xml: HTTP 429 (IP blocked)");
-        return {
-          lines: null,
-          hasTracks: false,
-          errorCode: "CAPTION_FETCH_FAILED",
-          errorDetails: "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.",
-          status: "CAPTION_FETCH_FAILED",
-          isThrottled: true,
-          captionStatus: "blocked",
-          strategySummary: strategyLog.join("; ")
-        };
-      }
-      if (xmlResult.lines && xmlResult.lines.length > 0) {
+        console.warn("[SubtitleFetcher] Strategy 5 (XML) received HTTP 429. Continuing to open cloud proxy fallback...");
+        strategyLog.push("xml: HTTP 429 (throttled)");
+      } else if (xmlResult.lines && xmlResult.lines.length > 0) {
         strategyLog.push(`xml: ok (${xmlResult.lines.length} lines)`);
-        return { ...xmlResult, strategySummary: strategyLog.join("; ") };
+        captionsBlockedUntil = 0;
+        return { ...xmlResult, strategySummary: strategyLog.join("; "), discoveredMetadata };
       }
       if (!candidateTrackUrl && xmlResult.trackUrl) {
         candidateTrackUrl = xmlResult.trackUrl;
@@ -2940,26 +3064,27 @@ ${
       strategyLog.push(`xml: ${xmlResult.tracksCount || 0} tracks`);
 
       // -------------------------------------------------------------
-      // STRATEGY 5: Cloud Fallback Layer (Invidious / Piped / Open Proxies)
+      // STRATEGY 6: Cloud Fallback Layer (Invidious / Piped / Open Proxies)
       // -------------------------------------------------------------
-      console.log("[SubtitleFetcher] Strategy 5: Querying open transcript cloud fallback...");
+      console.log("[SubtitleFetcher] Strategy 6: Querying open transcript cloud fallback...");
       const cloudResult = await fetchCloudSubtitleFallback(videoId);
       if (cloudResult.lines && cloudResult.lines.length > 0) {
         strategyLog.push(`cloud: ok (${cloudResult.source})`);
-        return { lines: cloudResult.lines, hasTracks: true, strategySummary: strategyLog.join("; ") };
+        return { lines: cloudResult.lines, hasTracks: true, strategySummary: strategyLog.join("; "), discoveredMetadata };
       }
       strategyLog.push(`cloud: fail`);
 
       // -------------------------------------------------------------
       // CASCADE FAILURE DIAGNOSTIC COMPILATION
       // -------------------------------------------------------------
-      const totalTracksSeen = (webTracks?.length || 0) + (tracks?.length || 0) + (iosTracks?.length || 0) + (xmlResult.tracksCount || 0) + (cloudResult.hasTracks ? 1 : 0);
+      const totalTracksSeen = (webTracks?.length || 0) + (tracks?.length || 0) + (embedTracks?.length || 0) + (iosTracks?.length || 0) + (xmlResult.tracksCount || 0) + (cloudResult.hasTracks ? 1 : 0);
       let finalErrorCode = "CAPTION_FETCH_FAILED";
       let finalErrorDetails = "Couldn't fetch captions right now. Retry, or use AI audio transcription.";
       let finalStatus: string | undefined = undefined;
 
       const isThrottled = Boolean(
         step1Status === 429 || 
+        stepEmbedStatus === 429 ||
         step2Status === 429 || 
         watchHttpStatus === 429 || 
         xmlResult.errorCode?.includes("429") || 
@@ -2977,7 +3102,7 @@ ${
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = "YouTube rate limited or throttled server IP address (HTTP 429). Retry, or use AI audio transcription.";
         captionStatus = Date.now() < captionsBlockedUntil ? "skipped_cooldown" : "blocked";
-      } else if (step1Status === 403 || step2Status === 403 || watchHttpStatus === 403 || xmlResult.errorCode?.includes("403")) {
+      } else if (step1Status === 403 || stepEmbedStatus === 403 || step2Status === 403 || watchHttpStatus === 403 || xmlResult.errorCode?.includes("403")) {
         finalErrorCode = "CAPTION_FETCH_FAILED";
         finalErrorDetails = "YouTube rejected extractor requests with HTTP 403 Forbidden. Retry, or use AI audio transcription.";
         captionStatus = "blocked";
@@ -3007,7 +3132,8 @@ ${
         status: finalStatus,
         isThrottled,
         captionStatus,
-        strategySummary
+        strategySummary,
+        discoveredMetadata: discoveredMetadata || undefined
       };
     } catch (err: any) {
       console.error("[SubtitleFetcher] Error in fetchYoutubeSubtitles pipeline:", err);
@@ -3017,7 +3143,8 @@ ${
         errorCode: 'CAPTION_FETCH_FAILED',
         errorDetails: err.message || "Unknown pipeline exception",
         captionStatus: "error",
-        strategySummary: `pipeline error: ${err.message || 'unknown'}`
+        strategySummary: `pipeline error: ${err.message || 'unknown'}`,
+        discoveredMetadata: discoveredMetadata || undefined
       };
     }
   }
@@ -3025,8 +3152,8 @@ ${
   // Alias for compatibility
   const fetchYouTubeCaptions = fetchYoutubeSubtitles;
 
-  // Fetch YouTube video metadata with non-fatal fallbacks (Data API -> oEmbed -> Empty)
-  async function fetchYoutubeMetadataSafe(videoId: string, ytApiKey?: string): Promise<{
+  // Fetch YouTube video metadata with non-fatal fallbacks (Data API -> oEmbed -> noembed -> Public Video)
+  async function fetchYoutubeMetadataSafe(videoId: string, passedYtApiKey?: string): Promise<{
     title: string;
     author: string;
     views: string;
@@ -3037,6 +3164,7 @@ ${
     tags: string[];
     isPrivateOrRemoved?: boolean;
   }> {
+    const ytApiKey = passedYtApiKey || process.env.YOUTUBE_DATA_API_KEY || process.env.YOUTUBE_API_KEY || process.env.VITE_YOUTUBE_API_KEY;
     if (ytApiKey) {
       try {
         const ytResponse = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics&id=${videoId}&key=${ytApiKey}`, {
@@ -3050,8 +3178,8 @@ ${
               isPrivateOrRemoved: true,
               title: "Private or Restricted Video",
               author: "YouTube Creator",
-              views: "",
-              duration: "",
+              views: "Public Video",
+              duration: "Video",
               description: "",
               categoryId: "",
               tags: []
@@ -3064,33 +3192,33 @@ ${
           const durationStr = parseIso8601Duration(contentDetails?.duration);
           const lengthSeconds = getDurationSeconds(contentDetails?.duration || durationStr);
           const viewCount = parseInt(stats?.viewCount || "0", 10);
-          let viewsStr = viewCount.toLocaleString();
+          let viewsStr = "Public Video";
           if (viewCount >= 1000000) {
             viewsStr = `${(viewCount / 1000000).toFixed(1)}M views`;
           } else if (viewCount >= 1000) {
             viewsStr = `${(viewCount / 1000).toFixed(0)}K views`;
-          } else {
-            viewsStr = `${viewCount} views`;
+          } else if (viewCount > 0) {
+            viewsStr = `${viewCount.toLocaleString()} views`;
           }
           return {
             title: snippet.title || "Untitled video",
             author: snippet.channelTitle || "YouTube Creator",
             views: viewsStr,
-            duration: durationStr,
+            duration: durationStr || (lengthSeconds ? `${Math.floor(lengthSeconds / 60)}:${(lengthSeconds % 60).toString().padStart(2, '0')}m` : "Video"),
             lengthSeconds,
             description: snippet.description || "",
             categoryId: snippet.categoryId || "",
             tags: snippet.tags || []
           };
         } else {
-          console.warn(`[fetch-script] YouTube Data API returned status ${ytResponse.status}, falling back to oEmbed`);
+          console.warn(`[fetch-script] YouTube Data API returned status ${ytResponse.status}, falling back to oEmbed / noembed`);
         }
       } catch (err: any) {
-        console.warn(`[fetch-script] YouTube Data API metadata fetch failed (${err.message || err}), falling back to oEmbed`);
+        console.warn(`[fetch-script] YouTube Data API metadata fetch failed (${err.message || err}), falling back to oEmbed / noembed`);
       }
     }
 
-    // Fallback to oEmbed (3s budget)
+    // Fallback 1: YouTube oEmbed (3s budget)
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
       const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(3000) });
@@ -3099,23 +3227,43 @@ ${
         return {
           title: oembedData.title || "Untitled video",
           author: oembedData.author_name || "YouTube Creator",
-          views: "",
-          duration: "",
+          views: "Public Video",
+          duration: "Video",
           description: "",
           categoryId: "",
           tags: []
         };
       }
     } catch (oembedErr: any) {
-      console.warn(`[fetch-script] YouTube oEmbed metadata fetch failed (${oembedErr.message || oembedErr}), using empty metadata`);
+      console.warn(`[fetch-script] YouTube oEmbed metadata fetch failed (${oembedErr.message || oembedErr}), trying noembed.com`);
     }
 
-    // Ultimate fallback: empty metadata
+    // Fallback 2: noembed.com (3s budget)
+    try {
+      const noembedUrl = `https://noembed.com/embed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}`;
+      const noembedRes = await fetch(noembedUrl, { signal: AbortSignal.timeout(3000) });
+      if (noembedRes.ok) {
+        const noembedData = await noembedRes.json() as any;
+        return {
+          title: noembedData.title || "Untitled video",
+          author: noembedData.author_name || "YouTube Creator",
+          views: "Public Video",
+          duration: "Video",
+          description: "",
+          categoryId: "",
+          tags: []
+        };
+      }
+    } catch (noembedErr: any) {
+      console.warn(`[fetch-script] noembed metadata fetch failed (${noembedErr.message || noembedErr}), using empty metadata`);
+    }
+
+    // Ultimate fallback: non-empty default metadata so UI never displays "-"
     return {
       title: "Untitled video",
       author: "YouTube Creator",
-      views: "",
-      duration: "",
+      views: "Public Video",
+      duration: "Video",
       description: "",
       categoryId: "",
       tags: []
@@ -3127,11 +3275,19 @@ ${
     hasTracks: boolean; 
     errorCode?: string; 
     errorDetails?: string; 
-    clientDelegationUrl?: string;
-    status?: string;
-    strategySummary?: string;
-    isThrottled?: boolean;
-    captionStatus?: "none" | "blocked" | "skipped_cooldown" | "error";
+    clientDelegationUrl?: string; 
+    status?: string; 
+    strategySummary?: string; 
+    isThrottled?: boolean; 
+    captionStatus?: "none" | "blocked" | "skipped_cooldown" | "error"; 
+    discoveredMetadata?: {
+      title?: string;
+      author?: string;
+      lengthSeconds?: number;
+      duration?: string;
+      views?: string;
+      description?: string;
+    } | null;
   }> {
     let timer: NodeJS.Timeout;
     const timeoutPromise = new Promise<{
@@ -3291,15 +3447,44 @@ ${
 
         const metadata = metaSettled.status === "fulfilled"
           ? metaSettled.value
-          : { title: "Untitled video", author: "YouTube Creator", views: "", duration: "", description: "", categoryId: "", tags: [] };
-        metaOk = metaSettled.status === "fulfilled" && metadata.title !== "Untitled video";
-
-        realTitle = metadata.title;
-        realAuthor = metadata.author;
+          : { title: "Untitled video", author: "YouTube Creator", views: "Public Video", duration: "Video", description: "", categoryId: "", tags: [] };
 
         subResult = captionsSettled.status === "fulfilled"
           ? captionsSettled.value
           : { lines: null, hasTracks: false };
+
+        // Enrich metadata with any details discovered by Innertube players during subtitle cascade
+        if (subResult?.discoveredMetadata) {
+          const dm = subResult.discoveredMetadata;
+          if ((!metadata.title || metadata.title === "Untitled video") && dm.title) {
+            metadata.title = dm.title;
+          }
+          if ((!metadata.author || metadata.author === "YouTube Creator") && dm.author) {
+            metadata.author = dm.author;
+          }
+          if ((!metadata.views || metadata.views === "" || metadata.views === "-" || metadata.views === "Public Video") && dm.views) {
+            metadata.views = dm.views;
+          }
+          if ((!metadata.duration || metadata.duration === "" || metadata.duration === "-" || metadata.duration === "Video") && dm.duration) {
+            metadata.duration = dm.duration;
+          }
+          if (!metadata.lengthSeconds && dm.lengthSeconds) {
+            metadata.lengthSeconds = dm.lengthSeconds;
+          }
+        }
+
+        if (!metadata.views || metadata.views === "" || metadata.views === "-") {
+          metadata.views = "Public Video";
+        }
+        if (!metadata.duration || metadata.duration === "" || metadata.duration === "-") {
+          metadata.duration = metadata.lengthSeconds 
+            ? `${Math.floor(metadata.lengthSeconds / 60)}:${(metadata.lengthSeconds % 60).toString().padStart(2, '0')}m`
+            : "Video";
+        }
+
+        metaOk = metaSettled.status === "fulfilled" && metadata.title !== "Untitled video";
+        realTitle = metadata.title;
+        realAuthor = metadata.author;
         captionsOk = Boolean(subResult && subResult.lines && subResult.lines.length > 0);
 
         scrapedData = {
@@ -3307,6 +3492,7 @@ ${
           author: metadata.author,
           views: metadata.views,
           duration: metadata.duration,
+          lengthSeconds: metadata.lengthSeconds,
           description: metadata.description,
           categoryId: metadata.categoryId,
           tags: metadata.tags,
@@ -3353,12 +3539,17 @@ ${
                 isCaptionsThrottled,
                 canRetryCaptions: isCaptionsThrottled,
                 title: realTitle,
-                author: realAuthor
+                author: realAuthor,
+                duration: metadata.duration,
+                views: metadata.views,
+                lengthSeconds: durationSec
               });
             }
           }
 
-          const isClipped = durationSec > 600;
+          const isCustomKey = Boolean(req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]);
+          const isPartialLongVideo = !isCustomKey && durationSec > 300;
+          const isClipped = isPartialLongVideo || durationSec > 600;
 
           // Strategy 1: Native YouTube Video Input
           try {
@@ -3366,18 +3557,23 @@ ${
               apiKey: apiKey,
               httpOptions: { headers: { "User-Agent": "aistudio-build" } }
             });
+            const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
             const videoPart: any = {
               fileData: {
-                fileUri: `https://www.youtube.com/watch?v=${videoId}`,
-                mimeType: "video/*"
+                fileUri: canonicalUrl,
+                mimeType: "video/mp4"
               }
             };
-            if (isClipped) {
+            if (isPartialLongVideo) {
+              videoPart.videoMetadata = { startOffset: "0s", endOffset: "240s" };
+            } else if (isClipped) {
               videoPart.videoMetadata = { startOffset: "0s", endOffset: "600s" };
             }
-            const promptText = isClipped
-              ? `The clip ends at 10:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`
-              : `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`;
+            const promptText = isPartialLongVideo
+              ? `The clip ends at 4:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`
+              : (isClipped
+                ? `The clip ends at 10:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`
+                : `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown code blocks or explanations.`);
             const promptPart = { text: promptText };
 
             const nativeRes = await generateContentWithCascade(aiGen, {
@@ -3397,14 +3593,18 @@ ${
               console.warn(`[fetch-script] Native video transcription reached MAX_TOKENS for ${videoId}; recovering complete parsed items.`);
             }
             fallbackLines = parseDialogueLines(nativeRes.text || "");
-            if (isClipped && fallbackLines.length > 0) {
+            if (isPartialLongVideo && fallbackLines.length > 0) {
+              fallbackLines = fallbackLines.filter((l: any) => typeof l.start === "number" && l.start <= 240);
+            } else if (isClipped && fallbackLines.length > 0) {
               fallbackLines = fallbackLines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
             }
             if (fallbackLines.length > 0) {
               scrapedData.transcriptionMethod = "NATIVE_VIDEO_INPUT";
               scrapedData.isClipped = isClipped;
+              scrapedData.partialLongVideo = isPartialLongVideo;
+              scrapedData.transcribedWindow = isPartialLongVideo ? "0:00 - 4:00" : undefined;
               req.consumeMultimodalQuota?.(videoId);
-              console.log(`[fetch-script] Native YouTube video input successfully transcribed ${fallbackLines.length} spoken dialogue lines! (isClipped: ${isClipped})`);
+              console.log(`[fetch-script] Native YouTube video input successfully transcribed ${fallbackLines.length} spoken dialogue lines! (isClipped: ${isClipped}, partialLongVideo: ${isPartialLongVideo})`);
             }
           } catch (nativeErr: any) {
             console.warn(`[fetch-script] Native YouTube video input failed for video ${videoId} (${Date.now() - fallbackStart}ms):`, nativeErr?.message || nativeErr);
@@ -3685,6 +3885,8 @@ Return exactly this JSON schema:
           parsedData.hasTranscript = true;
           parsedData.isAiGenerated = !!scrapedData.isAiGenerated;
           parsedData.isClipped = Boolean(scrapedData.isClipped);
+          parsedData.partialLongVideo = Boolean(scrapedData.partialLongVideo);
+          parsedData.transcribedWindow = scrapedData.transcribedWindow || (scrapedData.partialLongVideo ? "0:00 - 4:00" : null);
           parsedData.transcriptionMethod = scrapedData.transcriptionMethod || (scrapedData.isAiGenerated ? 'NATIVE_VIDEO_INPUT' : 'OFFICIAL_CAPTIONS');
           parsedData.warningLabel = scrapedData.warningLabel || null;
           parsedData.transcriptErrorCode = null;
@@ -3713,6 +3915,12 @@ Return exactly this JSON schema:
       }
 
       if (parsedData) {
+        if (scrapedData) {
+          parsedData.duration = scrapedData.duration || parsedData.duration || "Video";
+          parsedData.views = scrapedData.views || parsedData.views || "Public Video";
+          parsedData.partialLongVideo = Boolean(scrapedData.partialLongVideo);
+          parsedData.transcribedWindow = scrapedData.transcribedWindow || (scrapedData.partialLongVideo ? "0:00 - 4:00" : null);
+        }
         const finalHookText = (
           parsedData.hookAnalysis?.hookText || 
           parsedData.hookText || 
@@ -3742,6 +3950,8 @@ Return exactly this JSON schema:
           method: parsedData.transcriptionMethod || (parsedData.isAiGenerated ? "NATIVE_VIDEO_INPUT" : "OFFICIAL_CAPTIONS"),
           isClipped: Boolean(parsedData.isClipped),
           isAiGenerated: Boolean(parsedData.isAiGenerated),
+          partialLongVideo: Boolean(parsedData.partialLongVideo),
+          transcribedWindow: parsedData.transcribedWindow,
           title: parsedData.title || realTitle || "YouTube Video",
           author: parsedData.author || realAuthor || "Creator",
           fullTranscript: parsedData.fullTranscript,
@@ -4411,29 +4621,37 @@ When analyzing how this exact sequence unfolds, we find that the leading example
         }
       }
 
-      if (durationSec > 600) {
-        isClipped = true;
-      }
+      const isCustomKey = Boolean(req.usingCustomKey || req.customApiKey || req.headers["x-custom-gemini-key"]);
+      const isPartialLongVideo = !isCustomKey && durationSec > 300;
+      isClipped = isPartialLongVideo || durationSec > 600;
 
       // 1. PRIMARY STRATEGY: Gemini Native YouTube Video Input
       try {
-        console.log(`[/api/transcribe-audio] [Strategy 1] Attempting native YouTube video input for ${videoId} (isClipped: ${isClipped})...`);
+        console.log(`[/api/transcribe-audio] [Strategy 1] Attempting native YouTube video input for ${videoId} (isClipped: ${isClipped}, partialLongVideo: ${isPartialLongVideo})...`);
+        const canonicalUrl = `https://www.youtube.com/watch?v=${videoId}`;
         const videoPart: any = {
           fileData: {
-            fileUri: `https://www.youtube.com/watch?v=${videoId}`,
-            mimeType: "video/*"
+            fileUri: canonicalUrl,
+            mimeType: "video/mp4"
           }
         };
-        if (isClipped) {
+        if (isPartialLongVideo) {
+          videoPart.videoMetadata = {
+            startOffset: "0s",
+            endOffset: "240s"
+          };
+        } else if (isClipped) {
           videoPart.videoMetadata = {
             startOffset: "0s",
             endOffset: "600s"
           };
         }
 
-        const promptText = isClipped
-          ? `The clip ends at 10:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`
-          : `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`;
+        const promptText = isPartialLongVideo
+          ? `The clip ends at 4:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`
+          : (isClipped
+            ? `The clip ends at 10:00. Transcribe only what is spoken in this clip. Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`
+            : `Transcribe the spoken words of this video verbatim with start timestamps in seconds. Return ONLY a valid JSON array of objects: [{"start":number,"text":string}]. If there is no speech, return []. Do not include markdown formatting or explanations.`);
         const promptPart = { text: promptText };
 
         const response = await generateContentWithCascade(ai, {
@@ -4460,11 +4678,13 @@ When analyzing how this exact sequence unfolds, we find that the leading example
 
         const responseText = response.text || "";
         lines = parseDialogueLines(responseText);
-        if (isClipped && lines.length > 0) {
+        if (isPartialLongVideo && lines.length > 0) {
+          lines = lines.filter((l: any) => typeof l.start === "number" && l.start <= 240);
+        } else if (isClipped && lines.length > 0) {
           lines = lines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
         }
         if (lines.length > 0) {
-          console.log(`[/api/transcribe-audio] [Strategy 1 Success] Native YouTube input transcribed ${lines.length} dialogue lines!`);
+          console.log(`[/api/transcribe-audio] [Strategy 1 Success] Native YouTube input transcribed ${lines.length} dialogue lines! (isClipped: ${isClipped}, partialLongVideo: ${isPartialLongVideo})`);
           transcriptionMethod = "NATIVE_VIDEO_INPUT";
         } else {
           console.log(`[/api/transcribe-audio] [Strategy 1] Native YouTube input returned 0 lines or empty array. Response snippet: ${responseText.slice(0, 150)}`);
@@ -4518,7 +4738,9 @@ Return ONLY a valid JSON array of dialogue objects:
         }
       }
 
-      if (isClipped && lines.length > 0) {
+      if (isPartialLongVideo && lines.length > 0) {
+        lines = lines.filter((l: any) => typeof l.start === "number" && l.start <= 240);
+      } else if (isClipped && lines.length > 0) {
         lines = lines.filter((l: any) => typeof l.start === "number" && l.start <= 600);
       }
 
@@ -4539,6 +4761,8 @@ Return ONLY a valid JSON array of dialogue objects:
             method: transcriptionMethod,
             isClipped,
             isAiGenerated: true,
+            partialLongVideo: isPartialLongVideo,
+            transcribedWindow: isPartialLongVideo ? "0:00 - 4:00" : undefined,
             title: title || "YouTube Video",
             author: author || "Creator",
             fullTranscript,
@@ -4560,6 +4784,8 @@ Return ONLY a valid JSON array of dialogue objects:
           transcriptionMethod,
           warningLabel,
           isClipped,
+          partialLongVideo: isPartialLongVideo,
+          transcribedWindow: isPartialLongVideo ? "0:00 - 4:00" : null,
           transcript: lines,
           fullTranscript,
           hookText: hookText || "Extracted spoken hook.",
